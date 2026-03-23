@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { unipile } from "../lib/api";
+import { campaigns as campaignsApi, unipile } from "../lib/api";
 import "./LeadFinder.css";
 
 const INDUSTRIES = [
@@ -87,6 +87,12 @@ export default function LeadFinder() {
   const [engagersSearched, setEngagersSearched] = useState(false);
   const [engagersError, setEngagersError] = useState("");
 
+  // ── Campaign picker state ─────────────────────────────────────
+  const [campaignList, setCampaignList] = useState([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingLeads, setPendingLeads] = useState([]);
+  const [addingToCampaign, setAddingToCampaign] = useState(null); // campaignId being added to
+
   // Load connected LinkedIn accounts
   useEffect(() => {
     unipile
@@ -98,6 +104,29 @@ export default function LeadFinder() {
       })
       .catch(() => {});
   }, []);
+
+  // Load campaigns for the picker
+  useEffect(() => {
+    campaignsApi.list()
+      .then(data => setCampaignList(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
+
+  function openCampaignPicker(leads) {
+    setPendingLeads(leads)
+    setPickerOpen(true)
+  }
+
+  async function addToCampaign(campaignId) {
+    setAddingToCampaign(campaignId)
+    try {
+      await campaignsApi.importLeads(campaignId, { leads: pendingLeads })
+      setPickerOpen(false)
+      setPendingLeads([])
+      setSelected([])
+    } catch {}
+    setAddingToCampaign(null)
+  }
 
   // ── Filters mode ─────────────────────────────────────────────
   const toggleSize = (s) =>
@@ -554,7 +583,10 @@ export default function LeadFinder() {
                 <span style={{ fontWeight: 700, fontSize: 15 }}>
                   Profile found
                 </span>
-                <button className="btn btn-primary btn-sm">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => openCampaignPicker([profileResult])}
+                >
                   Add to Campaign
                 </button>
               </div>
@@ -766,6 +798,7 @@ export default function LeadFinder() {
                   <button
                     className="btn btn-primary btn-sm"
                     disabled={selected.length === 0}
+                    onClick={() => openCampaignPicker(tableRows.filter(r => selected.includes(r.id)))}
                   >
                     Add to Campaign ({selected.length})
                   </button>
@@ -814,6 +847,46 @@ export default function LeadFinder() {
             </>
           ))}
       </div>
+
+      {/* Campaign picker modal */}
+      {pickerOpen && (
+        <div
+          className="modal-overlay"
+          onClick={e => e.target === e.currentTarget && setPickerOpen(false)}
+        >
+          <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Add to Campaign</h2>
+              <button className="btn btn-icon btn-ghost" onClick={() => setPickerOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
+                Adding {pendingLeads.length} lead{pendingLeads.length !== 1 ? 's' : ''} — choose a campaign:
+              </p>
+              {campaignList.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No campaigns found. Create one first.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {campaignList.map(c => (
+                    <button
+                      key={c.id}
+                      className="btn btn-secondary"
+                      style={{ justifyContent: 'space-between', textAlign: 'left' }}
+                      disabled={addingToCampaign === c.id}
+                      onClick={() => addToCampaign(c.id)}
+                    >
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        {addingToCampaign === c.id ? 'Adding…' : (c.status === 'active' ? '● Active' : 'Paused')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

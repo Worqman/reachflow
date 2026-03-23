@@ -9,10 +9,22 @@ const STATUS_META = {
 }
 
 function chatToConversation(chat) {
-  const prospect = chat.attendees?.find(a => !a.is_me)
-  const name = prospect?.name || 'Unknown'
-  const company = prospect?.headline || ''
-  const preview = chat.last_message?.text || ''
+  // Unipile attendees can be under `attendees` or `account_attendees`
+  const attendeeList = chat.attendees || chat.account_attendees || []
+  const prospect = attendeeList.find(a => !a.is_me) || attendeeList[0]
+
+  // Resolve name from multiple possible field shapes
+  const name =
+    prospect?.name ||
+    prospect?.full_name ||
+    [prospect?.first_name, prospect?.last_name].filter(Boolean).join(' ') ||
+    null
+
+  // Drop chats where we can't identify the other person
+  if (!name) return null
+
+  const company = prospect?.headline || prospect?.job_title || ''
+  const preview = chat.last_message?.text || chat.last_message?.content || ''
   const time = chat.last_message?.created_at
     ? formatRelativeTime(chat.last_message.created_at)
     : ''
@@ -55,25 +67,53 @@ export default function Inbox() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [accounts, setAccounts] = useState([])
+  const [accountId, setAccountId] = useState(null)
   const messagesEndRef = useRef(null)
 
-  // Load chats on mount
+  // Load accounts first, then fetch chats for the first account
   useEffect(() => {
-    async function loadChats() {
+    async function init() {
       setLoading(true)
       setError('')
       try {
-        const data = await unipile.getChats()
+        const accData = await unipile.getAccounts()
+        const accs = accData?.items || []
+        setAccounts(accs)
+        const firstId = accs[0]?.id || null
+        setAccountId(firstId)
+        if (!firstId) {
+          setError('No LinkedIn account connected. Go to Settings → Workspace.')
+          return
+        }
+        const data = await unipile.getChats(firstId)
         const items = data?.items || []
-        setConversations(items.map(chatToConversation))
+        setConversations(items.map(chatToConversation).filter(Boolean))
       } catch (err) {
         setError(err.message || 'Failed to load conversations')
       } finally {
         setLoading(false)
       }
     }
-    loadChats()
+    init()
   }, [])
+
+  // Reload chats when account selector changes
+  async function loadChatsForAccount(id) {
+    setAccountId(id)
+    setLoading(true)
+    setError('')
+    setActive(null)
+    try {
+      const data = await unipile.getChats(id)
+      const items = data?.items || []
+      setConversations(items.map(chatToConversation).filter(Boolean))
+    } catch (err) {
+      setError(err.message || 'Failed to load conversations')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Load messages when active conversation changes
   useEffect(() => {
@@ -138,6 +178,20 @@ export default function Inbox() {
             <span className="badge badge-warning">{needsReview} need review</span>
           )}
         </div>
+        {accounts.length > 1 && (
+          <div style={{ padding: '0 12px 8px' }}>
+            <select
+              className="input"
+              style={{ fontSize: 12, padding: '4px 8px', height: 'auto', cursor: 'pointer' }}
+              value={accountId || ''}
+              onChange={e => loadChatsForAccount(e.target.value)}
+            >
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name || a.username || a.id}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="inbox-filters">
           {['all', 'ai', 'review', 'booked'].map(f => (
             <button

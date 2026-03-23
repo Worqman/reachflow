@@ -1,0 +1,61 @@
+.settings-layout { max-width: 1200px; }
+
+.settings-body {
+  display: flex;
+  gap: 32px;
+}
+
+.settings-nav {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.settings-nav-item:hover { background: var(--surface-2); color: var(--text-secondary); }
+.settings-nav-item.active { background: var(--signal-subtle); color: var(--signal); }
+
+.settings-content { flex: 1; min-width: 0; }
+
+.settings-section { display: flex; flex-direction: column; gap: 20px; }
+
+.settings-section-title { font-size: 18px; font-weight: 700; }
+
+.settings-section-desc { font-size: 13px; color: var(--text-muted); margin-top: -12px; }
+
+.integration-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+}
+
+.integration-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--signal);
+  flex-shrink: 0;
+}

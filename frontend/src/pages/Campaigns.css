@@ -1,0 +1,21 @@
+.campaigns-stats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 32px;
+  margin-bottom: 20px;
+}
+
+.cstat { flex: 1; text-align: center; }
+.cstat .stat-value { font-size: 28px; }
+
+.cstat-divider {
+  width: 1px;
+  height: 40px;
+  background: var(--border);
+}
+
+.campaign-row { cursor: pointer; }

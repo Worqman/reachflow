@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:developer.unipile.com)"
+      "WebFetch(domain:developer.unipile.com)",
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1/backend/migrations -type f -name *.sql -o -name *.js)",
+      "Bash(curl -s http://localhost:3001/api/unipile/accounts)",
+      "Bash(curl -s http://localhost:3001/api/agents)"
     ]
   }
 }

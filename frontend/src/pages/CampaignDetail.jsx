@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
+import ProfileUrlModal from "../components/ProfileUrlModal";
+import PostEngagersModal from "../components/PostEngagersModal";
+import Modal from "../components/Modal";
 import {
   campaigns as campaignsApi,
   agents as agentsApi,
+  leads as leadsApi,
   unipile,
 } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -115,12 +119,12 @@ const IMPORT_SOURCES = [
 ];
 
 const STATUS_COLORS = {
-  Accepted: "badge-signal",
-  accepted: "badge-signal",
-  Pending: "badge-muted",
-  pending: "badge-muted",
-  Rejected: "badge-danger",
-  rejected: "badge-danger",
+  pending:   "badge-muted",
+  invited:   "badge-warning",
+  connected: "badge-signal",
+  replied:   "badge-info",
+  booked:    "badge-signal",
+  rejected:  "badge-danger",
 };
 
 const PERSONA_FIELDS = [
@@ -172,6 +176,90 @@ export default function CampaignDetail() {
   const [tab, setTab] = useState("leads");
   const [showImport, setShowImport] = useState(false);
   const [lfOpen, setLfOpen] = useState(false);
+  const [profileUrlOpen, setProfileUrlOpen] = useState(false);
+  const [postEngagersOpen, setPostEngagersOpen] = useState(false);
+  const [sendingInvites, setSendingInvites] = useState(false);
+  const [sendingMessageFor, setSendingMessageFor] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleSendInvites() {
+    setSendingInvites(true);
+    try {
+      const result = await campaignsApi.sendInvites(id);
+      if (result.message === 'No pending leads') {
+        toast?.('No pending leads to send invites to', 'danger');
+      } else if (result.sent === 0 && result.total > 0) {
+        const firstError = result.results?.find(r => !r.ok)?.error || 'Unknown error';
+        toast?.(`All invites failed: ${firstError}`, 'danger');
+        console.error('[send-invites] failures:', result.results);
+      } else {
+        toast?.(`Sent ${result.sent} of ${result.total} connection request${result.total !== 1 ? 's' : ''}`, 'success');
+        refreshLeads();
+      }
+    } catch (err) {
+      toast?.(err.message || 'Failed to send invites', 'danger');
+    } finally {
+      setSendingInvites(false);
+    }
+  }
+
+  async function syncStatuses(silent = false) {
+    if (!silent) setSyncing(true);
+    try {
+      const result = await campaignsApi.syncStatuses(id);
+      if (result.connected > 0) {
+        toast?.(`${result.connected} new connection${result.connected !== 1 ? 's' : ''} detected — messages sent`, 'success');
+        refreshLeads();
+      } else if (!silent) {
+        toast?.('No new connections found', 'success');
+      }
+    } catch (err) {
+      if (!silent) toast?.(err.message || 'Sync failed', 'danger');
+    } finally {
+      if (!silent) setSyncing(false);
+    }
+  }
+
+  // Auto-poll every 30s when on leads tab — sync connections + messages
+  useEffect(() => {
+    if (tab !== 'leads') return;
+    const hasInvited  = leads.some(l => l.status === 'invited');
+    const hasActive   = leads.some(l => ['connected', 'replied'].includes(l.status));
+    if (!hasInvited && !hasActive) return;
+
+    const interval = setInterval(async () => {
+      if (hasInvited) syncStatuses(true);
+      if (hasActive) {
+        try {
+          const result = await campaignsApi.syncMessages(id);
+          if (result.processed > 0) refreshLeads();
+        } catch { /* silent */ }
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [tab, leads, id]);
+
+  async function handleDeleteLead(leadId) {
+    try {
+      await campaignsApi.deleteLead(id, leadId);
+      refreshLeads();
+    } catch (err) {
+      toast?.(err.message || 'Failed to delete lead', 'danger');
+    }
+  }
+
+  async function handleSendLeadMessage(leadId) {
+    setSendingMessageFor(leadId);
+    try {
+      await campaignsApi.sendLeadMessage(id, leadId);
+      toast?.('AI opening message sent', 'success');
+      refreshLeads();
+    } catch (err) {
+      toast?.(err.message || 'Failed to send message', 'danger');
+    } finally {
+      setSendingMessageFor(null);
+    }
+  }
 
   async function refreshLeads() {
     try {
@@ -191,12 +279,18 @@ export default function CampaignDetail() {
           unipile.getAccounts(),
         ]);
         if (camp.status === "fulfilled") setCampaign(camp.value);
-        if (campLeads.status === "fulfilled")
-          setLeads(Array.isArray(campLeads.value) ? campLeads.value : []);
+        const loadedLeads = campLeads.status === "fulfilled"
+          ? (Array.isArray(campLeads.value) ? campLeads.value : [])
+          : [];
+        setLeads(loadedLeads);
         if (agentList.status === "fulfilled")
           setAgents(Array.isArray(agentList.value) ? agentList.value : []);
         if (accs.status === "fulfilled")
           setLinkedinAccounts(accs.value?.items || []);
+
+        // Auto-sync on load if any leads are in 'invited' state
+        const hasInvited = loadedLeads.some(l => l.status === 'invited');
+        if (hasInvited) syncStatuses(true);
       } finally {
         setLoading(false);
       }
@@ -266,7 +360,7 @@ export default function CampaignDetail() {
           <span
             className={`badge ${campaign.status === "active" ? "badge-signal" : "badge-muted"}`}
           >
-            {campaign.status || "draft"}
+            {campaign.status === "active" ? "active" : "paused"}
           </span>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -279,17 +373,10 @@ export default function CampaignDetail() {
             </span>
           )}
           <button
-            className={`btn btn-secondary btn-sm`}
+            className={`btn ${campaign.status === "active" ? "btn-secondary" : "btn-primary"} btn-sm`}
             onClick={handleToggleStatus}
           >
-            {campaign.status === "active" ? "⏸ Pause" : "▶ Resume"}
-          </button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={handleToggleStatus}
-            disabled={campaign.status === "active"}
-          >
-            ▶ Run it!
+            {campaign.status === "active" ? "⏸ Pause" : "▶ Run"}
           </button>
         </div>
       </div>
@@ -314,15 +401,43 @@ export default function CampaignDetail() {
         campaignId={id}
       />
 
+      <ProfileUrlModal
+        open={profileUrlOpen}
+        onClose={() => setProfileUrlOpen(false)}
+        onImport={refreshLeads}
+        campaignId={id}
+      />
+
+      <PostEngagersModal
+        open={postEngagersOpen}
+        onClose={() => setPostEngagersOpen(false)}
+        onImport={refreshLeads}
+        campaignId={id}
+      />
+
       {/* Tab content */}
       <div className="detail-content">
         {tab === "leads" && (
           <LeadsTab
+            campaignId={id}
             leads={leads}
             onImport={() => setShowImport(true)}
             showImport={showImport}
             onCloseImport={() => setShowImport(false)}
-            onOpenLeadFinder={() => { setShowImport(false); setLfOpen(true) }}
+            onOpenLeadFinder={(which = "finder") => {
+              setShowImport(false);
+              if (which === "url") setProfileUrlOpen(true);
+              else if (which === "post") setPostEngagersOpen(true);
+              else setLfOpen(true);
+            }}
+            onSendInvites={handleSendInvites}
+            sendingInvites={sendingInvites}
+            onSendMessage={handleSendLeadMessage}
+            sendingMessageFor={sendingMessageFor}
+            onDeleteLead={handleDeleteLead}
+            onSync={() => syncStatuses(false)}
+            syncing={syncing}
+            onRefreshLeads={refreshLeads}
           />
         )}
         {tab === "builder" && (
@@ -360,8 +475,299 @@ export default function CampaignDetail() {
   );
 }
 
+// ── My Leads Picker Modal ────────────────────────────────────
+function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
+  const [list, setList] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState([])
+  const [importing, setImporting] = useState(false)
+
+  useEffect(() => {
+    if (!open) { setSelected([]); return }
+    setLoading(true)
+    leadsApi.list()
+      .then(data => setList(Array.isArray(data) ? data : []))
+      .catch(() => setList([]))
+      .finally(() => setLoading(false))
+  }, [open])
+
+  function toggle(id) {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  async function handleImport() {
+    const toAdd = list.filter(l => selected.includes(l.id))
+    if (!toAdd.length) return
+    setImporting(true)
+    try {
+      await campaignsApi.importLeads(campaignId, { leads: toAdd, source: 'list' })
+      onImported()
+      onClose()
+    } catch {}
+    setImporting(false)
+  }
+
+  if (!open) return null
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box animate-fade-in" style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Add from My Leads</h2>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>Loading saved leads…</div>
+          ) : list.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>
+              No saved leads yet. Use Lead Finder → Save to List first.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{list.length} saved leads</span>
+                <button className="btn btn-ghost btn-sm" onClick={() =>
+                  setSelected(selected.length === list.length ? [] : list.map(l => l.id))
+                }>
+                  {selected.length === list.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              {list.map(lead => (
+                <div
+                  key={lead.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                    background: 'var(--surface)', cursor: 'pointer',
+                    border: `1px solid ${selected.includes(lead.id) ? 'var(--signal)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius)',
+                  }}
+                  onClick={() => toggle(lead.id)}
+                >
+                  <input type="checkbox" checked={selected.includes(lead.id)} onChange={() => toggle(lead.id)} onClick={e => e.stopPropagation()} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{lead.name || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {lead.title}{lead.company ? ` · ${lead.company}` : ''}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            disabled={selected.length === 0 || importing}
+            onClick={handleImport}
+          >
+            {importing ? 'Adding…' : `Add ${selected.length > 0 ? selected.length : ''} to Campaign`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── CSV Import Modal ─────────────────────────────────────────
+function parseCsv(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
+  if (lines.length < 2) return []
+
+  function splitRow(row) {
+    const cells = []
+    let cur = '', inQ = false
+    for (let i = 0; i < row.length; i++) {
+      const ch = row[i]
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    cells.push(cur.trim())
+    return cells
+  }
+
+  const headers = splitRow(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''))
+
+  // Map common CSV column names to lead fields
+  function pickCol(candidates) {
+    for (const c of candidates) {
+      const idx = headers.findIndex(h => h === c || h.includes(c))
+      if (idx !== -1) return idx
+    }
+    return -1
+  }
+
+  const nameIdx      = pickCol(['name', 'full_name', 'fullname', 'contact_name', 'first_name'])
+  const firstIdx     = pickCol(['first_name', 'firstname', 'first'])
+  const lastIdx      = pickCol(['last_name', 'lastname', 'last', 'surname'])
+  const titleIdx     = pickCol(['title', 'job_title', 'jobtitle', 'position', 'role', 'headline'])
+  const companyIdx   = pickCol(['company', 'company_name', 'organization', 'employer'])
+  const locationIdx  = pickCol(['location', 'city', 'country', 'region', 'geo'])
+  const linkedinIdx  = pickCol(['linkedin', 'linkedin_url', 'linkedinurl', 'profile_url', 'linkedin_profile'])
+
+  const rows = []
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitRow(lines[i])
+    if (cells.every(c => !c)) continue
+
+    const get = idx => (idx !== -1 && cells[idx]) ? cells[idx].replace(/^"|"$/g, '').trim() : ''
+
+    let name = get(nameIdx)
+    if (!name && (firstIdx !== -1 || lastIdx !== -1)) {
+      name = [get(firstIdx), get(lastIdx)].filter(Boolean).join(' ').trim()
+    }
+    if (!name) name = `Row ${i}`
+
+    rows.push({
+      id: `csv_${i}`,
+      name,
+      title:      get(titleIdx),
+      company:    get(companyIdx),
+      location:   get(locationIdx),
+      linkedinUrl: get(linkedinIdx),
+      status:     'Not contacted',
+    })
+  }
+  return rows
+}
+
+function CsvImportModal({ open, onClose, campaignId, onImported }) {
+  const [rows, setRows]         = useState([])
+  const [error, setError]       = useState('')
+  const [importing, setImporting] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const fileRef = React.useRef()
+
+  function reset() { setRows([]); setError(''); setFileName('') }
+  useEffect(() => { if (!open) reset() }, [open])
+
+  function handleFile(file) {
+    if (!file) return
+    setFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        const parsed = parseCsv(e.target.result)
+        if (!parsed.length) { setError('No valid rows found. Make sure the CSV has a header row.'); setRows([]) }
+        else { setRows(parsed); setError('') }
+      } catch { setError('Could not parse CSV.') }
+    }
+    reader.readAsText(file)
+  }
+
+  async function handleImport() {
+    if (!rows.length) return
+    setImporting(true)
+    try {
+      await campaignsApi.importLeads(campaignId, { leads: rows, source: 'csv' })
+      onImported()
+      onClose()
+    } catch (e) { setError(e.message || 'Import failed') }
+    setImporting(false)
+  }
+
+  if (!open) return null
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box animate-fade-in" style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">⬆ Import from CSV</h2>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            Upload a CSV with columns like <strong>name</strong>, <strong>linkedin_url</strong>, <strong>title</strong>, <strong>company</strong>, <strong>location</strong>.
+          </p>
+
+          <div
+            style={{
+              border: '2px dashed var(--border)', borderRadius: 'var(--radius-md)',
+              padding: '28px 20px', textAlign: 'center', cursor: 'pointer',
+              background: 'var(--surface)', marginBottom: 16,
+            }}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={e => handleFile(e.target.files[0])}
+            />
+            {fileName ? (
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>📄 {fileName}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{rows.length} rows detected</div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontSize: 24, marginBottom: 6 }}>⬆</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>Click to choose a CSV file</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>or drag and drop here</div>
+              </div>
+            )}
+          </div>
+
+          {error && <div style={{ fontSize: 13, color: 'var(--danger, #e55)', marginBottom: 12 }}>{error}</div>}
+
+          {rows.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Preview ({Math.min(rows.length, 5)} of {rows.length})
+              </div>
+              <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Title</th><th>Company</th><th>LinkedIn URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.slice(0, 5).map(r => (
+                      <tr key={r.id}>
+                        <td style={{ fontWeight: 600, fontSize: 13 }}>{r.name || '—'}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{r.title || '—'}</td>
+                        <td style={{ fontSize: 13 }}>{r.company || '—'}</td>
+                        <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.linkedinUrl || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {rows.length > 5 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>+ {rows.length - 5} more rows</div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            disabled={rows.length === 0 || importing}
+            onClick={handleImport}
+          >
+            {importing ? 'Importing…' : `Import ${rows.length > 0 ? rows.length : ''} Contacts →`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Leads Tab ─────────────────────────────────────────────────
-function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder }) {
+function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOpenLeadFinder, onSendInvites, sendingInvites, onSendMessage, sendingMessageFor, onDeleteLead, onSync, syncing, onRefreshLeads }) {
+  const pendingCount = leads.filter(l => l.status === 'pending').length
+  const invitedCount = leads.filter(l => l.status === 'invited').length
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [myLeadsOpen, setMyLeadsOpen] = useState(false)
+  const [csvImportOpen, setCsvImportOpen] = useState(false)
   return (
     <div>
       <div
@@ -375,9 +781,30 @@ function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder
         <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
           {leads.length} leads in campaign
         </span>
-        <button className="btn btn-primary btn-sm" onClick={onImport}>
-          + Import Contacts
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {invitedCount > 0 && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={onSync}
+              disabled={syncing}
+              title="Check Unipile for accepted connections"
+            >
+              {syncing ? '↻ Syncing…' : `↻ Sync (${invitedCount} invited)`}
+            </button>
+          )}
+          {pendingCount > 0 && (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={onSendInvites}
+              disabled={sendingInvites}
+            >
+              {sendingInvites ? 'Sending…' : `▶ Send Invites (${pendingCount})`}
+            </button>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={onImport}>
+            + Import Contacts
+          </button>
+        </div>
       </div>
 
       {leads.length === 0 ? (
@@ -404,6 +831,7 @@ function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder
                 <th>Company</th>
                 <th>Status</th>
                 <th>Added</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -420,7 +848,7 @@ function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder
                     <span
                       className={`badge ${STATUS_COLORS[l.status] || "badge-muted"}`}
                     >
-                      {l.status || "Pending"}
+                      {l.status || "pending"}
                     </span>
                   </td>
                   <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
@@ -428,12 +856,74 @@ function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder
                       ? new Date(l.addedAt).toLocaleDateString("en-GB")
                       : "—"}
                   </td>
+                  <td>
+                    {l.status === 'invited' && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Auto-detects acceptance every 30s">
+                        ↻ Checking…
+                      </span>
+                    )}
+                    {l.status === 'connected' && (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={sendingMessageFor === l.id}
+                        onClick={() => onSendMessage(l.id)}
+                        title="Generate and send AI opening message"
+                      >
+                        {sendingMessageFor === l.id ? '…' : '◆ Send AI Message'}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--danger)', marginLeft: 4 }}
+                      onClick={() => setConfirmDelete(l)}
+                      title="Remove lead from campaign"
+                    >
+                      ✕
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      <Modal
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        title="Remove Lead"
+        width={400}
+      >
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20 }}>
+          Remove <strong>{confirmDelete?.name || 'this lead'}</strong> from the campaign? This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(null)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-sm"
+            style={{ background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)' }}
+            onClick={() => { onDeleteLead(confirmDelete.id); setConfirmDelete(null) }}
+          >
+            Remove Lead
+          </button>
+        </div>
+      </Modal>
+
+      <MyLeadsPickerModal
+        open={myLeadsOpen}
+        onClose={() => setMyLeadsOpen(false)}
+        campaignId={campaignId}
+        onImported={onRefreshLeads}
+      />
+
+      <CsvImportModal
+        open={csvImportOpen}
+        onClose={() => setCsvImportOpen(false)}
+        campaignId={campaignId}
+        onImported={onRefreshLeads}
+      />
 
       {showImport && (
         <div
@@ -466,8 +956,18 @@ function LeadsTab({ leads, onImport, showImport, onCloseImport, onOpenLeadFinder
                     key={s.id}
                     className="import-source-card"
                     onClick={() => {
-                      if (s.id === 'finder' || s.id === 'post') {
-                        onOpenLeadFinder()
+                      if (s.id === 'finder') {
+                        onOpenLeadFinder('finder')
+                      } else if (s.id === 'url') {
+                        onOpenLeadFinder('url')
+                      } else if (s.id === 'post') {
+                        onOpenLeadFinder('post')
+                      } else if (s.id === 'list') {
+                        onCloseImport()
+                        setMyLeadsOpen(true)
+                      } else if (s.id === 'csv') {
+                        onCloseImport()
+                        setCsvImportOpen(true)
                       } else {
                         alert(`${s.label} — coming soon`)
                       }
@@ -1120,7 +1620,7 @@ function AnalyticsTab({ campaignId }) {
       .finally(() => setLoading(false));
   }, [campaignId]);
 
-  const totals = data || { sent: 0, accepted: 0, replied: 0, acceptanceRate: 0, replyRate: 0 };
+  const totals = data || { sent: 0, accepted: 0, replied: 0, booked: 0, acceptanceRate: 0, replyRate: 0 };
   const allSeries = data?.timeSeries || [];
 
   // Filter by range
@@ -1170,6 +1670,11 @@ function AnalyticsTab({ campaignId }) {
         <div className="cstat">
           <div className="stat-value mono">{totals.replied || 0}</div>
           <div className="stat-label">Replies</div>
+        </div>
+        <div className="cstat-divider" />
+        <div className="cstat">
+          <div className="stat-value mono">{totals.booked || 0}</div>
+          <div className="stat-label">Booked</div>
         </div>
       </div>
 
@@ -1228,7 +1733,10 @@ function AnalyticsTab({ campaignId }) {
               <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: "100%", flex: 1, paddingLeft: 28 }}>
                 {values.map((v, i) => {
                   const barH = Math.max(2, Math.round((v / maxVal) * 120));
-                  const label = series[i] ? `D${series[i].day}` : `${i + 1}`;
+                  const d = series[i]
+                  const label = d?.date
+                    ? new Date(d.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
+                    : `D${d?.day ?? i + 1}`
                   const showLabel = values.length <= 14 || i % Math.ceil(values.length / 10) === 0;
                   return (
                     <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1, minWidth: 12 }}>

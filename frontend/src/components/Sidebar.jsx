@@ -3,13 +3,15 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Modal from './Modal'
 import { getActiveWorkspaceId, onActiveWorkspaceChange, setActiveWorkspaceId } from '../lib/workspaceState'
+import { getInboxUnreadCount, onInboxUnreadChange } from '../lib/inboxState'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '⬡', exact: true },
   { section: 'OUTREACH' },
   { to: '/campaigns', label: 'Campaigns', icon: '◈' },
-  { to: '/inbox', label: 'Inbox', icon: '✉', badge: 3 },
+  { to: '/inbox', label: 'Inbox', icon: '✉', badge: 'inbox' },
   { to: '/leads', label: 'Lead Finder', icon: '◎' },
+  { to: '/my-leads', label: 'My Leads', icon: '◉' },
   { section: 'AGENTS' },
   { to: '/agents', label: 'AI Agents', icon: '◆' },
   { section: 'TEAM' },
@@ -32,6 +34,11 @@ export default function Sidebar() {
     activeId: getActiveWorkspaceId(),
   })
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [inboxUnread, setInboxUnread] = useState(getInboxUnreadCount())
+
+  useEffect(() => {
+    return onInboxUnreadChange(setInboxUnread)
+  }, [])
 
   const initials = useMemo(() => {
     const active = workspaceState.workspaces.find(w => String(w.id) === String(workspaceState.activeId))
@@ -82,11 +89,8 @@ export default function Sidebar() {
           .select('workspace_id')
           .eq('user_id', user.id)
 
-        const memberPolicyRecursion =
-          String(memberErr?.message || '').toLowerCase().includes('infinite recursion detected in policy')
-        if (memberErr && !memberPolicyRecursion) throw memberErr
-
-        const safeMemberRows = memberPolicyRecursion ? [] : (memberRows || [])
+        // Silently ignore: table may not exist yet (500) or RLS recursion — treat as no memberships
+        const safeMemberRows = memberErr ? [] : (memberRows || [])
         const memberIds = [...new Set(safeMemberRows.map((r) => r.workspace_id).filter(Boolean))]
         let memberWorkspaces = []
         if (memberIds.length) {
@@ -194,7 +198,10 @@ export default function Sidebar() {
             >
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
-              {item.badge && <span className="nav-badge">{item.badge}</span>}
+              {item.badge && (() => {
+                const count = item.badge === 'inbox' ? inboxUnread : item.badge
+                return count > 0 ? <span className="nav-badge">{count}</span> : null
+              })()}
             </NavLink>
           )
         })}

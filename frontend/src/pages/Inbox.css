@@ -129,8 +129,8 @@
   max-width: 72%;
 }
 
-.message-wrap.ai { align-self: flex-start; }
-.message-wrap.prospect { align-self: flex-end; }
+.message-wrap.ai { align-self: flex-end; }
+.message-wrap.prospect { align-self: flex-start; }
 
 .message-sender-label {
   margin-bottom: 4px;
@@ -143,17 +143,19 @@
   line-height: 1.6;
 }
 
+/* Our messages — right side, green tint */
 .message-bubble.ai {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
-  color: var(--text-primary);
-}
-
-.message-bubble.prospect {
   background: var(--signal-subtle);
   border: 1px solid rgba(57,255,135,0.15);
   border-bottom-right-radius: 4px;
+  color: var(--text-primary);
+}
+
+/* Prospect messages — left side, dark surface */
+.message-bubble.prospect {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
   color: var(--text-primary);
 }
 
@@ -163,7 +165,7 @@
   margin-top: 4px;
 }
 
-.message-wrap.prospect .message-time { text-align: right; }
+.message-wrap.ai .message-time { text-align: right; }
 
 .thread-input {
   padding: 16px 24px;

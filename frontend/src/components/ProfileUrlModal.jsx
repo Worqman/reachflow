@@ -1,65 +1,11 @@
 import { useEffect, useState } from "react";
 import { campaigns as campaignsApi, unipile } from "../lib/api";
-import "../pages/LeadFinder.css";
+import { normaliseProfile } from "./LeadFinderModal";
 
-const INDUSTRIES = [
-  "Accounting", "Financial Services", "Legal", "Property & Construction",
-  "SaaS / Tech", "Marketing", "Healthcare", "Retail", "Manufacturing",
-];
-const SIZES = ["1–10", "11–50", "51–200", "201–500", "501–1000", "1001–5000", "5001+"];
-const SENIORITY = ["Owner", "C-Suite", "VP / Director", "Manager", "Senior IC", "IC"];
-
-function normaliseProfile(raw) {
-  const p = raw?.user || raw?.author || raw;
-  const pos = p.current_positions?.[0];
-  const fullName = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
-  const isGenericLinkedInName = (v) =>
-    typeof v === "string" && /^(linkedin\s+member|member)$/i.test(v.trim());
-  const fromIdentifier =
-    typeof p.public_identifier === "string" ? p.public_identifier.trim() : "";
-  const fromUrlMatch =
-    typeof p.public_profile_url === "string"
-      ? p.public_profile_url.match(/linkedin\.com\/in\/([^/?#]+)/i)
-      : typeof p.linkedin_url === "string"
-        ? p.linkedin_url.match(/linkedin\.com\/in\/([^/?#]+)/i)
-        : null;
-  const fallbackHandle = (fromIdentifier || fromUrlMatch?.[1] || "")
-    .replace(/[-_]+/g, " ")
-    .trim();
-  const rawName = (p.name || p.full_name || fullName || "").trim();
-  const displayName =
-    rawName && !isGenericLinkedInName(rawName)
-      ? rawName
-      : fallbackHandle || "Private LinkedIn Profile";
-
-  return {
-    id: p.id || p.provider_id || p.member_id || String(Math.random()),
-    name: displayName,
-    title: pos?.role || p.headline || p.job_title || p.title || p.occupation || "",
-    company: pos?.company || p.company_name || p.company || p.current_company || "",
-    location: p.location || p.geo_location || p.country || "",
-    profilePictureUrl: p.profile_picture_url || p.profile_image_url || p.avatar_url || "",
-    linkedinUrl:
-      p.public_profile_url ||
-      p.linkedin_url ||
-      (p.public_identifier ? `https://www.linkedin.com/in/${p.public_identifier}` : "") ||
-      p.url || "",
-    providerId: p.provider_id || p.member_urn || p.id || "",
-    status: "Not contacted",
-  };
-}
-
-export { normaliseProfile };
-
-export default function LeadFinderModal({ open, onClose, onImport, campaignId }) {
+export default function ProfileUrlModal({ open, onClose, onImport, campaignId }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [location, setLocation] = useState("");
-  const [linkedinSearchUrl, setLinkedinSearchUrl] = useState("");
-  const [sizes, setSizes] = useState([]);
-  const [seniority, setSeniority] = useState([]);
+  const [searchUrl, setSearchUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [searched, setSearched] = useState(false);
@@ -80,40 +26,22 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
 
   useEffect(() => {
     if (!open) {
-      setJobTitle(""); setIndustry(""); setLocation(""); setLinkedinSearchUrl("");
-      setSizes([]); setSeniority([]);
-      setResults([]); setSearched(false); setError("");
-      setSelected([]);
+      setSearchUrl(""); setResults([]); setSearched(false);
+      setError(""); setSelected([]);
     }
   }, [open]);
 
-  const toggleSize = (s) =>
-    setSizes((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
-  const toggleSeniority = (s) =>
-    setSeniority((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
-
   async function handleSearch() {
-    if (!accountId) { setError("No LinkedIn account connected."); return; }
+    if (!searchUrl.trim() || !accountId) return;
     setLoading(true);
-    setSelected([]);
     setError("");
+    setResults([]);
+    setSelected([]);
     try {
-      const trimmedUrl = linkedinSearchUrl.trim();
-      const keywordParts = [jobTitle, industry, location].map((v) => v.trim()).filter(Boolean);
-      const basePayload = {
-        url: trimmedUrl || undefined,
-        keywords: !trimmedUrl && keywordParts.length ? keywordParts.join(" ") : undefined,
-        title: !trimmedUrl ? jobTitle.trim() || undefined : undefined,
-        industry: !trimmedUrl ? industry.trim() || undefined : undefined,
-        location_text: !trimmedUrl ? location.trim() || undefined : undefined,
-        seniority: !trimmedUrl && seniority.length > 0 ? seniority : undefined,
-        company_sizes: !trimmedUrl && sizes.length > 0 ? sizes : undefined,
-      };
-
       const allItems = [];
       let cursor = undefined;
       for (let i = 0; i < 5; i++) {
-        const data = await unipile.searchPeople(accountId, { ...basePayload, cursor });
+        const data = await unipile.searchPeople(accountId, { url: searchUrl.trim(), cursor });
         const items = data?.items || data?.objects || data?.users || data?.results || [];
         allItems.push(...items);
         const nextCursor = data?.cursor || data?.next_cursor || data?.nextCursor;
@@ -159,10 +87,10 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="modal-box animate-fade-in"
-        style={{ maxWidth: 860, width: "100%", display: "flex", flexDirection: "column", maxHeight: "90vh" }}
+        style={{ maxWidth: 760, width: "100%", display: "flex", flexDirection: "column", maxHeight: "85vh" }}
       >
         <div className="modal-header">
-          <h2 className="modal-title">◎ Lead Finder — Search</h2>
+          <h2 className="modal-title">◈ LinkedIn Search URL</h2>
           <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
         </div>
 
@@ -191,85 +119,27 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
             </div>
           )}
 
-          {/* Filter inputs */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            {[
-              { label: "Job Title", value: jobTitle, set: setJobTitle, placeholder: "e.g. Managing Partner", type: "input" },
-              { label: "Industry", value: industry, set: setIndustry, type: "select" },
-              { label: "Location", value: location, set: setLocation, placeholder: "e.g. United Kingdom", type: "input" },
-            ].map(({ label, value, set, placeholder, type }) => (
-              <div key={label}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {label}
-                </div>
-                {type === "select" ? (
-                  <select className="input" value={value} onChange={(e) => set(e.target.value)}>
-                    <option value="">Any industry</option>
-                    {INDUSTRIES.map((i) => <option key={i}>{i}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    className="input"
-                    placeholder={placeholder}
-                    value={value}
-                    onChange={(e) => set(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Company size */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Company Headcount
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {SIZES.map((s) => (
-                <button key={s} className={`size-toggle ${sizes.includes(s) ? "active" : ""}`} onClick={() => toggleSize(s)}>{s}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Seniority */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Seniority
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {SENIORITY.map((s) => (
-                <button key={s} className={`size-toggle ${seniority.includes(s) ? "active" : ""}`} onClick={() => toggleSeniority(s)}>{s}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* LinkedIn Search URL override */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              LinkedIn Search URL <span style={{ fontWeight: 400, textTransform: "none" }}>(optional — overrides filters above)</span>
-            </div>
+          {/* URL input */}
+          <div style={{ display: "flex", gap: 8 }}>
             <input
               className="input"
               placeholder="Paste a LinkedIn people search URL…"
-              value={linkedinSearchUrl}
-              onChange={(e) => setLinkedinSearchUrl(e.target.value)}
+              value={searchUrl}
+              onChange={(e) => setSearchUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              style={{ flex: 1 }}
             />
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!searchUrl.trim() || !accountId || loading}
+              onClick={handleSearch}
+            >
+              {loading ? "↻ Searching…" : "Search"}
+            </button>
           </div>
-
-          <button
-            className="btn btn-primary"
-            style={{ alignSelf: "flex-start" }}
-            disabled={loading || !accountId}
-            onClick={handleSearch}
-          >
-            {loading ? "↻ Searching…" : "◎ Search LinkedIn"}
-          </button>
 
           {error && <div style={{ fontSize: 13, color: "var(--danger, #e55)" }}>{error}</div>}
 
-          {/* Loading */}
           {loading && (
             <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-muted)", fontSize: 13 }}>
               ↻ Searching LinkedIn…
@@ -290,7 +160,7 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
                   </button>
                 </div>
               </div>
-              <div className="table-wrap" style={{ maxHeight: 340, overflowY: "auto" }}>
+              <div className="table-wrap" style={{ maxHeight: 380, overflowY: "auto" }}>
                 <table>
                   <thead>
                     <tr>
@@ -335,7 +205,7 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
 
           {!loading && searched && results.length === 0 && !error && (
             <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13, padding: "24px 0" }}>
-              No results found. Try broadening your filters.
+              No results found. Try a different search URL.
             </div>
           )}
         </div>

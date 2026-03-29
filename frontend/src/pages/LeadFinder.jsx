@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { campaigns as campaignsApi, unipile } from "../lib/api";
+import { campaigns as campaignsApi, leads as leadsApi, unipile } from "../lib/api";
 import "./LeadFinder.css";
 
 const INDUSTRIES = [
@@ -32,27 +32,56 @@ const SENIORITY = [
 ];
 
 const MODES = [
-  { id: "filters", label: "◎ Filters", desc: "Apollo database" },
+  { id: "filters", label: "◎ Search", desc: "LinkedIn search" },
   { id: "url", label: "◈ LinkedIn URL", desc: "Look up a profile" },
   { id: "engagers", label: "◆ Post Engagers", desc: "From a post" },
 ];
 
-// Normalise a Unipile profile/user/reaction/comment object into a table row.
-// Reactions wrap the person under .user; comments wrap under .author.
+// Normalise any Unipile person object into a table row.
+// Handles: LinkedIn search results, profile lookups, reactions/comments wrappers.
 function normaliseProfile(raw) {
   const p = raw?.user || raw?.author || raw;
+  const pos = p.current_positions?.[0];
+  const fullName = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
+  const isGenericLinkedInName = (value) =>
+    typeof value === "string" &&
+    /^(linkedin\s+member|member)$/i.test(value.trim());
+  const fromIdentifier =
+    typeof p.public_identifier === "string" ? p.public_identifier.trim() : "";
+  const fromUrlMatch =
+    typeof p.public_profile_url === "string"
+      ? p.public_profile_url.match(/linkedin\.com\/in\/([^/?#]+)/i)
+      : typeof p.linkedin_url === "string"
+        ? p.linkedin_url.match(/linkedin\.com\/in\/([^/?#]+)/i)
+        : null;
+  const fallbackHandle = (fromIdentifier || fromUrlMatch?.[1] || "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  const rawName = (p.name || p.full_name || fullName || "").trim();
+  const displayName =
+    rawName && !isGenericLinkedInName(rawName)
+      ? rawName
+      : fallbackHandle || "Private LinkedIn Profile";
+
   return {
-    id: p.id || p.provider_id || p.member_id || Math.random(),
-    name:
-      p.name ||
-      p.full_name ||
-      [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-      "Unknown",
-    title: p.headline || p.job_title || p.title || p.occupation || "",
-    company: p.company_name || p.company || p.current_company || "",
+    id: p.id || p.provider_id || p.member_id || String(Math.random()),
+    name: displayName,
+    title:
+      pos?.role || p.headline || p.job_title || p.title || p.occupation || "",
+    company:
+      pos?.company || p.company_name || p.company || p.current_company || "",
     location: p.location || p.geo_location || p.country || "",
-    linkedinUrl: p.linkedin_url || p.public_profile_url || p.url || "",
-    providerId: p.provider_id || p.id || "",
+    profilePictureUrl:
+      p.profile_picture_url || p.profile_image_url || p.avatar_url || "",
+    linkedinUrl:
+      p.public_profile_url ||
+      p.linkedin_url ||
+      (p.public_identifier
+        ? `https://www.linkedin.com/in/${p.public_identifier}`
+        : "") ||
+      p.url ||
+      "",
+    providerId: p.provider_id || p.member_urn || p.id || "",
     status: "Not contacted",
   };
 }
@@ -72,6 +101,7 @@ export default function LeadFinder() {
   const [industry, setIndustry] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [location, setLocation] = useState("");
+  const [linkedinSearchUrl, setLinkedinSearchUrl] = useState("");
 
   // ── URL mode state ────────────────────────────────────────────
   const [profileUrl, setProfileUrl] = useState("");
@@ -93,6 +123,10 @@ export default function LeadFinder() {
   const [pendingLeads, setPendingLeads] = useState([]);
   const [addingToCampaign, setAddingToCampaign] = useState(null); // campaignId being added to
 
+  // ── Save to List state ────────────────────────────────────────
+  const [savingToList, setSavingToList] = useState(false);
+  const [savedToList, setSavedToList] = useState(false);
+
   // Load connected LinkedIn accounts
   useEffect(() => {
     unipile
@@ -107,25 +141,40 @@ export default function LeadFinder() {
 
   // Load campaigns for the picker
   useEffect(() => {
-    campaignsApi.list()
-      .then(data => setCampaignList(Array.isArray(data) ? data : []))
-      .catch(() => {})
-  }, [])
+    campaignsApi
+      .list()
+      .then((data) => setCampaignList(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
   function openCampaignPicker(leads) {
-    setPendingLeads(leads)
-    setPickerOpen(true)
+    setPendingLeads(leads);
+    setPickerOpen(true);
   }
 
   async function addToCampaign(campaignId) {
-    setAddingToCampaign(campaignId)
+    setAddingToCampaign(campaignId);
     try {
-      await campaignsApi.importLeads(campaignId, { leads: pendingLeads })
-      setPickerOpen(false)
-      setPendingLeads([])
-      setSelected([])
+      await campaignsApi.importLeads(campaignId, { leads: pendingLeads });
+      setPickerOpen(false);
+      setPendingLeads([]);
+      setSelected([]);
     } catch {}
-    setAddingToCampaign(null)
+    setAddingToCampaign(null);
+  }
+
+  async function handleSaveToList() {
+    const leadsToSave = tableRows.filter((r) => selected.includes(r.id));
+    if (!leadsToSave.length) return;
+    setSavingToList(true);
+    setSavedToList(false);
+    try {
+      await leadsApi.bulkCreate(leadsToSave);
+      setSavedToList(true);
+      setSelected([]);
+      setTimeout(() => setSavedToList(false), 3000);
+    } catch {}
+    setSavingToList(false);
   }
 
   // ── Filters mode ─────────────────────────────────────────────
@@ -142,64 +191,81 @@ export default function LeadFinder() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
-  const handleFilterSearch = () => {
+  const [filterError, setFilterError] = useState("");
+  const [filterSource, setFilterSource] = useState(""); // 'linkedin_search' | 'connections'
+
+  const handleFilterSearch = async () => {
+    if (!accountId) {
+      setFilterError(
+        "No LinkedIn account connected. Go to Settings → Workspace.",
+      );
+      return;
+    }
     setLoading(true);
     setSelected([]);
-    // Apollo.io integration placeholder — returns mock data for now
-    setTimeout(() => {
-      setResults([
-        {
-          id: 1,
-          name: "James McKenzie",
-          title: "Managing Partner",
-          company: "McKenzie & Co Accountants",
-          location: "London, UK",
-          status: "Not contacted",
-        },
-        {
-          id: 2,
-          name: "Rachel Ahmed",
-          title: "Finance Director",
-          company: "Ahmed Finance Solutions",
-          location: "Birmingham, UK",
-          status: "Not contacted",
-        },
-        {
-          id: 3,
-          name: "Oliver Thornton",
-          title: "Founding Partner",
-          company: "Thornton Advisory",
-          location: "Manchester, UK",
-          status: "Not contacted",
-        },
-        {
-          id: 4,
-          name: "Sarah Patel",
-          title: "Senior Partner",
-          company: "SP Financial Services",
-          location: "Bristol, UK",
-          status: "Not contacted",
-        },
-        {
-          id: 5,
-          name: "Tom Whitfield",
-          title: "Managing Director",
-          company: "Whitfield CPA",
-          location: "Leeds, UK",
-          status: "Not contacted",
-        },
-        {
-          id: 6,
-          name: "Emma Clarke",
-          title: "Founding Director",
-          company: "Clarke Accounting",
-          location: "Edinburgh, UK",
-          status: "Not contacted",
-        },
-      ]);
-      setLoading(false);
+    setFilterError("");
+    setFilterSource("");
+    try {
+      const trimmedUrl = linkedinSearchUrl.trim();
+      const trimmedJobTitle = jobTitle.trim();
+      const trimmedIndustry = industry.trim();
+      const trimmedLocation = location.trim();
+      const keywordParts = [jobTitle, industry, location]
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const keywordText =
+        keywordParts.length > 0 ? keywordParts.join(" ") : undefined;
+
+      const basePayload = {
+        url: trimmedUrl || undefined,
+        // Keep keyword fallback, but also send individual filters so the backend
+        // can map all fields when building provider-side search parameters.
+        keywords: !trimmedUrl ? keywordText : undefined,
+        title: !trimmedUrl ? trimmedJobTitle || undefined : undefined,
+        industry: !trimmedUrl ? trimmedIndustry || undefined : undefined,
+        location_text: !trimmedUrl ? trimmedLocation || undefined : undefined,
+        seniority: !trimmedUrl && seniority.length > 0 ? seniority : undefined,
+        company_sizes: !trimmedUrl && sizes.length > 0 ? sizes : undefined,
+      };
+
+      const allItems = [];
+      let cursor = undefined;
+      let source = "";
+      for (let i = 0; i < 5; i += 1) {
+        const data = await unipile.searchPeople(accountId, {
+          ...basePayload,
+          cursor,
+        });
+        const items =
+          data?.items || data?.objects || data?.users || data?.results || [];
+        allItems.push(...items);
+        if (!source) source = data?.source || "";
+        const nextCursor =
+          data?.cursor || data?.next_cursor || data?.nextCursor;
+        if (!nextCursor || items.length === 0) break;
+        cursor = nextCursor;
+      }
+
+      const uniqueById = new Map();
+      allItems.forEach((item) => {
+        const key =
+          item?.provider_id ||
+          item?.member_id ||
+          item?.id ||
+          Math.random().toString(36);
+        if (!uniqueById.has(key)) uniqueById.set(key, item);
+      });
+
+      setResults(Array.from(uniqueById.values()).map(normaliseProfile));
+      setFilterSource(source);
       setSearched(true);
-    }, 1200);
+    } catch (err) {
+      setFilterError(err.message || "Search failed");
+      setResults([]);
+      setSearched(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleReset = () => {
@@ -210,6 +276,9 @@ export default function LeadFinder() {
     setLocation("");
     setSearched(false);
     setResults([]);
+    setFilterError("");
+    setFilterSource("");
+    setLinkedinSearchUrl("");
   };
 
   // ── URL mode ─────────────────────────────────────────────────
@@ -258,7 +327,12 @@ export default function LeadFinder() {
         engagerType,
       );
       const items =
-        data?.items || data?.objects || data?.reactions || data?.comments || data?.users || [];
+        data?.items ||
+        data?.objects ||
+        data?.reactions ||
+        data?.comments ||
+        data?.users ||
+        [];
       setEngagersResults(items.map(normaliseProfile));
       setEngagersSearched(true);
     } catch (err) {
@@ -357,17 +431,24 @@ export default function LeadFinder() {
             <>
               <div className="filter-section">
                 <div className="filter-label">LinkedIn Account</div>
-                <select className="input" style={{ cursor: "pointer" }}>
-                  {unipileAccounts.length > 0 ? (
-                    unipileAccounts.map((a) => (
+                {unipileAccounts.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    No accounts connected. Go to Settings → Workspace.
+                  </div>
+                ) : (
+                  <select
+                    className="input"
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {unipileAccounts.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.name || a.id}
+                        {a.name || a.username || a.id}
                       </option>
-                    ))
-                  ) : (
-                    <option>No account connected</option>
-                  )}
-                </select>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="filter-section">
                 <div className="filter-label">Job Title</div>
@@ -428,56 +509,32 @@ export default function LeadFinder() {
                   ))}
                 </div>
               </div>
-              <div className="filter-section">
-                <div className="filter-label">Activity Signals</div>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
-                >
-                  {[
-                    "Has posted on LinkedIn",
-                    "Changed jobs recently",
-                    "Mentioned in news",
-                  ].map((opt) => (
-                    <label
-                      key={opt}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        cursor: "pointer",
-                        fontSize: 13,
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      <input type="checkbox" /> {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
             </>
           )}
 
           {/* ── LinkedIn URL mode ── */}
           {mode === "url" && (
-            <div className="filter-section">
-              <div className="filter-label">LinkedIn Profile URL</div>
-              <input
-                className="input"
-                placeholder="https://www.linkedin.com/in/username"
-                value={profileUrl}
-                onChange={(e) => setProfileUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleProfileSearch()}
-              />
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  marginTop: 6,
-                }}
-              >
-                Paste any LinkedIn profile URL to look up their details.
+            <>
+              <div className="filter-section">
+                <div className="filter-label">LinkedIn Search URL</div>
+                <input
+                  className="input"
+                  placeholder="Paste a LinkedIn people search URL…"
+                  value={linkedinSearchUrl}
+                  onChange={(e) => setLinkedinSearchUrl(e.target.value)}
+                />
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  Search on LinkedIn, copy the URL, paste here. Overrides
+                  filters in Search tab.
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           {/* ── Post Engagers mode ── */}
@@ -686,10 +743,10 @@ export default function LeadFinder() {
               {mode === "filters" ? (
                 <>
                   <div className="empty-icon">◎</div>
-                  <h3>Find your perfect leads</h3>
+                  <h3>Search LinkedIn</h3>
                   <p>
-                    Use the filters to define your ICP, then click Preview
-                    People to see matching contacts.
+                    Enter a job title, industry, or location and search LinkedIn
+                    directly via your connected account.
                   </p>
                   <div className="how-it-works">
                     <div className="how-step">
@@ -735,7 +792,7 @@ export default function LeadFinder() {
               <div style={{ fontSize: 32 }}>↻</div>
               <p style={{ color: "var(--text-muted)" }}>
                 {mode === "filters"
-                  ? "Searching Apollo database…"
+                  ? "Searching LinkedIn…"
                   : "Fetching post engagers…"}
               </p>
             </div>
@@ -745,6 +802,14 @@ export default function LeadFinder() {
               <h3>Could not fetch engagers</h3>
               <p style={{ color: "var(--text-muted)", maxWidth: 400 }}>
                 {engagersError}
+              </p>
+            </div>
+          ) : filterError && mode === "filters" ? (
+            <div className="empty-state" style={{ height: "100%" }}>
+              <div style={{ fontSize: 32 }}>◎</div>
+              <h3>Search failed</h3>
+              <p style={{ color: "var(--text-muted)", maxWidth: 400 }}>
+                {filterError}
               </p>
             </div>
           ) : (
@@ -765,7 +830,9 @@ export default function LeadFinder() {
                         marginLeft: 8,
                       }}
                     >
-                      from Apollo database
+                      {filterSource === "connections"
+                        ? "from your connections"
+                        : "from LinkedIn"}
                     </span>
                   )}
                 </div>
@@ -791,14 +858,23 @@ export default function LeadFinder() {
                   </button>
                   <button
                     className="btn btn-secondary btn-sm"
-                    disabled={selected.length === 0}
+                    disabled={selected.length === 0 || savingToList}
+                    onClick={handleSaveToList}
                   >
-                    Save to List
+                    {savingToList
+                      ? "Saving…"
+                      : savedToList
+                        ? "✓ Saved"
+                        : "Save to List"}
                   </button>
                   <button
                     className="btn btn-primary btn-sm"
                     disabled={selected.length === 0}
-                    onClick={() => openCampaignPicker(tableRows.filter(r => selected.includes(r.id)))}
+                    onClick={() =>
+                      openCampaignPicker(
+                        tableRows.filter((r) => selected.includes(r.id)),
+                      )
+                    }
                   >
                     Add to Campaign ({selected.length})
                   </button>
@@ -809,6 +885,7 @@ export default function LeadFinder() {
                   <thead>
                     <tr>
                       <th style={{ width: 40 }}></th>
+                      <th></th>
                       <th>Name</th>
                       <th>Job Title</th>
                       <th>Company</th>
@@ -826,6 +903,25 @@ export default function LeadFinder() {
                             onChange={() => toggleSelect(r.id)}
                           />
                         </td>
+                        <td style={{ fontSize: 12 }}>
+                          {r.profilePictureUrl ? (
+                            <img
+                              src={r.profilePictureUrl}
+                              alt={`${r.name} profile`}
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: "50%",
+                                objectFit: "cover",
+                                border: "1px solid var(--border)",
+                              }}
+                            />
+                          ) : (
+                            <span style={{ color: "var(--text-muted)" }}>
+                              —
+                            </span>
+                          )}
+                        </td>
                         <td style={{ fontWeight: 600 }}>{r.name}</td>
                         <td style={{ color: "var(--text-secondary)" }}>
                           {r.title}
@@ -836,6 +932,7 @@ export default function LeadFinder() {
                         >
                           {r.location}
                         </td>
+
                         <td>
                           <span className="badge badge-muted">{r.status}</span>
                         </td>
@@ -852,32 +949,57 @@ export default function LeadFinder() {
       {pickerOpen && (
         <div
           className="modal-overlay"
-          onClick={e => e.target === e.currentTarget && setPickerOpen(false)}
+          onClick={(e) => e.target === e.currentTarget && setPickerOpen(false)}
         >
           <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
             <div className="modal-header">
               <h2 className="modal-title">Add to Campaign</h2>
-              <button className="btn btn-icon btn-ghost" onClick={() => setPickerOpen(false)}>✕</button>
+              <button
+                className="btn btn-icon btn-ghost"
+                onClick={() => setPickerOpen(false)}
+              >
+                ✕
+              </button>
             </div>
             <div className="modal-body">
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
-                Adding {pendingLeads.length} lead{pendingLeads.length !== 1 ? 's' : ''} — choose a campaign:
+              <p
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  marginBottom: 16,
+                }}
+              >
+                Adding {pendingLeads.length} lead
+                {pendingLeads.length !== 1 ? "s" : ""} — choose a campaign:
               </p>
               {campaignList.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No campaigns found. Create one first.</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                  No campaigns found. Create one first.
+                </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {campaignList.map(c => (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                >
+                  {campaignList.map((c) => (
                     <button
                       key={c.id}
                       className="btn btn-secondary"
-                      style={{ justifyContent: 'space-between', textAlign: 'left' }}
+                      style={{
+                        justifyContent: "space-between",
+                        textAlign: "left",
+                      }}
                       disabled={addingToCampaign === c.id}
                       onClick={() => addToCampaign(c.id)}
                     >
                       <span style={{ fontWeight: 600 }}>{c.name}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {addingToCampaign === c.id ? 'Adding…' : (c.status === 'active' ? '● Active' : 'Paused')}
+                      <span
+                        style={{ fontSize: 12, color: "var(--text-muted)" }}
+                      >
+                        {addingToCampaign === c.id
+                          ? "Adding…"
+                          : c.status === "active"
+                            ? "● Active"
+                            : "Paused"}
                       </span>
                     </button>
                   ))}

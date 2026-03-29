@@ -50,11 +50,8 @@ export function Workspaces() {
         .select('workspace_id')
         .eq('user_id', currentUser.id)
 
-      const memberPolicyRecursion =
-        String(memberErr?.message || '').toLowerCase().includes('infinite recursion detected in policy')
-      if (memberErr && !memberPolicyRecursion) throw memberErr
-
-      const safeMemberRows = memberPolicyRecursion ? [] : (memberRows || [])
+      // Silently ignore: table may not exist yet (500) or RLS recursion
+      const safeMemberRows = memberErr ? [] : (memberRows || [])
       const memberIds = [...new Set(safeMemberRows.map((r) => r.workspace_id).filter(Boolean))]
       let memberWorkspaces = []
       if (memberIds.length) {

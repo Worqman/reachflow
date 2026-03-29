@@ -11,6 +11,7 @@ import Campaigns from './pages/Campaigns'
 import CampaignDetail from './pages/CampaignDetail'
 import Inbox from './pages/Inbox'
 import LeadFinder from './pages/LeadFinder'
+import MyLeads from './pages/MyLeads'
 import Agents from './pages/Agents'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
@@ -207,6 +208,7 @@ function AppRoutes() {
       <Route path="/campaigns/:id" element={<CampaignDetail />} />
       <Route path="/inbox"         element={<Inbox />} />
       <Route path="/leads"         element={<LeadFinder />} />
+      <Route path="/my-leads"      element={<MyLeads />} />
       <Route path="/agents"        element={<Agents />} />
       <Route path="/workspaces"    element={<Workspaces />} />
       <Route path="/members"       element={<Members />} />

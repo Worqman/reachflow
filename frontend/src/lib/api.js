@@ -1,13 +1,27 @@
 // ReachFlow API client
 // All requests go to /api/* which is proxied to the backend
 
+import { supabase } from './supabase'
+import { getActiveWorkspaceId } from './workspaceState'
+
 const BASE = "/api";
 
 async function request(method, path, body) {
-  const opts = {
-    method,
-    headers: { "Content-Type": "application/json" },
-  };
+  const headers = { "Content-Type": "application/json" };
+
+  // Attach Supabase auth token so the backend can identify the user
+  try {
+    const { data } = await supabase.auth.getSession()
+    if (data?.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`
+    }
+  } catch {}
+
+  // Attach active workspace so the backend scopes data correctly
+  const workspaceId = getActiveWorkspaceId()
+  if (workspaceId) headers['X-Workspace-Id'] = workspaceId
+
+  const opts = { method, headers };
   if (body !== undefined) opts.body = JSON.stringify(body);
 
   const res = await fetch(`${BASE}${path}`, opts);
@@ -73,6 +87,12 @@ export const campaigns = {
   getSequence: (id) => get(`/campaigns/${id}/sequence`),
   updateSequence: (id, d) => put(`/campaigns/${id}/sequence`, d),
   getAnalytics: (id) => get(`/campaigns/${id}/analytics`),
+  syncStatuses: (id) => post(`/campaigns/${id}/sync-statuses`, {}),
+  syncMessages: (id) => post(`/campaigns/${id}/sync-messages`, {}),
+  sendInvites: (id) => post(`/campaigns/${id}/send-invites`, {}),
+  sendLeadMessage: (id, leadId) => post(`/campaigns/${id}/leads/${leadId}/send-message`, {}),
+  updateLeadStatus: (id, leadId, status) => post(`/campaigns/${id}/leads/${leadId}/status`, { status }),
+  deleteLead: (id, leadId) => del(`/campaigns/${id}/leads/${leadId}`),
 };
 
 // ── Leads ──────────────────────────────────────
@@ -80,6 +100,7 @@ export const leads = {
   list: () => get("/leads"),
   search: (data) => post("/leads/search", data),
   create: (data) => post("/leads", data),
+  bulkCreate: (leadsArr) => post("/leads/bulk", { leads: leadsArr }),
   update: (id, d) => put(`/leads/${id}`, d),
   delete: (id) => del(`/leads/${id}`),
 };
@@ -88,7 +109,13 @@ export const leads = {
 export const conversations = {
   list: () => get("/conversations"),
   get: (id) => get(`/conversations/${id}`),
+  byChat: (chatId) => get(`/conversations/by-chat/${chatId}`),
+  create: (data) => post("/conversations", data),
+  sync: (id) => post(`/conversations/${id}/sync`, {}),
   reply: (id, d) => post(`/conversations/${id}/reply`, d),
+  pauseAI: (id) => post(`/conversations/${id}/pause-ai`, {}),
+  resumeAI: (id) => post(`/conversations/${id}/resume-ai`, {}),
+  markBooked: (id, data = {}) => post(`/conversations/${id}/mark-booked`, data),
   aiEdit: (data) => post("/conversations/ai-edit", data),
 };
 
@@ -134,8 +161,15 @@ export const unipile = {
   // Lead Finder
   getLinkedInProfile: (accountId, linkedinUrl) =>
     get(`/unipile/linkedin/profile?account_id=${encodeURIComponent(accountId)}&linkedin_url=${encodeURIComponent(linkedinUrl)}`),
+  searchPeople: (accountId, payload = {}) =>
+    post('/unipile/linkedin/search', { account_id: accountId, ...payload }),
   getPostEngagers: (accountId, postUrl, type = 'likers') =>
     get(`/unipile/post-engagers?account_id=${encodeURIComponent(accountId)}&post_url=${encodeURIComponent(postUrl)}&type=${type}`),
+}
+
+// ── Dashboard ──────────────────────────────────
+export const dashboard = {
+  get: () => get('/dashboard'),
 }
 
 // ── Members ────────────────────────────────────

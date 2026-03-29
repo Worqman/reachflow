@@ -5,7 +5,7 @@ import { ToastProvider } from './components/Toast'
 import Sidebar from './components/Sidebar'
 import { supabase } from './lib/supabase'
 import { companyProfiles } from './lib/api'
-import { getActiveWorkspaceId } from './lib/workspaceState'
+import { getActiveWorkspaceId, setActiveWorkspaceId } from './lib/workspaceState'
 import Dashboard from './pages/Dashboard'
 import Campaigns from './pages/Campaigns'
 import CampaignDetail from './pages/CampaignDetail'
@@ -92,13 +92,36 @@ function RequireAuth({ children }) {
         return
       }
 
-      const wsId = getActiveWorkspaceId()
+      let wsId = getActiveWorkspaceId()
       if (!wsId) {
-        // Invited members often won't have an owner workspace selected locally.
-        // Avoid forcing onboarding when no active workspace is available.
-        setShouldOnboard(false)
-        setCheckingSetup(false)
-        return
+        // No workspace in localStorage — look up if the user owns any
+        try {
+          const { data: ownedWs } = await supabase
+            .from('workspaces')
+            .select('id')
+            .eq('owner_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (ownedWs?.id) {
+            // Auto-select their workspace and continue to profile check below
+            setActiveWorkspaceId(ownedWs.id)
+            wsId = ownedWs.id
+          } else {
+            // No workspace at all — first-time user, send to onboarding
+            if (!alive) return
+            setShouldOnboard(true)
+            setCheckingSetup(false)
+            return
+          }
+        } catch {
+          // Can't check — don't block access
+          if (!alive) return
+          setShouldOnboard(false)
+          setCheckingSetup(false)
+          return
+        }
       }
 
       // Only workspace owners should be blocked by onboarding completion.

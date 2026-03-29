@@ -184,8 +184,19 @@ export default function Onboarding() {
         calendar_link: p?.calendar_link || '',
       })
 
-      // If already complete, jump to finish screen (step 6) so users can review.
-      // Guard logic will also prevent re-showing onboarding for completed profiles.
+      // If profile is already complete, go straight to dashboard
+      const doneKey = `rf_onboarding_complete_${String(workspaceId)}`
+      const alreadyDone = localStorage.getItem(doneKey) === '1'
+      const profileComplete = !!p?.company_name && !!p?.website_url && !!p?.company_description
+        && !!p?.value_proposition && !!p?.tone_preference && !!p?.calendar_link
+        && Array.isArray(p?.services_offered) && p.services_offered.length > 0
+        && Array.isArray(p?.social_proof) && p.social_proof.length > 0
+
+      if (alreadyDone || profileComplete) {
+        navigate('/')
+        return
+      }
+
       setStep(1)
     } catch (e) {
       setError(e?.message || 'Failed to load onboarding data')

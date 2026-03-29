@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   conversations as conversationsApi,
+  meetings as meetingsApi,
   unipile,
   agents as agentsApi,
 } from "../lib/api";
@@ -79,6 +80,7 @@ function chatToConversation(chat, backendConvMap) {
     convId: backend?.id || null,
     agentId: backend?.agentId || null,
     providerId: personId || null,
+    bookedAt: backend?.bookedAt || null,
   };
 }
 
@@ -126,9 +128,10 @@ export default function Inbox() {
     if (!accId) return;
     if (!silent) setRefreshing(true);
     try {
-      const [backendConvs, chatData] = await Promise.all([
+      const [backendConvs, chatData, meetingsData] = await Promise.all([
         conversationsApi.list().catch(() => []),
         unipile.getChats(accId),
+        meetingsApi.list().catch(() => []),
       ]);
 
       const backendMap = {};
@@ -136,9 +139,41 @@ export default function Inbox() {
         if (c.linkedinChatId) backendMap[c.linkedinChatId] = c;
       }
 
+      // Build lookup maps from meetings for cross-referencing
+      const meetingByChatId = {};
+      const meetingByName = {};
+      for (const m of meetingsData || []) {
+        if (m.linkedin_chat_id) meetingByChatId[m.linkedin_chat_id] = m;
+        if (m.prospect_name) {
+          meetingByName[m.prospect_name.toLowerCase().trim()] = m;
+        }
+      }
+
       const items = chatData?.items || chatData?.objects || [];
       const merged = items
-        .map((chat) => chatToConversation(chat, backendMap))
+        .map((chat) => {
+          const conv = chatToConversation(chat, backendMap);
+          if (!conv) return null;
+          // Cross-reference with meetings: match by chat ID or by prospect name
+          const bookedMeeting =
+            meetingByChatId[chat.id] ||
+            meetingByName[conv.name.toLowerCase().trim()] ||
+            null;
+          if (bookedMeeting && conv.status !== "booked") {
+            return {
+              ...conv,
+              status: "booked",
+              aiPaused: true,
+              bookedAt: bookedMeeting.booked_at || null,
+            };
+          }
+          if (conv.status === "booked") {
+            // Enrich with booked date if we have it
+            const m = meetingByChatId[chat.id] || meetingByName[conv.name.toLowerCase().trim()];
+            return { ...conv, bookedAt: m?.booked_at || conv.bookedAt || null };
+          }
+          return conv;
+        })
         .filter(Boolean);
       setConversations(merged);
       setInboxUnreadCount(merged.filter((c) => c.unread).length);
@@ -600,7 +635,13 @@ export default function Inbox() {
                 color: "var(--text-muted)",
               }}
             >
-              <span>✓ Meeting booked — conversation complete</span>
+              <span>
+                ✓ Meeting booked
+                {active.bookedAt
+                  ? ` on ${new Date(active.bookedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
+                  : ""}
+                {" — conversation complete"}
+              </span>
             </div>
           )}
 

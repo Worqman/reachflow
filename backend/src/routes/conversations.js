@@ -8,6 +8,34 @@ import { supabase } from '../services/supabase.js'
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// ── AI Reply delay ─────────────────────────────────────────────
+const AI_REPLY_DELAY_MS = 45 * 60 * 1000 // 45 minutes
+
+// Map<conversationId, timeoutId> — tracks pending delayed replies
+const pendingReplies = new Map()
+
+function scheduleAIReply(conversationId) {
+  // Don't schedule if one is already pending for this conversation
+  if (pendingReplies.has(conversationId)) return
+  const timer = setTimeout(() => {
+    pendingReplies.delete(conversationId)
+    generateAIReply(conversationId).catch(err =>
+      console.error('[sync] generateAIReply error:', err)
+    )
+  }, AI_REPLY_DELAY_MS)
+  pendingReplies.set(conversationId, timer)
+  console.log(`[sync] AI reply scheduled in 45 min for conv ${conversationId}`)
+}
+
+function cancelPendingReply(conversationId) {
+  const timer = pendingReplies.get(conversationId)
+  if (timer) {
+    clearTimeout(timer)
+    pendingReplies.delete(conversationId)
+    console.log(`[sync] Cancelled pending AI reply for conv ${conversationId}`)
+  }
+}
+
 // GET /api/conversations
 router.get('/', (req, res) => {
   res.json(conversationStore.list())
@@ -55,6 +83,7 @@ router.get('/:id', (req, res) => {
 router.post('/:id/pause-ai', (req, res) => {
   const conv = conversationStore.get(req.params.id)
   if (!conv) return res.status(404).json({ message: 'Conversation not found' })
+  cancelPendingReply(req.params.id)
   const updated = conversationStore.update(req.params.id, { aiPaused: true, status: 'review' })
   res.json(updated)
 })
@@ -101,10 +130,9 @@ router.post('/:id/sync', async (req, res) => {
     const lastIsProspect = lastMsg && (lastMsg.is_sender === 0 || lastMsg.is_sender === false)
 
     if (lastIsProspect && !conv.aiPaused && lastProspectMsgId) {
-      console.log(`[sync] New prospect message — triggering AI reply for conv ${conv.id}`)
-      // Fire-and-forget so response isn't blocked
-      generateAIReply(conv.id).catch(err => console.error('[sync] generateAIReply error:', err))
-      return res.json({ triggered: true, newMessageId: lastProspectMsgId })
+      console.log(`[sync] New prospect message — scheduling AI reply in 45 min for conv ${conv.id}`)
+      scheduleAIReply(conv.id)
+      return res.json({ triggered: true, scheduled: true, newMessageId: lastProspectMsgId })
     }
 
     res.json({ triggered: false, reason: lastIsProspect ? 'ai paused' : 'last message is ours or no new messages' })
@@ -118,6 +146,8 @@ router.post('/:id/mark-booked', async (req, res) => {
   const conv = conversationStore.get(req.params.id)
   if (!conv) return res.status(404).json({ message: 'Conversation not found' })
 
+  // Cancel any pending delayed reply
+  cancelPendingReply(req.params.id)
   // Update in-memory store
   const updated = conversationStore.update(req.params.id, { status: 'booked', aiPaused: true })
 

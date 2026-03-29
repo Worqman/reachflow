@@ -78,6 +78,7 @@ export default function Agents() {
 
   async function handleToggle(e, agent) {
     e.stopPropagation();
+    e.preventDefault();
     const next = agent.status === "active" ? "paused" : "active";
     setAgents((prev) =>
       prev.map((a) => (a.id === agent.id ? { ...a, status: next } : a)),

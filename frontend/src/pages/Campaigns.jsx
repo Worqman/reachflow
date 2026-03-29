@@ -34,6 +34,7 @@ export default function Campaigns() {
 
   async function handleToggle(e, campaign) {
     e.stopPropagation()
+    e.preventDefault()
     const next = campaign.status === 'active' ? 'paused' : 'active'
     setList(prev => prev.map(c => c.id === campaign.id ? { ...c, status: next } : c))
     await campaignsApi.update(campaign.id, { status: next }).catch(() => {

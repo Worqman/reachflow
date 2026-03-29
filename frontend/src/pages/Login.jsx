@@ -30,7 +30,7 @@ export default function Login() {
       if (signInError) throw signInError
 
       toast?.('Signed in successfully', 'success')
-      navigate('/')
+      navigate('/onboarding')
     } catch (err) {
       console.error(err)
       setError(err.message || 'Invalid email or password')

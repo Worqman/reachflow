@@ -23,34 +23,35 @@ const PORT = process.env.PORT || 3001;
 // ── Middleware ────────────────────────────────────────────────
 const allowedOrigins = [
   "http://localhost:5173",
+  "https://dev-reachflow.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
 
 // ── Auth middleware ───────────────────────────────────────────
 // Verifies Supabase JWT and attaches user + workspaceId to req
 async function attachUser(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '')
+  const token = req.headers.authorization?.replace("Bearer ", "");
   if (token && supabase) {
     try {
-      const { data, error } = await supabase.auth.getUser(token)
-      if (!error && data?.user) req.user = data.user
+      const { data, error } = await supabase.auth.getUser(token);
+      if (!error && data?.user) req.user = data.user;
     } catch {}
   }
-  req.workspaceId = req.headers['x-workspace-id'] || 'ws_default'
-  next()
+  req.workspaceId = req.headers["x-workspace-id"] || "ws_default";
+  next();
 }
 
 // Blocks the request if no valid user is attached
 function requireAuth(req, res, next) {
   if (!req.user) {
-    return res.status(401).json({ message: 'Unauthorized — please sign in' })
+    return res.status(401).json({ message: "Unauthorized — please sign in" });
   }
-  next()
+  next();
 }
 
-app.use('/api', attachUser);
+app.use("/api", attachUser);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/health", (req, res) => {
@@ -69,18 +70,18 @@ app.get("/health", (req, res) => {
 
 // ── API Routes ────────────────────────────────────────────────
 
-app.use("/api/workspaces",       requireAuth, workspaceRouter);
+app.use("/api/workspaces", requireAuth, workspaceRouter);
 app.use("/api/company-profiles", requireAuth, companyProfilesRouter);
-app.use("/api/settings",         requireAuth, settingsRouter);
-app.use("/api/agents",           requireAuth, agentsRouter);
-app.use("/api/campaigns",        requireAuth, campaignsRouter);
-app.use("/api/leads",            requireAuth, leadsRouter);
-app.use("/api/conversations",    requireAuth, conversationsRouter);
-app.use("/api/meetings",         requireAuth, meetingsRouter);
-app.use("/api/profiles",         requireAuth, profilesRouter);
-app.use("/api/members",          requireAuth, membersRouter);
-app.use("/api/unipile",          requireAuth, unipileRouter);
-app.use("/api/dashboard",        requireAuth, dashboardRouter);
+app.use("/api/settings", requireAuth, settingsRouter);
+app.use("/api/agents", requireAuth, agentsRouter);
+app.use("/api/campaigns", requireAuth, campaignsRouter);
+app.use("/api/leads", requireAuth, leadsRouter);
+app.use("/api/conversations", requireAuth, conversationsRouter);
+app.use("/api/meetings", requireAuth, meetingsRouter);
+app.use("/api/profiles", requireAuth, profilesRouter);
+app.use("/api/members", requireAuth, membersRouter);
+app.use("/api/unipile", requireAuth, unipileRouter);
+app.use("/api/dashboard", requireAuth, dashboardRouter);
 
 // ── Webhooks (no auth — called by Unipile externally) ─────────
 app.use("/api/webhooks", unipileWebhook);

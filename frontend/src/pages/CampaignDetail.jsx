@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
+import LinkedInProfileModal from "../components/LinkedInProfileModal";
 import Modal from "../components/Modal";
 import {
   campaigns as campaignsApi,
@@ -69,12 +70,6 @@ function nodeConfigured(node) {
 
 const IMPORT_SOURCES = [
   {
-    id: "signal",
-    icon: "◎",
-    label: "Signal Agent Leads",
-    desc: "Pull warm leads from your Intent Signal Agents",
-  },
-  {
     id: "finder",
     icon: "◈",
     label: "Lead Finder",
@@ -91,6 +86,12 @@ const IMPORT_SOURCES = [
     icon: "🔗",
     label: "LinkedIn Search URL",
     desc: "Paste a LinkedIn search results URL",
+  },
+  {
+    id: "profile",
+    icon: "👤",
+    label: "LinkedIn Profile URL",
+    desc: "Paste a single LinkedIn profile URL to import one person",
   },
   {
     id: "event",
@@ -119,12 +120,12 @@ const IMPORT_SOURCES = [
 ];
 
 const STATUS_COLORS = {
-  pending:   "badge-muted",
-  invited:   "badge-warning",
+  pending: "badge-muted",
+  invited: "badge-warning",
   connected: "badge-signal",
-  replied:   "badge-info",
-  booked:    "badge-signal",
-  rejected:  "badge-danger",
+  replied: "badge-info",
+  booked: "badge-signal",
+  rejected: "badge-danger",
 };
 
 const PERSONA_FIELDS = [
@@ -177,6 +178,7 @@ export default function CampaignDetail() {
   const [showImport, setShowImport] = useState(false);
   const [lfOpen, setLfOpen] = useState(false);
   const [profileUrlOpen, setProfileUrlOpen] = useState(false);
+  const [linkedInProfileOpen, setLinkedInProfileOpen] = useState(false);
   const [postEngagersOpen, setPostEngagersOpen] = useState(false);
   const [sendingInvites, setSendingInvites] = useState(false);
   const [sendingMessageFor, setSendingMessageFor] = useState(null);
@@ -186,18 +188,22 @@ export default function CampaignDetail() {
     setSendingInvites(true);
     try {
       const result = await campaignsApi.sendInvites(id);
-      if (result.message === 'No pending leads') {
-        toast?.('No pending leads to send invites to', 'danger');
+      if (result.message === "No pending leads") {
+        toast?.("No pending leads to send invites to", "danger");
       } else if (result.sent === 0 && result.total > 0) {
-        const firstError = result.results?.find(r => !r.ok)?.error || 'Unknown error';
-        toast?.(`All invites failed: ${firstError}`, 'danger');
-        console.error('[send-invites] failures:', result.results);
+        const firstError =
+          result.results?.find((r) => !r.ok)?.error || "Unknown error";
+        toast?.(`All invites failed: ${firstError}`, "danger");
+        console.error("[send-invites] failures:", result.results);
       } else {
-        toast?.(`Sent ${result.sent} of ${result.total} connection request${result.total !== 1 ? 's' : ''}`, 'success');
+        toast?.(
+          `Sent ${result.sent} of ${result.total} connection request${result.total !== 1 ? "s" : ""}`,
+          "success",
+        );
         refreshLeads();
       }
     } catch (err) {
-      toast?.(err.message || 'Failed to send invites', 'danger');
+      toast?.(err.message || "Failed to send invites", "danger");
     } finally {
       setSendingInvites(false);
     }
@@ -208,13 +214,16 @@ export default function CampaignDetail() {
     try {
       const result = await campaignsApi.syncStatuses(id);
       if (result.connected > 0) {
-        toast?.(`${result.connected} new connection${result.connected !== 1 ? 's' : ''} detected — messages sent`, 'success');
+        toast?.(
+          `${result.connected} new connection${result.connected !== 1 ? "s" : ""} detected — messages sent`,
+          "success",
+        );
         refreshLeads();
       } else if (!silent) {
-        toast?.('No new connections found', 'success');
+        toast?.("No new connections found", "success");
       }
     } catch (err) {
-      if (!silent) toast?.(err.message || 'Sync failed', 'danger');
+      if (!silent) toast?.(err.message || "Sync failed", "danger");
     } finally {
       if (!silent) setSyncing(false);
     }
@@ -222,9 +231,11 @@ export default function CampaignDetail() {
 
   // Auto-poll every 30s when on leads tab — sync connections + messages
   useEffect(() => {
-    if (tab !== 'leads') return;
-    const hasInvited  = leads.some(l => l.status === 'invited');
-    const hasActive   = leads.some(l => ['connected', 'replied'].includes(l.status));
+    if (tab !== "leads") return;
+    const hasInvited = leads.some((l) => l.status === "invited");
+    const hasActive = leads.some((l) =>
+      ["connected", "replied"].includes(l.status),
+    );
     if (!hasInvited && !hasActive) return;
 
     const interval = setInterval(async () => {
@@ -233,7 +244,9 @@ export default function CampaignDetail() {
         try {
           const result = await campaignsApi.syncMessages(id);
           if (result.processed > 0) refreshLeads();
-        } catch { /* silent */ }
+        } catch {
+          /* silent */
+        }
       }
     }, 30000);
     return () => clearInterval(interval);
@@ -244,7 +257,7 @@ export default function CampaignDetail() {
       await campaignsApi.deleteLead(id, leadId);
       refreshLeads();
     } catch (err) {
-      toast?.(err.message || 'Failed to delete lead', 'danger');
+      toast?.(err.message || "Failed to delete lead", "danger");
     }
   }
 
@@ -252,10 +265,10 @@ export default function CampaignDetail() {
     setSendingMessageFor(leadId);
     try {
       await campaignsApi.sendLeadMessage(id, leadId);
-      toast?.('AI opening message sent', 'success');
+      toast?.("AI opening message sent", "success");
       refreshLeads();
     } catch (err) {
-      toast?.(err.message || 'Failed to send message', 'danger');
+      toast?.(err.message || "Failed to send message", "danger");
     } finally {
       setSendingMessageFor(null);
     }
@@ -279,9 +292,12 @@ export default function CampaignDetail() {
           unipile.getAccounts(),
         ]);
         if (camp.status === "fulfilled") setCampaign(camp.value);
-        const loadedLeads = campLeads.status === "fulfilled"
-          ? (Array.isArray(campLeads.value) ? campLeads.value : [])
-          : [];
+        const loadedLeads =
+          campLeads.status === "fulfilled"
+            ? Array.isArray(campLeads.value)
+              ? campLeads.value
+              : []
+            : [];
         setLeads(loadedLeads);
         if (agentList.status === "fulfilled")
           setAgents(Array.isArray(agentList.value) ? agentList.value : []);
@@ -289,7 +305,7 @@ export default function CampaignDetail() {
           setLinkedinAccounts(accs.value?.items || []);
 
         // Auto-sync on load if any leads are in 'invited' state
-        const hasInvited = loadedLeads.some(l => l.status === 'invited');
+        const hasInvited = loadedLeads.some((l) => l.status === "invited");
         if (hasInvited) syncStatuses(true);
       } finally {
         setLoading(false);
@@ -415,6 +431,13 @@ export default function CampaignDetail() {
         campaignId={id}
       />
 
+      <LinkedInProfileModal
+        open={linkedInProfileOpen}
+        onClose={() => setLinkedInProfileOpen(false)}
+        onImport={refreshLeads}
+        campaignId={id}
+      />
+
       {/* Tab content */}
       <div className="detail-content">
         {tab === "leads" && (
@@ -428,6 +451,7 @@ export default function CampaignDetail() {
               setShowImport(false);
               if (which === "url") setProfileUrlOpen(true);
               else if (which === "post") setPostEngagersOpen(true);
+              else if (which === "profile") setLinkedInProfileOpen(true);
               else setLfOpen(true);
             }}
             onSendInvites={handleSendInvites}
@@ -477,77 +501,153 @@ export default function CampaignDetail() {
 
 // ── My Leads Picker Modal ────────────────────────────────────
 function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
-  const [list, setList] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [selected, setSelected] = useState([])
-  const [importing, setImporting] = useState(false)
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    if (!open) { setSelected([]); return }
-    setLoading(true)
-    leadsApi.list()
-      .then(data => setList(Array.isArray(data) ? data : []))
+    if (!open) {
+      setSelected([]);
+      return;
+    }
+    setLoading(true);
+    leadsApi
+      .list()
+      .then((data) => setList(Array.isArray(data) ? data : []))
       .catch(() => setList([]))
-      .finally(() => setLoading(false))
-  }, [open])
+      .finally(() => setLoading(false));
+  }, [open]);
 
   function toggle(id) {
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   }
 
   async function handleImport() {
-    const toAdd = list.filter(l => selected.includes(l.id))
-    if (!toAdd.length) return
-    setImporting(true)
+    const toAdd = list.filter((l) => selected.includes(l.id));
+    if (!toAdd.length) return;
+    setImporting(true);
     try {
-      await campaignsApi.importLeads(campaignId, { leads: toAdd, source: 'list' })
-      onImported()
-      onClose()
+      await campaignsApi.importLeads(campaignId, {
+        leads: toAdd,
+        source: "list",
+      });
+      onImported();
+      onClose();
     } catch {}
-    setImporting(false)
+    setImporting(false);
   }
 
-  if (!open) return null
+  if (!open) return null;
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box animate-fade-in" style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal-box animate-fade-in"
+        style={{
+          maxWidth: 560,
+          display: "flex",
+          flexDirection: "column",
+          maxHeight: "80vh",
+        }}
+      >
         <div className="modal-header">
           <h2 className="modal-title">Add from My Leads</h2>
-          <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>
+            ✕
+          </button>
         </div>
-        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="modal-body" style={{ flex: 1, overflowY: "auto" }}>
           {loading ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>Loading saved leads…</div>
+            <div
+              style={{
+                textAlign: "center",
+                color: "var(--text-muted)",
+                fontSize: 13,
+                padding: "24px 0",
+              }}
+            >
+              Loading saved leads…
+            </div>
           ) : list.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>
+            <div
+              style={{
+                textAlign: "center",
+                color: "var(--text-muted)",
+                fontSize: 13,
+                padding: "24px 0",
+              }}
+            >
               No saved leads yet. Use Lead Finder → Save to List first.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{list.length} saved leads</span>
-                <button className="btn btn-ghost btn-sm" onClick={() =>
-                  setSelected(selected.length === list.length ? [] : list.map(l => l.id))
-                }>
-                  {selected.length === list.length ? 'Deselect All' : 'Select All'}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {list.length} saved leads
+                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() =>
+                    setSelected(
+                      selected.length === list.length
+                        ? []
+                        : list.map((l) => l.id),
+                    )
+                  }
+                >
+                  {selected.length === list.length
+                    ? "Deselect All"
+                    : "Select All"}
                 </button>
               </div>
-              {list.map(lead => (
+              {list.map((lead) => (
                 <div
                   key={lead.id}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                    background: 'var(--surface)', cursor: 'pointer',
-                    border: `1px solid ${selected.includes(lead.id) ? 'var(--signal)' : 'var(--border)'}`,
-                    borderRadius: 'var(--radius)',
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 12px",
+                    background: "var(--surface)",
+                    cursor: "pointer",
+                    border: `1px solid ${selected.includes(lead.id) ? "var(--signal)" : "var(--border)"}`,
+                    borderRadius: "var(--radius)",
                   }}
                   onClick={() => toggle(lead.id)}
                 >
-                  <input type="checkbox" checked={selected.includes(lead.id)} onChange={() => toggle(lead.id)} onClick={e => e.stopPropagation()} />
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(lead.id)}
+                    onChange={() => toggle(lead.id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{lead.name || '—'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {lead.title}{lead.company ? ` · ${lead.company}` : ''}
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {lead.name || "—"}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {lead.title}
+                      {lead.company ? ` · ${lead.company}` : ""}
                     </div>
                   </div>
                 </div>
@@ -556,184 +656,337 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
           )}
         </div>
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
           <button
             className="btn btn-primary"
             disabled={selected.length === 0 || importing}
             onClick={handleImport}
           >
-            {importing ? 'Adding…' : `Add ${selected.length > 0 ? selected.length : ''} to Campaign`}
+            {importing
+              ? "Adding…"
+              : `Add ${selected.length > 0 ? selected.length : ""} to Campaign`}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── CSV Import Modal ─────────────────────────────────────────
 function parseCsv(text) {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
-  if (lines.length < 2) return []
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((l) => l.trim());
+  if (lines.length < 2) return [];
 
   function splitRow(row) {
-    const cells = []
-    let cur = '', inQ = false
+    const cells = [];
+    let cur = "",
+      inQ = false;
     for (let i = 0; i < row.length; i++) {
-      const ch = row[i]
-      if (ch === '"') { inQ = !inQ }
-      else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = '' }
-      else { cur += ch }
+      const ch = row[i];
+      if (ch === '"') {
+        inQ = !inQ;
+      } else if (ch === "," && !inQ) {
+        cells.push(cur.trim());
+        cur = "";
+      } else {
+        cur += ch;
+      }
     }
-    cells.push(cur.trim())
-    return cells
+    cells.push(cur.trim());
+    return cells;
   }
 
-  const headers = splitRow(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''))
+  const headers = splitRow(lines[0]).map((h) =>
+    h
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, ""),
+  );
 
   // Map common CSV column names to lead fields
   function pickCol(candidates) {
     for (const c of candidates) {
-      const idx = headers.findIndex(h => h === c || h.includes(c))
-      if (idx !== -1) return idx
+      const idx = headers.findIndex((h) => h === c || h.includes(c));
+      if (idx !== -1) return idx;
     }
-    return -1
+    return -1;
   }
 
-  const nameIdx      = pickCol(['name', 'full_name', 'fullname', 'contact_name', 'first_name'])
-  const firstIdx     = pickCol(['first_name', 'firstname', 'first'])
-  const lastIdx      = pickCol(['last_name', 'lastname', 'last', 'surname'])
-  const titleIdx     = pickCol(['title', 'job_title', 'jobtitle', 'position', 'role', 'headline'])
-  const companyIdx   = pickCol(['company', 'company_name', 'organization', 'employer'])
-  const locationIdx  = pickCol(['location', 'city', 'country', 'region', 'geo'])
-  const linkedinIdx  = pickCol(['linkedin', 'linkedin_url', 'linkedinurl', 'profile_url', 'linkedin_profile'])
+  const nameIdx = pickCol([
+    "name",
+    "full_name",
+    "fullname",
+    "contact_name",
+    "first_name",
+  ]);
+  const firstIdx = pickCol(["first_name", "firstname", "first"]);
+  const lastIdx = pickCol(["last_name", "lastname", "last", "surname"]);
+  const titleIdx = pickCol([
+    "title",
+    "job_title",
+    "jobtitle",
+    "position",
+    "role",
+    "headline",
+  ]);
+  const companyIdx = pickCol([
+    "company",
+    "company_name",
+    "organization",
+    "employer",
+  ]);
+  const locationIdx = pickCol(["location", "city", "country", "region", "geo"]);
+  const linkedinIdx = pickCol([
+    "linkedin",
+    "linkedin_url",
+    "linkedinurl",
+    "profile_url",
+    "linkedin_profile",
+  ]);
 
-  const rows = []
+  const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const cells = splitRow(lines[i])
-    if (cells.every(c => !c)) continue
+    const cells = splitRow(lines[i]);
+    if (cells.every((c) => !c)) continue;
 
-    const get = idx => (idx !== -1 && cells[idx]) ? cells[idx].replace(/^"|"$/g, '').trim() : ''
+    const get = (idx) =>
+      idx !== -1 && cells[idx] ? cells[idx].replace(/^"|"$/g, "").trim() : "";
 
-    let name = get(nameIdx)
+    let name = get(nameIdx);
     if (!name && (firstIdx !== -1 || lastIdx !== -1)) {
-      name = [get(firstIdx), get(lastIdx)].filter(Boolean).join(' ').trim()
+      name = [get(firstIdx), get(lastIdx)].filter(Boolean).join(" ").trim();
     }
-    if (!name) name = `Row ${i}`
+    if (!name) name = `Row ${i}`;
 
     rows.push({
       id: `csv_${i}`,
       name,
-      title:      get(titleIdx),
-      company:    get(companyIdx),
-      location:   get(locationIdx),
+      title: get(titleIdx),
+      company: get(companyIdx),
+      location: get(locationIdx),
       linkedinUrl: get(linkedinIdx),
-      status:     'Not contacted',
-    })
+      status: "Not contacted",
+    });
   }
-  return rows
+  return rows;
 }
 
 function CsvImportModal({ open, onClose, campaignId, onImported }) {
-  const [rows, setRows]         = useState([])
-  const [error, setError]       = useState('')
-  const [importing, setImporting] = useState(false)
-  const [fileName, setFileName] = useState('')
-  const fileRef = React.useRef()
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const fileRef = React.useRef();
 
-  function reset() { setRows([]); setError(''); setFileName('') }
-  useEffect(() => { if (!open) reset() }, [open])
+  function reset() {
+    setRows([]);
+    setError("");
+    setFileName("");
+  }
+  useEffect(() => {
+    if (!open) reset();
+  }, [open]);
 
   function handleFile(file) {
-    if (!file) return
-    setFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = e => {
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
       try {
-        const parsed = parseCsv(e.target.result)
-        if (!parsed.length) { setError('No valid rows found. Make sure the CSV has a header row.'); setRows([]) }
-        else { setRows(parsed); setError('') }
-      } catch { setError('Could not parse CSV.') }
-    }
-    reader.readAsText(file)
+        const parsed = parseCsv(e.target.result);
+        if (!parsed.length) {
+          setError("No valid rows found. Make sure the CSV has a header row.");
+          setRows([]);
+        } else {
+          setRows(parsed);
+          setError("");
+        }
+      } catch {
+        setError("Could not parse CSV.");
+      }
+    };
+    reader.readAsText(file);
   }
 
   async function handleImport() {
-    if (!rows.length) return
-    setImporting(true)
+    if (!rows.length) return;
+    setImporting(true);
     try {
-      await campaignsApi.importLeads(campaignId, { leads: rows, source: 'csv' })
-      onImported()
-      onClose()
-    } catch (e) { setError(e.message || 'Import failed') }
-    setImporting(false)
+      await campaignsApi.importLeads(campaignId, {
+        leads: rows,
+        source: "csv",
+      });
+      onImported();
+      onClose();
+    } catch (e) {
+      setError(e.message || "Import failed");
+    }
+    setImporting(false);
   }
 
-  if (!open) return null
+  if (!open) return null;
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box animate-fade-in" style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal-box animate-fade-in"
+        style={{
+          maxWidth: 620,
+          display: "flex",
+          flexDirection: "column",
+          maxHeight: "85vh",
+        }}
+      >
         <div className="modal-header">
           <h2 className="modal-title">⬆ Import from CSV</h2>
-          <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>
+            ✕
+          </button>
         </div>
-        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-            Upload a CSV with columns like <strong>name</strong>, <strong>linkedin_url</strong>, <strong>title</strong>, <strong>company</strong>, <strong>location</strong>.
+        <div className="modal-body" style={{ flex: 1, overflowY: "auto" }}>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              marginBottom: 16,
+            }}
+          >
+            Upload a CSV with columns like <strong>name</strong>,{" "}
+            <strong>linkedin_url</strong>, <strong>title</strong>,{" "}
+            <strong>company</strong>, <strong>location</strong>.
           </p>
 
           <div
             style={{
-              border: '2px dashed var(--border)', borderRadius: 'var(--radius-md)',
-              padding: '28px 20px', textAlign: 'center', cursor: 'pointer',
-              background: 'var(--surface)', marginBottom: 16,
+              border: "2px dashed var(--border)",
+              borderRadius: "var(--radius-md)",
+              padding: "28px 20px",
+              textAlign: "center",
+              cursor: "pointer",
+              background: "var(--surface)",
+              marginBottom: 16,
             }}
             onClick={() => fileRef.current?.click()}
-            onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleFile(e.dataTransfer.files[0]);
+            }}
           >
             <input
               ref={fileRef}
               type="file"
               accept=".csv,text/csv"
-              style={{ display: 'none' }}
-              onChange={e => handleFile(e.target.files[0])}
+              style={{ display: "none" }}
+              onChange={(e) => handleFile(e.target.files[0])}
             />
             {fileName ? (
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>📄 {fileName}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{rows.length} rows detected</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  📄 {fileName}
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  {rows.length} rows detected
+                </div>
               </div>
             ) : (
               <div>
                 <div style={{ fontSize: 24, marginBottom: 6 }}>⬆</div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>Click to choose a CSV file</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>or drag and drop here</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  Click to choose a CSV file
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  or drag and drop here
+                </div>
               </div>
             )}
           </div>
 
-          {error && <div style={{ fontSize: 13, color: 'var(--danger, #e55)', marginBottom: 12 }}>{error}</div>}
+          {error && (
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--danger, #e55)",
+                marginBottom: 12,
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           {rows.length > 0 && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  marginBottom: 8,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
                 Preview ({Math.min(rows.length, 5)} of {rows.length})
               </div>
-              <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
+              <div
+                className="table-wrap"
+                style={{ maxHeight: 220, overflowY: "auto" }}
+              >
                 <table>
                   <thead>
                     <tr>
-                      <th>Name</th><th>Title</th><th>Company</th><th>LinkedIn URL</th>
+                      <th>Name</th>
+                      <th>Title</th>
+                      <th>Company</th>
+                      <th>LinkedIn URL</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0, 5).map(r => (
+                    {rows.slice(0, 5).map((r) => (
                       <tr key={r.id}>
-                        <td style={{ fontWeight: 600, fontSize: 13 }}>{r.name || '—'}</td>
-                        <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{r.title || '—'}</td>
-                        <td style={{ fontSize: 13 }}>{r.company || '—'}</td>
-                        <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.linkedinUrl || '—'}
+                        <td style={{ fontWeight: 600, fontSize: 13 }}>
+                          {r.name || "—"}
+                        </td>
+                        <td
+                          style={{
+                            fontSize: 13,
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          {r.title || "—"}
+                        </td>
+                        <td style={{ fontSize: 13 }}>{r.company || "—"}</td>
+                        <td
+                          style={{
+                            fontSize: 12,
+                            color: "var(--text-muted)",
+                            maxWidth: 160,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {r.linkedinUrl || "—"}
                         </td>
                       </tr>
                     ))}
@@ -741,33 +994,60 @@ function CsvImportModal({ open, onClose, campaignId, onImported }) {
                 </table>
               </div>
               {rows.length > 5 && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>+ {rows.length - 5} more rows</div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginTop: 6,
+                  }}
+                >
+                  + {rows.length - 5} more rows
+                </div>
               )}
             </div>
           )}
         </div>
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
           <button
             className="btn btn-primary"
             disabled={rows.length === 0 || importing}
             onClick={handleImport}
           >
-            {importing ? 'Importing…' : `Import ${rows.length > 0 ? rows.length : ''} Contacts →`}
+            {importing
+              ? "Importing…"
+              : `Import ${rows.length > 0 ? rows.length : ""} Contacts →`}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Leads Tab ─────────────────────────────────────────────────
-function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOpenLeadFinder, onSendInvites, sendingInvites, onSendMessage, sendingMessageFor, onDeleteLead, onSync, syncing, onRefreshLeads }) {
-  const pendingCount = leads.filter(l => l.status === 'pending').length
-  const invitedCount = leads.filter(l => l.status === 'invited').length
-  const [confirmDelete, setConfirmDelete] = useState(null)
-  const [myLeadsOpen, setMyLeadsOpen] = useState(false)
-  const [csvImportOpen, setCsvImportOpen] = useState(false)
+function LeadsTab({
+  campaignId,
+  leads,
+  onImport,
+  showImport,
+  onCloseImport,
+  onOpenLeadFinder,
+  onSendInvites,
+  sendingInvites,
+  onSendMessage,
+  sendingMessageFor,
+  onDeleteLead,
+  onSync,
+  syncing,
+  onRefreshLeads,
+}) {
+  const pendingCount = leads.filter((l) => l.status === "pending").length;
+  const invitedCount = leads.filter((l) => l.status === "invited").length;
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [myLeadsOpen, setMyLeadsOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   return (
     <div>
       <div
@@ -781,7 +1061,7 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
         <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
           {leads.length} leads in campaign
         </span>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           {invitedCount > 0 && (
             <button
               className="btn btn-secondary btn-sm"
@@ -789,7 +1069,7 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
               disabled={syncing}
               title="Check Unipile for accepted connections"
             >
-              {syncing ? '↻ Syncing…' : `↻ Sync (${invitedCount} invited)`}
+              {syncing ? "↻ Syncing…" : `↻ Sync (${invitedCount} invited)`}
             </button>
           )}
           {pendingCount > 0 && (
@@ -798,7 +1078,7 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
               onClick={onSendInvites}
               disabled={sendingInvites}
             >
-              {sendingInvites ? 'Sending…' : `▶ Send Invites (${pendingCount})`}
+              {sendingInvites ? "Sending…" : `▶ Send Invites (${pendingCount})`}
             </button>
           )}
           <button className="btn btn-secondary btn-sm" onClick={onImport}>
@@ -857,24 +1137,27 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
                       : "—"}
                   </td>
                   <td>
-                    {l.status === 'invited' && (
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Auto-detects acceptance every 30s">
+                    {l.status === "invited" && (
+                      <span
+                        style={{ fontSize: 11, color: "var(--text-muted)" }}
+                        title="Auto-detects acceptance every 30s"
+                      >
                         ↻ Checking…
                       </span>
                     )}
-                    {l.status === 'connected' && (
+                    {l.status === "connected" && (
                       <button
                         className="btn btn-primary btn-sm"
                         disabled={sendingMessageFor === l.id}
                         onClick={() => onSendMessage(l.id)}
                         title="Generate and send AI opening message"
                       >
-                        {sendingMessageFor === l.id ? '…' : '◆ Send AI Message'}
+                        {sendingMessageFor === l.id ? "…" : "◆ Send AI Message"}
                       </button>
                     )}
                     <button
                       className="btn btn-ghost btn-sm"
-                      style={{ color: 'var(--danger)', marginLeft: 4 }}
+                      style={{ color: "var(--danger)", marginLeft: 4 }}
                       onClick={() => setConfirmDelete(l)}
                       title="Remove lead from campaign"
                     >
@@ -894,17 +1177,34 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
         title="Remove Lead"
         width={400}
       >
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20 }}>
-          Remove <strong>{confirmDelete?.name || 'this lead'}</strong> from the campaign? This cannot be undone.
+        <p
+          style={{
+            fontSize: 14,
+            color: "var(--text-secondary)",
+            marginBottom: 20,
+          }}
+        >
+          Remove <strong>{confirmDelete?.name || "this lead"}</strong> from the
+          campaign? This cannot be undone.
         </p>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(null)}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setConfirmDelete(null)}
+          >
             Cancel
           </button>
           <button
             className="btn btn-sm"
-            style={{ background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)' }}
-            onClick={() => { onDeleteLead(confirmDelete.id); setConfirmDelete(null) }}
+            style={{
+              background: "var(--danger)",
+              color: "#fff",
+              borderColor: "var(--danger)",
+            }}
+            onClick={() => {
+              onDeleteLead(confirmDelete.id);
+              setConfirmDelete(null);
+            }}
           >
             Remove Lead
           </button>
@@ -956,20 +1256,22 @@ function LeadsTab({ campaignId, leads, onImport, showImport, onCloseImport, onOp
                     key={s.id}
                     className="import-source-card"
                     onClick={() => {
-                      if (s.id === 'finder') {
-                        onOpenLeadFinder('finder')
-                      } else if (s.id === 'url') {
-                        onOpenLeadFinder('url')
-                      } else if (s.id === 'post') {
-                        onOpenLeadFinder('post')
-                      } else if (s.id === 'list') {
-                        onCloseImport()
-                        setMyLeadsOpen(true)
-                      } else if (s.id === 'csv') {
-                        onCloseImport()
-                        setCsvImportOpen(true)
+                      if (s.id === "finder") {
+                        onOpenLeadFinder("finder");
+                      } else if (s.id === "url") {
+                        onOpenLeadFinder("url");
+                      } else if (s.id === "post") {
+                        onOpenLeadFinder("post");
+                      } else if (s.id === "profile") {
+                        onOpenLeadFinder("profile");
+                      } else if (s.id === "list") {
+                        onCloseImport();
+                        setMyLeadsOpen(true);
+                      } else if (s.id === "csv") {
+                        onCloseImport();
+                        setCsvImportOpen(true);
                       } else {
-                        alert(`${s.label} — coming soon`)
+                        alert(`${s.label} — coming soon`);
                       }
                     }}
                   >
@@ -1115,21 +1417,39 @@ function BuilderTab({
                       </div>
                     )}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                    flexShrink: 0,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     className="btn btn-icon btn-ghost"
                     style={{ fontSize: 10, padding: "2px 5px", lineHeight: 1 }}
                     disabled={i === 0}
-                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, -1); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      moveNode(node._id, -1);
+                    }}
                     title="Move up"
-                  >▲</button>
+                  >
+                    ▲
+                  </button>
                   <button
                     className="btn btn-icon btn-ghost"
                     style={{ fontSize: 10, padding: "2px 5px", lineHeight: 1 }}
                     disabled={i === nodes.length - 1}
-                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, 1); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      moveNode(node._id, 1);
+                    }}
                     title="Move down"
-                  >▼</button>
+                  >
+                    ▼
+                  </button>
                 </div>
                 <button
                   className="btn btn-icon btn-ghost node-edit-btn"
@@ -1472,7 +1792,6 @@ function BuilderTab({
           </div>
         </div>
       )}
-
     </div>
   );
 }
@@ -1614,17 +1933,32 @@ function AnalyticsTab({ campaignId }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    campaignsApi.getAnalytics(campaignId)
+    campaignsApi
+      .getAnalytics(campaignId)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [campaignId]);
 
-  const totals = data || { sent: 0, accepted: 0, replied: 0, booked: 0, acceptanceRate: 0, replyRate: 0 };
+  const totals = data || {
+    sent: 0,
+    accepted: 0,
+    replied: 0,
+    booked: 0,
+    acceptanceRate: 0,
+    replyRate: 0,
+  };
   const allSeries = data?.timeSeries || [];
 
   // Filter by range
-  const rangeDays = range === "7d" ? 7 : range === "14d" ? 14 : range === "30d" ? 30 : allSeries.length;
+  const rangeDays =
+    range === "7d"
+      ? 7
+      : range === "14d"
+        ? 14
+        : range === "30d"
+          ? 30
+          : allSeries.length;
   const series = allSeries.slice(-rangeDays);
 
   // Pick metric key
@@ -1680,7 +2014,14 @@ function AnalyticsTab({ campaignId }) {
 
       {/* Chart card */}
       <div className="card">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 16,
+          }}
+        >
           <div style={{ display: "flex", gap: 4 }}>
             {[
               { id: "sent", label: "Sent" },
@@ -1710,39 +2051,138 @@ function AnalyticsTab({ campaignId }) {
         </div>
 
         {loading ? (
-          <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>
+          <div
+            style={{
+              padding: "40px 0",
+              textAlign: "center",
+              color: "var(--text-muted)",
+              fontSize: 13,
+            }}
+          >
+            Loading…
+          </div>
         ) : values.every((v) => v === 0) ? (
-          <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+          <div
+            style={{
+              padding: "40px 0",
+              textAlign: "center",
+              color: "var(--text-muted)",
+              fontSize: 13,
+            }}
+          >
             No data yet. Run the campaign to see analytics.
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 160, minWidth: values.length * 20, paddingBottom: 24, position: "relative" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                gap: 4,
+                height: 160,
+                minWidth: values.length * 20,
+                paddingBottom: 24,
+                position: "relative",
+              }}
+            >
               {/* Y-axis guideline */}
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 24, display: "flex", flexDirection: "column", justifyContent: "space-between", pointerEvents: "none" }}>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 24,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  pointerEvents: "none",
+                }}
+              >
                 {[1, 0.5, 0].map((f) => (
-                  <div key={f} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 9, color: "var(--text-disabled)", width: 20, textAlign: "right", flexShrink: 0 }}>
+                  <div
+                    key={f}
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 9,
+                        color: "var(--text-disabled)",
+                        width: 20,
+                        textAlign: "right",
+                        flexShrink: 0,
+                      }}
+                    >
                       {Math.round(maxVal * f)}
                     </span>
-                    <div style={{ flex: 1, borderTop: "1px dashed var(--border)", opacity: 0.5 }} />
+                    <div
+                      style={{
+                        flex: 1,
+                        borderTop: "1px dashed var(--border)",
+                        opacity: 0.5,
+                      }}
+                    />
                   </div>
                 ))}
               </div>
               {/* Bars */}
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: "100%", flex: 1, paddingLeft: 28 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-end",
+                  gap: 4,
+                  height: "100%",
+                  flex: 1,
+                  paddingLeft: 28,
+                }}
+              >
                 {values.map((v, i) => {
                   const barH = Math.max(2, Math.round((v / maxVal) * 120));
-                  const d = series[i]
+                  const d = series[i];
                   const label = d?.date
-                    ? new Date(d.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
-                    : `D${d?.day ?? i + 1}`
-                  const showLabel = values.length <= 14 || i % Math.ceil(values.length / 10) === 0;
+                    ? new Date(d.date + "T00:00:00").toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : `D${d?.day ?? i + 1}`;
+                  const showLabel =
+                    values.length <= 14 ||
+                    i % Math.ceil(values.length / 10) === 0;
                   return (
-                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1, minWidth: 12 }}>
-                      <div title={`Day ${series[i]?.day ?? i + 1}: ${v}`} style={{ width: "100%", maxWidth: 28, height: barH, background: METRIC_COLOR[metricKey] || METRIC_COLOR.sent, borderRadius: "3px 3px 0 0", border: `1px solid ${METRIC_BORDER[metricKey] || METRIC_BORDER.sent}`, transition: "height 0.2s" }} />
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 4,
+                        flex: 1,
+                        minWidth: 12,
+                      }}
+                    >
+                      <div
+                        title={`Day ${series[i]?.day ?? i + 1}: ${v}`}
+                        style={{
+                          width: "100%",
+                          maxWidth: 28,
+                          height: barH,
+                          background:
+                            METRIC_COLOR[metricKey] || METRIC_COLOR.sent,
+                          borderRadius: "3px 3px 0 0",
+                          border: `1px solid ${METRIC_BORDER[metricKey] || METRIC_BORDER.sent}`,
+                          transition: "height 0.2s",
+                        }}
+                      />
                       {showLabel && (
-                        <span style={{ fontSize: 9, color: "var(--text-disabled)", whiteSpace: "nowrap" }}>{label}</span>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            color: "var(--text-disabled)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {label}
+                        </span>
                       )}
                     </div>
                   );

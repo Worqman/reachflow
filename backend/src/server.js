@@ -28,8 +28,9 @@ const allowedOrigins = [
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
-// Auth middleware — verifies Supabase JWT and attaches user + workspaceId to req
-app.use('/api', async (req, res, next) => {
+// ── Auth middleware ───────────────────────────────────────────
+// Verifies Supabase JWT and attaches user + workspaceId to req
+async function attachUser(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '')
   if (token && supabase) {
     try {
@@ -37,10 +38,19 @@ app.use('/api', async (req, res, next) => {
       if (!error && data?.user) req.user = data.user
     } catch {}
   }
-  // Workspace comes from the frontend header (set from localStorage)
   req.workspaceId = req.headers['x-workspace-id'] || 'ws_default'
   next()
-});
+}
+
+// Blocks the request if no valid user is attached
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized — please sign in' })
+  }
+  next()
+}
+
+app.use('/api', attachUser);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/health", (req, res) => {
@@ -59,20 +69,20 @@ app.get("/health", (req, res) => {
 
 // ── API Routes ────────────────────────────────────────────────
 
-app.use("/api/workspaces", workspaceRouter);
-app.use("/api/company-profiles", companyProfilesRouter);
-app.use("/api/settings", settingsRouter);
-app.use("/api/agents", agentsRouter);
-app.use("/api/campaigns", campaignsRouter);
-app.use("/api/leads", leadsRouter);
-app.use("/api/conversations", conversationsRouter);
-app.use("/api/meetings", meetingsRouter);
-app.use("/api/profiles", profilesRouter);
-app.use("/api/members", membersRouter);
-app.use("/api/unipile", unipileRouter);
-app.use("/api/dashboard", dashboardRouter);
+app.use("/api/workspaces",       requireAuth, workspaceRouter);
+app.use("/api/company-profiles", requireAuth, companyProfilesRouter);
+app.use("/api/settings",         requireAuth, settingsRouter);
+app.use("/api/agents",           requireAuth, agentsRouter);
+app.use("/api/campaigns",        requireAuth, campaignsRouter);
+app.use("/api/leads",            requireAuth, leadsRouter);
+app.use("/api/conversations",    requireAuth, conversationsRouter);
+app.use("/api/meetings",         requireAuth, meetingsRouter);
+app.use("/api/profiles",         requireAuth, profilesRouter);
+app.use("/api/members",          requireAuth, membersRouter);
+app.use("/api/unipile",          requireAuth, unipileRouter);
+app.use("/api/dashboard",        requireAuth, dashboardRouter);
 
-// ── Webhooks ──────────────────────────────────────────────────
+// ── Webhooks (no auth — called by Unipile externally) ─────────
 app.use("/api/webhooks", unipileWebhook);
 
 // ── 404 handler ───────────────────────────────────────────────

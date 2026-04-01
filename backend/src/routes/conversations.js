@@ -1,12 +1,38 @@
 import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
-import { conversationStore, workspaceStore } from '../services/store.js'
+import { conversationStore } from '../services/store.js'
 import { chats } from '../services/unipile.js'
 import { getAgentById } from './agents.js'
 import { supabase } from '../services/supabase.js'
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+// Fetch workspace company profile from Supabase
+async function getWorkspaceProfile(workspaceId) {
+  if (!supabase || !workspaceId || workspaceId === 'ws_default') return null
+  try {
+    const { data } = await supabase
+      .from('company_profiles')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!data) return null
+    return {
+      companyName:  data.company_name,
+      website:      data.website_url,
+      valueProp:    data.value_proposition,
+      services:     Array.isArray(data.services_offered) ? data.services_offered.join(', ') : (data.services_offered || ''),
+      socialProof:  Array.isArray(data.social_proof) ? data.social_proof.join('. ') : (data.social_proof || ''),
+      tone:         data.tone_preference,
+      calendarLink: data.calendar_link,
+    }
+  } catch {
+    return null
+  }
+}
 
 // ── AI Reply delay ─────────────────────────────────────────────
 const AI_REPLY_DELAY_MS = 45 * 60 * 1000 // 45 minutes
@@ -38,7 +64,9 @@ function cancelPendingReply(conversationId) {
 
 // GET /api/conversations
 router.get('/', (req, res) => {
-  res.json(conversationStore.list())
+  const ws = req.workspaceId
+  const all = conversationStore.list()
+  res.json(ws && ws !== 'ws_default' ? all.filter(c => c.workspaceId === ws) : all)
 })
 
 // POST /api/conversations — manually enable AI for an Inbox chat
@@ -53,11 +81,12 @@ router.post('/', (req, res) => {
     return res.json(updated)
   }
 
-  const conv = conversationStore.create(undefined, {
+  const conv = conversationStore.create(req.workspaceId, {
     linkedinChatId,
     linkedinAccountId,
     prospectId,
     agentId: agentId || null,
+    workspaceId: req.workspaceId,
     status:   'ai_active',
     aiPaused: false,
   })
@@ -67,7 +96,10 @@ router.post('/', (req, res) => {
 // GET /api/conversations/by-chat/:chatId
 // Lookup a conversation by its LinkedIn chat ID
 router.get('/by-chat/:chatId', (req, res) => {
-  const conv = conversationStore.list().find(c => c.linkedinChatId === req.params.chatId)
+  const ws = req.workspaceId
+  const all = conversationStore.list()
+  const list = ws && ws !== 'ws_default' ? all.filter(c => c.workspaceId === ws) : all
+  const conv = list.find(c => c.linkedinChatId === req.params.chatId)
   if (!conv) return res.status(404).json({ message: 'Not found' })
   res.json(conv)
 })
@@ -260,7 +292,7 @@ export async function generateAIReply(conversationId) {
   const agent = await getAgentById(conv.agentId)
   if (!agent || !agent.persona) return null
 
-  const profile = workspaceStore.getProfile()
+  const profile = await getWorkspaceProfile(conv.workspaceId)
   const recentMessages = conv.messages.slice(-8) // last 4 exchanges
 
   const conversationHistory = recentMessages.map(m => ({
@@ -309,11 +341,11 @@ export async function generateAIReply(conversationId) {
 }
 
 // Internal: generate and send an opening message after connection accepted
-export async function generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId }) {
+export async function generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId }) {
   const agent = await getAgentById(agentId)
   if (!agent || !agent.persona) return null
 
-  const profile = workspaceStore.getProfile()
+  const profile = await getWorkspaceProfile(workspaceId)
 
   try {
     const message = await anthropic.messages.create({

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import Sidebar from './components/Sidebar'
 import { supabase } from './lib/supabase'
@@ -17,11 +17,13 @@ import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import { Workspaces, Members, Billing } from './pages/StubPages'
 import './styles/design-system.css'
 import './styles/layout.css'
 
-const ONBOARDING_ALLOWLIST = ['/login', '/register', '/onboarding', '/workspaces']
+const ONBOARDING_ALLOWLIST = ['/login', '/register', '/forgot-password', '/reset-password', '/onboarding', '/workspaces']
 
 function RequireAuth({ children }) {
   const location = useLocation()
@@ -222,7 +224,19 @@ function AppLayout({ children }) {
 
 function AppRoutes() {
   const location = useLocation()
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/register'
+  const navigate = useNavigate()
+  const isAuthRoute = ['/login', '/register', '/forgot-password', '/reset-password'].includes(location.pathname)
+
+  // Global PASSWORD_RECOVERY handler — Supabase may land on any page after
+  // the email link click, so we always redirect to /reset-password here.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password', { replace: true })
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [navigate])
 
   const routes = (
     <Routes>
@@ -239,8 +253,10 @@ function AppRoutes() {
       <Route path="/billing"       element={<Billing />} />
       <Route path="/settings"      element={<Settings />} />
       <Route path="/onboarding"    element={<Onboarding />} />
-      <Route path="/login"         element={<Login />} />
-      <Route path="/register"      element={<Register />} />
+      <Route path="/login"            element={<Login />} />
+      <Route path="/register"         element={<Register />} />
+      <Route path="/forgot-password"  element={<ForgotPassword />} />
+      <Route path="/reset-password"   element={<ResetPassword />} />
       <Route path="*"              element={<Navigate to="/" replace />} />
     </Routes>
   )

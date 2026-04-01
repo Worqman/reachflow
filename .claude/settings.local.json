@@ -4,7 +4,10 @@
       "WebFetch(domain:developer.unipile.com)",
       "Bash(find /Users/lorikrama/Desktop/reachflow-v1/backend/migrations -type f -name *.sql -o -name *.js)",
       "Bash(curl -s http://localhost:3001/api/unipile/accounts)",
-      "Bash(curl -s http://localhost:3001/api/agents)"
+      "Bash(curl -s http://localhost:3001/api/agents)",
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1 -type f -name *.sql)",
+      "WebSearch",
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1/backend/src -type f \\\\\\(-name *.ts -o -name *.js \\\\\\))"
     ]
   }
 }

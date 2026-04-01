@@ -72,6 +72,7 @@ router.get('/', async (req, res) => {
     const { data: meetings } = await supabase
       .from('meetings')
       .select('*')
+      .eq('workspace_id', ws)
       .gte('booked_at', monthStart)
       .order('booked_at', { ascending: false })
 

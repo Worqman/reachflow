@@ -77,6 +77,10 @@ export const agents = {
   delete: (id) => del(`/agents/${id}`),
   generateIcp: (id, d) => post(`/agents/${id}/generate-icp`, d),
   generatePersona: (id, d) => post(`/agents/${id}/generate-persona`, d),
+  // Signal events
+  listSignalEvents: (id) => get(`/agents/${id}/signal-events`),
+  actionSignalEvent: (agentId, eventId) =>
+    request("PATCH", `/agents/${agentId}/signal-events/${eventId}/action`),
 };
 
 // ── Campaigns ──────────────────────────────────
@@ -91,6 +95,7 @@ export const campaigns = {
   getSequence: (id) => get(`/campaigns/${id}/sequence`),
   updateSequence: (id, d) => put(`/campaigns/${id}/sequence`, d),
   getAnalytics: (id) => get(`/campaigns/${id}/analytics`),
+  generateMessage: (data) => post("/campaigns/generate-message", data),
   syncStatuses: (id) => post(`/campaigns/${id}/sync-statuses`, {}),
   syncMessages: (id) => post(`/campaigns/${id}/sync-messages`, {}),
   sendInvites: (id) => post(`/campaigns/${id}/send-invites`, {}),
@@ -139,7 +144,8 @@ export const profiles = {
 export const unipile = {
   // Accounts
   getAccounts: () => get("/unipile/accounts"),
-  connectAccount: (name) => post("/unipile/accounts/connect", { name }),
+  connectAccount: ({ name, returnTo } = {}) => post("/unipile/accounts/connect", { name, returnTo }),
+  syncAccounts: () => post("/unipile/accounts/sync", {}),
   disconnectAccount: (id) => del(`/unipile/accounts/${id}`),
 
   // Inbox / chats

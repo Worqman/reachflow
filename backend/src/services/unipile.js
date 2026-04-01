@@ -102,15 +102,22 @@ export const accounts = {
   list: () => request('GET', '/accounts'),
 
   /** Start hosted-auth flow to connect a new LinkedIn account */
-  startHostedAuth: ({ successRedirectUrl, failureRedirectUrl, notifyUrl, name } = {}) =>
-    request('POST', '/accounts/hosted-auth/start', {
+  startHostedAuth: ({ successRedirectUrl, failureRedirectUrl, notifyUrl, name } = {}) => {
+    const dsn = process.env.UNIPILE_DSN
+    const apiUrl = dsn ? (dsn.startsWith('http') ? dsn : `https://${dsn}`) : undefined
+    // Link expires in 1 hour
+    const expiresOn = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    return request('POST', '/hosted/accounts/link', {
       type: 'create',
       providers: ['LINKEDIN'],
+      api_url: apiUrl,
+      expiresOn,
       ...(successRedirectUrl && { success_redirect_url: successRedirectUrl }),
       ...(failureRedirectUrl && { failure_redirect_url: failureRedirectUrl }),
       ...(notifyUrl && { notify_url: notifyUrl }),
       ...(name && { name }),
-    }),
+    })
+  },
 
   /** Disconnect / delete a connected account */
   delete: (accountId) => request('DELETE', `/accounts/${accountId}`),

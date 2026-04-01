@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useToast } from "../components/Toast";
-import { companyProfiles, settings, unipile } from "../lib/api";
+import {
+  companyProfiles,
+  settings,
+  unipile,
+  workspace as workspaceApi,
+} from "../lib/api";
 import {
   getActiveWorkspaceId,
   onActiveWorkspaceChange,
@@ -11,12 +16,28 @@ import "./Settings.css";
 
 // Static metadata — status is fetched live from the backend
 const INTEGRATION_META = {
-  unipile:   { name: "Unipile",    desc: "LinkedIn account management & messaging",           icon: "◈" },
-  apollo:    { name: "Apollo.io",  desc: "Lead database & enrichment (300M+ contacts)",       icon: "◎" },
-  trigify:   { name: "Trigify",    desc: "Real-time LinkedIn intent signal monitoring",        icon: "◆" },
-  anthropic: { name: "Anthropic",  desc: "AI model powering all agents & generation",         icon: "◇" },
-  supabase:  { name: "Supabase",   desc: "Authentication & database",                         icon: "◉" },
-  redis:     { name: "Redis",      desc: "Message queue for paced outreach",                  icon: "⬡" },
+  unipile: {
+    name: "Unipile",
+    desc: "LinkedIn account management & messaging",
+    icon: "◈",
+  },
+  apollo: {
+    name: "Apollo.io",
+    desc: "Lead database & enrichment (300M+ contacts)",
+    icon: "◎",
+  },
+  trigify: {
+    name: "Trigify",
+    desc: "Real-time LinkedIn intent signal monitoring",
+    icon: "◆",
+  },
+  anthropic: {
+    name: "Anthropic",
+    desc: "AI model powering all agents & generation",
+    icon: "◇",
+  },
+  supabase: { name: "Supabase", desc: "Authentication & database", icon: "◉" },
+  redis: { name: "Redis", desc: "Message queue for paced outreach", icon: "⬡" },
 };
 
 const STATUS_META = {
@@ -27,6 +48,14 @@ const STATUS_META = {
 
 export default function Settings() {
   const [section, setSection] = useState("profile");
+  const location = useLocation();
+
+  // Auto-switch to workspace tab when returning from Unipile OAuth
+  useEffect(() => {
+    if (new URLSearchParams(location.search).has("unipile")) {
+      setSection("workspace");
+    }
+  }, [location.search]);
 
   return (
     <div className="settings-layout page animate-fade-in">
@@ -38,7 +67,7 @@ export default function Settings() {
           {[
             { id: "profile", label: "Company Profile", icon: "◈" },
             { id: "my_profile", label: "My Profile", icon: "◉" },
-            { id: "integrations", label: "Integrations", icon: "◆" },
+
             { id: "workspace", label: "Workspace", icon: "⬕" },
             { id: "billing", label: "Billing", icon: "◇" },
           ].map((s) => (
@@ -67,6 +96,7 @@ export default function Settings() {
 function CompanyProfileSection() {
   const { toast } = useToast();
   const [workspaceId, setWorkspaceId] = useState(getActiveWorkspaceId());
+  const [workspaceName, setWorkspaceName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -157,6 +187,19 @@ function CompanyProfileSection() {
     return () => unsub?.();
   }, []);
 
+  useEffect(() => {
+    if (!workspaceId) {
+      setWorkspaceName("");
+      return;
+    }
+    workspaceApi
+      .get()
+      .then((res) => {
+        setWorkspaceName(res?.workspace?.name || "");
+      })
+      .catch(() => {});
+  }, [workspaceId]);
+
   function parseLines(text) {
     return String(text || "")
       .split(/\r?\n|,/g)
@@ -175,25 +218,13 @@ function CompanyProfileSection() {
 
     const capWord = (w) => (w ? w[0].toUpperCase() + w.slice(1) : "");
     const titleCaseKebab = toKebab
-      ? toKebab
-          .split("-")
-          .filter(Boolean)
-          .map(capWord)
-          .join("-")
+      ? toKebab.split("-").filter(Boolean).map(capWord).join("-")
       : "";
     const titleCaseSnake = toSnake
-      ? toSnake
-          .split("_")
-          .filter(Boolean)
-          .map(capWord)
-          .join("_")
+      ? toSnake.split("_").filter(Boolean).map(capWord).join("_")
       : "";
     const spacedTitle = toKebab
-      ? toKebab
-          .split("-")
-          .filter(Boolean)
-          .map(capWord)
-          .join(" ")
+      ? toKebab.split("-").filter(Boolean).map(capWord).join(" ")
       : "";
 
     const out = [
@@ -244,7 +275,8 @@ function CompanyProfileSection() {
 
       async function attemptSave(toneValue) {
         const payload = { ...basePayload, tone_preference: toneValue || null };
-        if (selectedId) return await companyProfiles.update(selectedId, payload);
+        if (selectedId)
+          return await companyProfiles.update(selectedId, payload);
         return await companyProfiles.create(payload);
       }
 
@@ -365,39 +397,46 @@ function CompanyProfileSection() {
             marginBottom: 10,
           }}
         >
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            Workspace:{" "}
-            <code>
-              {workspaceId
-                ? String(workspaceId).slice(0, 8) + "…"
-                : "none selected"}
-            </code>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select
-              className="input"
-              style={{ minWidth: 220, height: 36, padding: "6px 10px" }}
-              value={selectedId || ""}
-              disabled={loading || profiles.length === 0}
-              onChange={(e) => handleSelect(e.target.value || null)}
+          {workspaceName && (
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-muted)",
+                fontWeight: 500,
+              }}
             >
-              {profiles.length === 0 ? (
-                <option value="">No profiles yet</option>
-              ) : (
-                profiles.map((p) => (
+              {workspaceName}
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              marginLeft: "auto",
+            }}
+          >
+            {profiles.length > 1 && (
+              <select
+                className="input"
+                style={{ minWidth: 200, height: 36, padding: "6px 10px" }}
+                value={selectedId || ""}
+                disabled={loading}
+                onChange={(e) => handleSelect(e.target.value || null)}
+              >
+                {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {(p.company_name || "Untitled").slice(0, 36)}
                   </option>
-                ))
-              )}
-            </select>
+                ))}
+              </select>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => {
                 setSelectedId(null);
-                setForm((f) => ({
-                  ...f,
+                setForm({
                   company_name: "",
                   website_url: "",
                   company_description: "",
@@ -406,7 +445,7 @@ function CompanyProfileSection() {
                   tone_preference: "",
                   calendar_link: "",
                   social_proof_text: "",
-                }));
+                });
               }}
               disabled={loading || saving}
             >
@@ -967,9 +1006,18 @@ function IntegrationsSection() {
       <p className="settings-section-desc">
         Connect your API keys to enable all ReachFlow features.
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 640 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          maxWidth: 640,
+        }}
+      >
         {loading ? (
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            Loading…
+          </div>
         ) : (
           integrations.map((int) => {
             const status = int.connected ? "connected" : "not_connected";
@@ -977,13 +1025,24 @@ function IntegrationsSection() {
               <div key={int.id} className="card integration-card">
                 <div className="integration-icon">{int.icon}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{int.name}</span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>
+                      {int.name}
+                    </span>
                     <span className={`badge ${STATUS_META[status].class}`}>
                       {STATUS_META[status].label}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{int.desc}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {int.desc}
+                  </div>
                 </div>
                 {int.id === "unipile" ? (
                   <button
@@ -994,8 +1053,8 @@ function IntegrationsSection() {
                     {int.connected
                       ? "Connected"
                       : connecting
-                      ? "Redirecting…"
-                      : "Connect"}
+                        ? "Redirecting…"
+                        : "Connect"}
                   </button>
                 ) : (
                   <button
@@ -1044,8 +1103,11 @@ function WorkspaceSection() {
     const params = new URLSearchParams(location.search);
     const status = params.get("unipile");
     if (status === "connected") {
-      toast?.("LinkedIn account connected!", "success");
-      loadAccounts();
+      unipile
+        .syncAccounts()
+        .then(() => loadAccounts())
+        .then(() => toast?.("LinkedIn account connected!", "success"))
+        .catch(() => loadAccounts()); // still reload even if sync fails
     } else if (status === "failed") {
       toast?.("LinkedIn connection failed. Please try again.", "danger");
     }
@@ -1090,15 +1152,34 @@ function WorkspaceSection() {
         <div className="input-group">
           <label className="input-label">LinkedIn Accounts</label>
           {loading ? (
-            <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "6px 0" }}>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-muted)",
+                padding: "6px 0",
+              }}
+            >
               Loading accounts…
             </div>
           ) : accounts.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "6px 0" }}>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-muted)",
+                padding: "6px 0",
+              }}
+            >
               No LinkedIn accounts connected yet.
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
               {accounts.map((acc) => (
                 <div
                   key={acc.id}
@@ -1112,7 +1193,14 @@ function WorkspaceSection() {
                     gap: 12,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      minWidth: 0,
+                    }}
+                  >
                     <div
                       style={{
                         width: 32,
@@ -1131,11 +1219,18 @@ function WorkspaceSection() {
                       {(acc.name || "L")[0].toUpperCase()}
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, truncate: "ellipsis" }}>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 13,
+                          truncate: "ellipsis",
+                        }}
+                      >
                         {acc.name || acc.username || acc.id}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                        {acc.provider || "LINKEDIN"} · {acc.connection_status || "connected"}
+                        {acc.provider || "LINKEDIN"} ·{" "}
+                        {acc.connection_status || "connected"}
                       </div>
                     </div>
                   </div>
@@ -1151,34 +1246,106 @@ function WorkspaceSection() {
             </div>
           )}
 
-          <button
-            className="btn btn-secondary"
-            onClick={handleConnect}
-            disabled={connecting}
-            style={{ marginTop: 4 }}
-          >
-            {connecting ? "Redirecting…" : "+ Connect LinkedIn Account"}
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button
+              className="btn btn-secondary"
+              onClick={handleConnect}
+              disabled={connecting}
+            >
+              {connecting ? "Redirecting…" : "+ Connect LinkedIn Account"}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={async () => {
+                try {
+                  await unipile.syncAccounts();
+                  await loadAccounts();
+                } catch (err) {
+                  toast?.(err.message || "Sync failed", "danger");
+                }
+              }}
+              title="Sync accounts from Unipile"
+            >
+              ↺ Sync
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+// Trial ends 7 days from a fixed start date (replace with real value from backend when available)
+const TRIAL_START = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // started 2 days ago
+const TRIAL_DAYS = 7;
+const trialEnd = new Date(TRIAL_START.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+const daysLeft = Math.max(0, Math.ceil((trialEnd - Date.now()) / (1000 * 60 * 60 * 24)));
+
 function BillingSection() {
   return (
     <div className="settings-section">
       <h2 className="settings-section-title">Billing</h2>
-      <div
-        className="card"
-        style={{ maxWidth: 480, textAlign: "center", padding: 40 }}
-      >
-        <div style={{ fontSize: 40, marginBottom: 16 }}>◇</div>
-        <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Internal Build</h3>
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Billing is configured in Phase 8 when ReachFlow launches as a
-          white-label SaaS product.
-        </p>
+      <p className="settings-section-desc">Your current plan and trial status.</p>
+
+      {/* Active plan card */}
+      <div className="card" style={{ maxWidth: 480, padding: 24, border: "2px solid var(--signal)", position: "relative" }}>
+        <div style={{
+          position: "absolute", top: -11, left: 20,
+          background: "var(--signal)", color: "#fff",
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+          padding: "2px 10px", borderRadius: 20, textTransform: "uppercase",
+        }}>
+          Active Plan
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 2 }}>Free Trial</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Full access for 7 days — no credit card required.</div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "var(--signal)", lineHeight: 1 }}>{daysLeft}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>days left</div>
+          </div>
+        </div>
+
+        {/* Trial progress bar */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+            <span>Trial started</span>
+            <span>Ends {trialEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+          </div>
+          <div style={{ height: 6, background: "var(--border)", borderRadius: 6, overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${Math.round(((TRIAL_DAYS - daysLeft) / TRIAL_DAYS) * 100)}%`,
+              background: daysLeft <= 2 ? "var(--danger, #e55)" : "var(--signal)",
+              borderRadius: 6,
+              transition: "width 0.3s",
+            }} />
+          </div>
+        </div>
+
+        {/* Included features */}
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 20px", display: "flex", flexDirection: "column", gap: 7 }}>
+          {[
+            "1 LinkedIn account",
+            "Unlimited connection requests during trial",
+            "1 active campaign",
+            "AI agents & message generation",
+            "Full analytics access",
+          ].map((f) => (
+            <li key={f} style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "var(--signal)", fontWeight: 700, flexShrink: 0 }}>✓</span>
+              {f}
+            </li>
+          ))}
+        </ul>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-primary btn-sm">Upgrade Plan</button>
+          <button className="btn btn-ghost btn-sm">View all plans</button>
+        </div>
       </div>
     </div>
   );

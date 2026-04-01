@@ -5,6 +5,7 @@
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
+  flex-direction: column;
   justify-content: center;
   height: 100vh;
   z-index: var(--z-modal);

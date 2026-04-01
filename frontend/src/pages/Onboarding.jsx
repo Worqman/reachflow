@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Toast'
-import { companyProfiles, settings as settingsApi } from '../lib/api'
+import { companyProfiles, settings as settingsApi, unipile } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 import { getActiveWorkspaceId, onActiveWorkspaceChange, setActiveWorkspaceId } from '../lib/workspaceState'
@@ -55,6 +55,7 @@ function isToneConstraintError(message) {
 
 export default function Onboarding() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { toast } = useToast()
 
   const [workspaceId, setWorkspaceId] = useState(getActiveWorkspaceId())
@@ -75,6 +76,11 @@ export default function Onboarding() {
   const [pickerName, setPickerName] = useState('')
 
   const [integrations, setIntegrations] = useState(null)
+
+  // LinkedIn accounts (step 6)
+  const [linkedinAccounts, setLinkedinAccounts] = useState([])
+  const [linkedinLoading, setLinkedinLoading] = useState(false)
+  const [connecting, setConnecting] = useState(false)
 
   const [form, setForm] = useState({
     company_name: '',
@@ -224,6 +230,55 @@ export default function Onboarding() {
     loadIntegrations()
     return () => { alive = false }
   }, [])
+
+  async function loadLinkedinAccounts() {
+    setLinkedinLoading(true)
+    try {
+      const data = await unipile.getAccounts()
+      setLinkedinAccounts(data?.items || [])
+    } catch {
+      // ignore
+    } finally {
+      setLinkedinLoading(false)
+    }
+  }
+
+  // Load accounts when reaching step 6
+  useEffect(() => {
+    if (step === 6) loadLinkedinAccounts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  // Handle redirect back from Unipile OAuth
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const status = params.get('unipile')
+    if (!status) return
+    if (status === 'connected') {
+      setStep(6)
+      unipile.syncAccounts()
+        .then(() => loadLinkedinAccounts())
+        .then(() => toast?.('LinkedIn account connected!', 'success'))
+        .catch(() => loadLinkedinAccounts())
+    } else if (status === 'failed') {
+      setStep(6)
+      toast?.('LinkedIn connection failed. Please try again.', 'danger')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search])
+
+  async function handleLinkedinConnect() {
+    setConnecting(true)
+    try {
+      const data = await unipile.connectAccount({ returnTo: '/onboarding' })
+      const url = data?.url || data?.hosted_auth_url
+      if (!url) throw new Error('No auth URL returned from Unipile')
+      window.location.href = url
+    } catch (err) {
+      toast?.(err.message || 'Could not start LinkedIn connection', 'danger')
+      setConnecting(false)
+    }
+  }
 
   function basePayload() {
     return {
@@ -629,23 +684,54 @@ export default function Onboarding() {
 
               {step === 6 && (
                 <>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
-                    Connect your LinkedIn account via Unipile (when configured for this environment).
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                    Connect the LinkedIn account you want to use for outreach.
                   </div>
-                  <div className="card" style={{ padding: 14, background: 'var(--surface-2)', boxShadow: 'none' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ fontWeight: 900 }}>Unipile</div>
-                      <div className={`badge ${integrations?.unipile?.connected ? 'badge-signal' : 'badge-muted'}`}>
-                        {integrations ? (integrations.unipile.connected ? 'Connected' : 'Not Connected') : 'Checking…'}
-                      </div>
+
+                  {linkedinLoading ? (
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '6px 0' }}>Loading accounts…</div>
+                  ) : linkedinAccounts.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                      No LinkedIn accounts connected yet.
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>
-                      {integrations?.unipile?.connected
-                        ? 'You can start running outreach campaigns.'
-                        : 'Set `UNIPILE_API_KEY` on the backend to enable Unipile.'
-                      }
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                      {linkedinAccounts.map((acc) => (
+                        <div key={acc.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '10px 12px', background: 'var(--surface-2)',
+                          borderRadius: 'var(--radius-sm)', border: '1px solid var(--signal)',
+                        }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: 'var(--radius-sm)',
+                            background: 'var(--signal)', color: '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 700, fontSize: 12, flexShrink: 0,
+                          }}>
+                            {(acc.name || 'L')[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{acc.name || acc.username || acc.id}</div>
+                            <div style={{ fontSize: 11, color: 'var(--signal)' }}>✓ Connected</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
+                  )}
+
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleLinkedinConnect}
+                    disabled={connecting}
+                  >
+                    {connecting ? 'Redirecting…' : '+ Connect LinkedIn Account'}
+                  </button>
+
+                  {linkedinAccounts.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+                      Account connected. You can finish setup or add more accounts later in Settings.
+                    </div>
+                  )}
                 </>
               )}
 

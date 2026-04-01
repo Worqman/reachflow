@@ -51,6 +51,39 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Verifies the authenticated user is the owner or a member of req.workspaceId
+async function verifyWorkspaceMembership(req, res, next) {
+  const ws = req.workspaceId
+  // Skip for legacy default workspace (single-tenant dev mode)
+  if (!ws || ws === 'ws_default') return next()
+  if (!req.user) return res.status(401).json({ message: 'Unauthorized' })
+
+  try {
+    // Check if owner
+    const { data: ownedWs } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('id', ws)
+      .eq('owner_id', req.user.id)
+      .maybeSingle()
+    if (ownedWs) return next()
+
+    // Check if member
+    const { data: membership } = await supabase
+      .from('workspace_members')
+      .select('id')
+      .eq('workspace_id', ws)
+      .eq('user_id', req.user.id)
+      .maybeSingle()
+    if (membership) return next()
+
+    return res.status(403).json({ message: 'Access denied to this workspace' })
+  } catch (err) {
+    console.error('[workspace-auth]', err.message)
+    return res.status(500).json({ message: 'Workspace authorization check failed' })
+  }
+}
+
 app.use("/api", attachUser);
 
 // ── Health check ──────────────────────────────────────────────
@@ -70,18 +103,18 @@ app.get("/health", (req, res) => {
 
 // ── API Routes ────────────────────────────────────────────────
 
-app.use("/api/workspaces", requireAuth, workspaceRouter);
-app.use("/api/company-profiles", requireAuth, companyProfilesRouter);
-app.use("/api/settings", requireAuth, settingsRouter);
-app.use("/api/agents", requireAuth, agentsRouter);
-app.use("/api/campaigns", requireAuth, campaignsRouter);
-app.use("/api/leads", requireAuth, leadsRouter);
-app.use("/api/conversations", requireAuth, conversationsRouter);
-app.use("/api/meetings", requireAuth, meetingsRouter);
-app.use("/api/profiles", requireAuth, profilesRouter);
-app.use("/api/members", requireAuth, membersRouter);
-app.use("/api/unipile", requireAuth, unipileRouter);
-app.use("/api/dashboard", requireAuth, dashboardRouter);
+app.use("/api/workspaces",       requireAuth, verifyWorkspaceMembership, workspaceRouter);
+app.use("/api/company-profiles", requireAuth, verifyWorkspaceMembership, companyProfilesRouter);
+app.use("/api/settings",         requireAuth, verifyWorkspaceMembership, settingsRouter);
+app.use("/api/agents",           requireAuth, verifyWorkspaceMembership, agentsRouter);
+app.use("/api/campaigns",        requireAuth, verifyWorkspaceMembership, campaignsRouter);
+app.use("/api/leads",            requireAuth, verifyWorkspaceMembership, leadsRouter);
+app.use("/api/conversations",    requireAuth, verifyWorkspaceMembership, conversationsRouter);
+app.use("/api/meetings",         requireAuth, verifyWorkspaceMembership, meetingsRouter);
+app.use("/api/profiles",         requireAuth, verifyWorkspaceMembership, profilesRouter);
+app.use("/api/members",          requireAuth, verifyWorkspaceMembership, membersRouter);
+app.use("/api/unipile",          requireAuth, verifyWorkspaceMembership, unipileRouter);
+app.use("/api/dashboard",        requireAuth, verifyWorkspaceMembership, dashboardRouter);
 
 // ── Webhooks (no auth — called by Unipile externally) ─────────
 app.use("/api/webhooks", unipileWebhook);

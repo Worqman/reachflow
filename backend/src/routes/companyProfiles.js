@@ -25,10 +25,12 @@ router.get("/", async (req, res) => {
 
 // GET /api/company-profiles/:id
 router.get("/:id", async (req, res) => {
+  const ws = req.workspaceId || req.query.workspace_id
   const { data, error } = await supabase
     .from("company_profiles")
     .select("*")
     .eq("id", req.params.id)
+    .eq("workspace_id", ws)
     .single();
 
   if (error) return res.status(404).json({ error: "Profile not found" });
@@ -101,6 +103,7 @@ router.put("/:id", async (req, res) => {
       social_proof,
     })
     .eq("id", req.params.id)
+    .eq("workspace_id", req.workspaceId)
     .select()
     .single();
 
@@ -113,7 +116,8 @@ router.delete("/:id", async (req, res) => {
   const { error } = await supabase
     .from("company_profiles")
     .delete()
-    .eq("id", req.params.id);
+    .eq("id", req.params.id)
+    .eq("workspace_id", req.workspaceId);
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });

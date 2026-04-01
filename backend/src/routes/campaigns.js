@@ -1,12 +1,59 @@
 import { Router } from 'express'
 import { randomUUID } from 'crypto'
+import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '../services/supabase.js'
 import { linkedin, relations as unipileRelations } from '../services/unipile.js'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const router = Router()
 
 // workspace_id comes from the auth middleware via req.workspaceId
 function wsId(req) { return req.workspaceId || 'ws_default' }
+
+// Fetch workspace company profile from Supabase
+async function getWorkspaceProfile(workspaceId) {
+  if (!supabase || !workspaceId || workspaceId === 'ws_default') return null
+  try {
+    const { data } = await supabase
+      .from('company_profiles')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!data) return null
+    return {
+      companyName:  data.company_name,
+      website:      data.website_url,
+      valueProp:    data.value_proposition,
+      services:     Array.isArray(data.services_offered) ? data.services_offered.join(', ') : (data.services_offered || ''),
+      socialProof:  Array.isArray(data.social_proof) ? data.social_proof.join('. ') : (data.social_proof || ''),
+      tone:         data.tone_preference,
+      calendarLink: data.calendar_link,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Interpolate message variables with lead + workspace profile data
+function interpolateVars(text, lead, profile = {}) {
+  if (!text) return text
+  const nameParts = (lead.name || '').trim().split(/\s+/)
+  const firstName = nameParts[0] || ''
+  const lastName  = nameParts.slice(1).join(' ') || ''
+  return text
+    .replace(/\{firstName\}/g,     firstName)
+    .replace(/\{lastName\}/g,      lastName)
+    .replace(/\{fullName\}/g,      lead.name || '')
+    .replace(/\{jobTitle\}/g,      lead.title || '')
+    .replace(/\{company\}/g,       lead.company || '')
+    .replace(/\{location\}/g,      lead.location || '')
+    .replace(/\{calendarLink\}/g,  profile.calendarLink || '')
+    .replace(/\{senderCompany\}/g, profile.companyName || '')
+    .replace(/\{senderWebsite\}/g, profile.website || '')
+}
 
 // ── helpers ────────────────────────────────────────────────────
 
@@ -87,6 +134,7 @@ router.get('/:id', async (req, res) => {
     .from('campaigns')
     .select('*')
     .eq('id', req.params.id)
+    .eq('workspace_id', wsId(req))
     .single()
 
   if (error || !data) return res.status(404).json({ message: 'Campaign not found' })
@@ -105,7 +153,7 @@ router.put('/:id', async (req, res) => {
   if (body.settings !== undefined) {
     // Merge with existing settings
     const { data: existing } = await supabase
-      .from('campaigns').select('settings').eq('id', req.params.id).single()
+      .from('campaigns').select('settings').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
     patch.settings = { ...(existing?.settings || {}), ...body.settings }
   }
 
@@ -113,6 +161,7 @@ router.put('/:id', async (req, res) => {
     .from('campaigns')
     .update(patch)
     .eq('id', req.params.id)
+    .eq('workspace_id', wsId(req))
     .select()
     .single()
 
@@ -126,6 +175,7 @@ router.delete('/:id', async (req, res) => {
     .from('campaigns')
     .delete()
     .eq('id', req.params.id)
+    .eq('workspace_id', wsId(req))
 
   if (error) return res.status(500).json({ message: error.message })
   res.json({ success: true })
@@ -133,6 +183,10 @@ router.delete('/:id', async (req, res) => {
 
 // ── GET /api/campaigns/:id/leads ───────────────────────────────
 router.get('/:id/leads', async (req, res) => {
+  // Verify campaign belongs to this workspace
+  const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!camp) return res.status(404).json({ message: 'Campaign not found' })
+
   const { data, error } = await supabase
     .from('campaign_leads')
     .select('*')
@@ -149,6 +203,9 @@ router.post('/:id/leads', async (req, res) => {
     const { leads, source } = req.body
     if (!Array.isArray(leads)) return res.status(400).json({ message: 'leads array required' })
     if (!supabase) return res.status(503).json({ message: 'Database not configured' })
+
+    const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+    if (!camp) return res.status(404).json({ message: 'Campaign not found' })
 
     const rows = leads.map(l => ({
       id:           `lead_${randomUUID()}`,
@@ -175,6 +232,8 @@ router.post('/:id/leads', async (req, res) => {
 
 // ── DELETE /api/campaigns/:id/leads/:leadId ────────────────────
 router.delete('/:id/leads/:leadId', async (req, res) => {
+  const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!camp) return res.status(404).json({ message: 'Campaign not found' })
   const { error } = await supabase
     .from('campaign_leads').delete().eq('id', req.params.leadId).eq('campaign_id', req.params.id)
   if (error) return res.status(500).json({ message: error.message })
@@ -185,6 +244,8 @@ router.delete('/:id/leads/:leadId', async (req, res) => {
 router.post('/:id/leads/:leadId/status', async (req, res) => {
   const { status } = req.body
   if (!status) return res.status(400).json({ message: 'status required' })
+  const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!camp) return res.status(404).json({ message: 'Campaign not found' })
   const { data, error } = await supabase
     .from('campaign_leads').update({ status }).eq('id', req.params.leadId).select().single()
   if (error || !data) return res.status(500).json({ message: error?.message || 'Update failed' })
@@ -197,7 +258,7 @@ router.post('/:id/leads/:leadId/status', async (req, res) => {
 router.post('/:id/leads/:leadId/send-message', async (req, res) => {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).single()
+      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
     if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
 
     const { data: lead } = await supabase
@@ -258,7 +319,7 @@ async function resolveProviderId(lead, accountId) {
 // Execute pre-connection sequence steps for one lead:
 //   visit_profile → (wait ignored) → connection_request
 // Returns 'invited' on success, throws on failure.
-async function executePreConnectionSteps(lead, sequence, accountId) {
+async function executePreConnectionSteps(lead, sequence, accountId, workspaceId) {
   const nodes = sequence?.nodes || []
 
   // Find connection_request step index (we stop there)
@@ -280,18 +341,60 @@ async function executePreConnectionSteps(lead, sequence, accountId) {
         await linkedin.visitProfile(accountId, providerUserId)
         break
       case 'like_post':
-        // Not yet implemented — Unipile requires fetching user's posts first
         console.log(`[sequence] like_post skipped for ${lead.name} (not implemented)`)
         break
       case 'follow':
         console.log(`[sequence] follow skipped for ${lead.name} (no Unipile endpoint)`)
         break
+      case 'comment_post':
+        console.log(`[sequence] comment_post skipped for ${lead.name} (requires post fetch — not implemented)`)
+        break
       case 'wait':
-        // Pre-connection waits are skipped — delays happen server-side via scheduling
         console.log(`[sequence] wait ${node.config?.days}d skipped (no scheduler)`)
         break
+      // Conditions in pre-connection phase
+      case 'cond_has_linkedin': {
+        if (!lead.linkedin_url) {
+          console.log(`[sequence] cond_has_linkedin FAILED for ${lead.name} — skipping lead`)
+          throw new Error(`CONDITION_FAILED:cond_has_linkedin`)
+        }
+        break
+      }
+      case 'cond_1st_level': {
+        // Check if lead is already a connection
+        try {
+          const data = await unipileRelations.list({ accountId, limit: 250 })
+          const relations = data?.items || data?.objects || data?.relations || []
+          const isConnected = relations.some(r => r.provider_id === providerUserId || r.id === providerUserId)
+          if (!isConnected) {
+            console.log(`[sequence] cond_1st_level FAILED for ${lead.name} — not yet connected, skipping`)
+            throw new Error(`CONDITION_FAILED:cond_1st_level`)
+          }
+        } catch (err) {
+          if (err.message?.startsWith('CONDITION_FAILED')) throw err
+          console.log(`[sequence] cond_1st_level check error: ${err.message}`)
+        }
+        break
+      }
+      case 'cond_check_column': {
+        const field = node.config?.field
+        const expected = (node.config?.value || '').toLowerCase()
+        const actual = String(lead[field] || lead[field?.toLowerCase()] || '').toLowerCase()
+        if (field && expected && !actual.includes(expected)) {
+          console.log(`[sequence] cond_check_column FAILED for ${lead.name} — ${field} does not contain "${expected}"`)
+          throw new Error(`CONDITION_FAILED:cond_check_column`)
+        }
+        break
+      }
+      case 'cond_opened_message':
+      case 'cond_open_profile':
+        // Cannot be checked pre-connection — allow through
+        console.log(`[sequence] condition ${node.type} cannot be evaluated pre-connection — passing through`)
+        break
       case 'connection_request': {
-        const note = node.config?.note || undefined
+        const profile = await getWorkspaceProfile(workspaceId)
+        const rawNote = node.config?.note || undefined
+        const note = rawNote ? interpolateVars(rawNote, lead, profile) : undefined
         console.log(`[sequence] sending connection request to ${lead.name}`)
         await linkedin.sendInvite({ accountId, providerUserId, message: note })
         break
@@ -304,10 +407,10 @@ async function executePreConnectionSteps(lead, sequence, accountId) {
 
 // Execute post-connection sequence steps (message steps after connection_request)
 // Called from the webhook after connection_accepted.
-export async function executePostConnectionSteps(providerUserId, accountId, campaignId) {
+export async function executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId) {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('sequence').eq('id', campaignId).single()
+      .from('campaigns').select('sequence, workspace_id').eq('id', campaignId).single()
     if (!campaign?.sequence?.nodes) return
 
     const nodes = campaign.sequence.nodes
@@ -316,13 +419,104 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
 
     const postNodes = nodes.slice(connectIdx + 1)
 
+    // Resolve lead data for variable interpolation
+    const { data: lead } = await supabase
+      .from('campaign_leads')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .eq('provider_id', providerUserId)
+      .single()
+    const effectiveWsId = workspaceId || campaign?.workspace_id
+    const profile = await getWorkspaceProfile(effectiveWsId)
+
     for (const node of postNodes) {
-      if (node.type === 'message' && node.config?.text?.trim()) {
-        console.log(`[sequence] sending post-connection message to ${providerUserId}`)
-        await linkedin.sendMessage({ accountId, providerUserId, text: node.config.text.trim() })
-      } else if (node.type === 'wait') {
-        // For MVP, skip waits — a proper scheduler would queue the next step
-        console.log(`[sequence] wait ${node.config?.days}d skipped (no scheduler)`)
+      switch (node.type) {
+        case 'message': {
+          if (node.config?.text?.trim()) {
+            const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
+            console.log(`[sequence] sending post-connection message to ${providerUserId}`)
+            await linkedin.sendMessage({ accountId, providerUserId, text })
+          }
+          break
+        }
+        case 'message_open': {
+          if (node.config?.text?.trim()) {
+            const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
+            console.log(`[sequence] sending open-profile message to ${providerUserId}`)
+            await linkedin.sendMessage({ accountId, providerUserId, text })
+          }
+          break
+        }
+        case 'inmail': {
+          if (node.config?.body?.trim()) {
+            const body = interpolateVars(node.config.body.trim(), lead || {}, profile)
+            const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
+            const text = subject ? `${subject}\n\n${body}` : body
+            console.log(`[sequence] sending InMail to ${providerUserId}`)
+            await linkedin.sendMessage({ accountId, providerUserId, text })
+          }
+          break
+        }
+        case 'add_tag': {
+          if (node.config?.tag && lead?.id) {
+            const { data: existingLead } = await supabase
+              .from('campaign_leads').select('tags').eq('id', lead.id).single()
+            const existingTags = existingLead?.tags || []
+            if (!existingTags.includes(node.config.tag)) {
+              await supabase.from('campaign_leads')
+                .update({ tags: [...existingTags, node.config.tag] })
+                .eq('id', lead.id)
+            }
+            console.log(`[sequence] tagged ${lead.name} with "${node.config.tag}"`)
+          }
+          break
+        }
+        case 'wait':
+          console.log(`[sequence] wait ${node.config?.days}d skipped (no scheduler)`)
+          break
+        case 'voice_note':
+          console.log(`[sequence] voice_note not supported via Unipile — skipping`)
+          break
+        case 'comment_post':
+        case 'reply_comment':
+          console.log(`[sequence] ${node.type} requires post fetch — skipping`)
+          break
+        case 'follow':
+        case 'like_post':
+        case 'visit_profile':
+          // These are pre-connection steps; running them post-connection too if specified
+          if (node.type === 'visit_profile') {
+            await linkedin.visitProfile(accountId, providerUserId)
+          } else {
+            console.log(`[sequence] ${node.type} post-connection skipped`)
+          }
+          break
+        // Conditions in post-connection phase
+        case 'cond_has_linkedin':
+          if (!lead?.linkedin_url) {
+            console.log(`[sequence] cond_has_linkedin FAILED post-connection for ${providerUserId} — stopping`)
+            return
+          }
+          break
+        case 'cond_1st_level':
+          // Post-connection = they ARE connected, so condition passes
+          break
+        case 'cond_check_column': {
+          const field = node.config?.field
+          const expected = (node.config?.value || '').toLowerCase()
+          const actual = String(lead?.[field] || '').toLowerCase()
+          if (field && expected && !actual.includes(expected)) {
+            console.log(`[sequence] cond_check_column FAILED post-connection — stopping`)
+            return
+          }
+          break
+        }
+        case 'cond_opened_message':
+        case 'cond_open_profile':
+          console.log(`[sequence] condition ${node.type} cannot be evaluated — passing through`)
+          break
+        default:
+          console.log(`[sequence] unknown post-connection step type: ${node.type}`)
       }
     }
   } catch (err) {
@@ -336,7 +530,7 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
 router.post('/:id/sync-statuses', async (req, res) => {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).single()
+      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
     if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
 
     const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
@@ -397,7 +591,7 @@ router.post('/:id/sync-statuses', async (req, res) => {
 router.post('/:id/send-invites', async (req, res) => {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).single()
+      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
     if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
 
     const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
@@ -420,11 +614,13 @@ router.post('/:id/send-invites', async (req, res) => {
     const results = []
     for (const lead of pendingLeads) {
       try {
-        await executePreConnectionSteps(lead, campaign.sequence, accountId)
+        await executePreConnectionSteps(lead, campaign.sequence, accountId, wsId(req))
         await supabase.from('campaign_leads').update({ status: 'invited' }).eq('id', lead.id)
         results.push({ id: lead.id, name: lead.name, ok: true })
         console.log(`[send-invites] ✓ sequence executed for ${lead.name}`)
       } catch (err) {
+        const status = err.message?.startsWith('CONDITION_FAILED') ? 'skipped' : 'failed'
+        await supabase.from('campaign_leads').update({ status }).eq('id', lead.id)
         const detail = err.data ? JSON.stringify(err.data) : err.message
         console.error(`[send-invites] ✗ failed for ${lead.name}:`, detail)
         results.push({ id: lead.id, name: lead.name, ok: false, error: detail })
@@ -446,7 +642,7 @@ router.post('/:id/send-invites', async (req, res) => {
 router.post('/:id/sync-messages', async (req, res) => {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).single()
+      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
     if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
 
     const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
@@ -530,7 +726,7 @@ router.post('/:id/sync-messages', async (req, res) => {
 // ── GET /api/campaigns/:id/sequence ───────────────────────────
 router.get('/:id/sequence', async (req, res) => {
   const { data, error } = await supabase
-    .from('campaigns').select('sequence').eq('id', req.params.id).single()
+    .from('campaigns').select('sequence').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
 
   if (error || !data) return res.status(404).json({ message: 'Campaign not found' })
   res.json(data.sequence || { nodes: [] })
@@ -542,6 +738,7 @@ router.put('/:id/sequence', async (req, res) => {
     .from('campaigns')
     .update({ sequence: req.body })
     .eq('id', req.params.id)
+    .eq('workspace_id', wsId(req))
     .select('sequence')
     .single()
 
@@ -608,6 +805,43 @@ router.get('/:id/analytics', async (req, res) => {
       replied:  byDay[date].replied,
     })),
   })
+})
+
+// POST /api/campaigns/generate-message
+router.post('/generate-message', async (req, res) => {
+  try {
+    const { prompt } = req.body
+    if (!prompt?.trim()) return res.status(400).json({ message: 'prompt required' })
+
+    const profile = await getWorkspaceProfile(wsId(req))
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 600,
+      messages: [{
+        role: 'user',
+        content: `You are a LinkedIn outreach copywriter. Write a concise, natural LinkedIn message based on the instructions below.
+
+Company context:
+- Company: ${profile.companyName || 'Our company'}
+- Value prop: ${profile.valueProp || ''}
+- Tone: ${profile.tone || 'professional and friendly'}
+
+Instructions: ${prompt}
+
+Rules:
+- Max 200 words
+- Sound human, not salesy
+- Use {firstName} where appropriate for personalisation
+- Return ONLY the message text, no quotes, no explanation`
+      }]
+    })
+
+    res.json({ message: msg.content[0].text.trim() })
+  } catch (err) {
+    console.error('Message generation error:', err)
+    res.status(500).json({ message: 'Generation failed', error: err.message })
+  }
 })
 
 export default router

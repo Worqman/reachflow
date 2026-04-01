@@ -1,5 +1,11 @@
 import { Router } from 'express'
 import { accounts, chats, linkedin, relations, isConfigured } from '../services/unipile.js'
+import { supabase } from '../services/supabase.js'
+
+function wsId(req) { return req.workspaceId || 'ws_default' }
+
+// In-memory snapshot: workspaceId → Set of account IDs that existed BEFORE the user went to Unipile
+const preConnectSnapshot = new Map()
 
 // Extract name from a Unipile user/attendee object — tries every known field shape
 function extractName(obj) {
@@ -60,27 +66,69 @@ router.use((req, res, next) => {
 // ── Accounts ──────────────────────────────────────────────────
 
 // GET /api/unipile/accounts
+// Returns only LinkedIn accounts associated with the current workspace.
 router.get('/accounts', async (req, res) => {
   try {
+    const ws = wsId(req)
+
+    // Fetch all Unipile accounts first
     const data = await accounts.list()
-    res.json(data)
+    console.log('[unipile/accounts] raw response keys:', Object.keys(data || {}))
+    console.log('[unipile/accounts] raw response:', JSON.stringify(data).slice(0, 500))
+    const all = data?.items || data?.accounts || data?.objects || data?.data || (Array.isArray(data) ? data : [])
+
+    // No DB / dev mode — return everything
+    if (!supabase || ws === 'ws_default') {
+      return res.json({ items: all, object: 'AccountList' })
+    }
+
+    // Fetch workspace account associations from DB
+    const { data: rows, error: dbErr } = await supabase
+      .from('workspace_linkedin_accounts')
+      .select('unipile_account_id')
+      .eq('workspace_id', ws)
+
+    if (dbErr) {
+      // Table likely not created yet — return all accounts so the UI isn't broken
+      console.warn('[unipile/accounts] DB error (migration not run?):', dbErr.message)
+      return res.json({ items: all, object: 'AccountList' })
+    }
+
+    const knownIds = (rows || []).map(r => r.unipile_account_id)
+    console.log('[unipile/accounts] ws:', ws, '| all accounts:', all.length, '| db knownIds:', knownIds)
+
+    const filtered = all.filter(a => knownIds.includes(a.id))
+    res.json({ items: filtered, object: 'AccountList' })
   } catch (err) {
     res.status(err.status || 500).json({ message: err.message })
   }
 })
 
 // POST /api/unipile/accounts/connect
-// Starts hosted-auth flow. Returns { url } for the frontend to open.
+// Starts Unipile hosted-auth flow. Snapshots current account IDs first so sync
+// can detect exactly which account is new when the user returns.
 router.post('/accounts/connect', async (req, res) => {
   try {
     const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const ws = wsId(req)
 
+    // Snapshot current Unipile account IDs before the user leaves
+    try {
+      const existing = await accounts.list()
+      const all = existing?.items || existing?.accounts || existing?.objects || existing?.data || (Array.isArray(existing) ? existing : [])
+      preConnectSnapshot.set(ws, new Set(all.map(a => a.id)))
+      console.log('[unipile/connect] snapshot for ws', ws, ':', preConnectSnapshot.get(ws).size, 'accounts')
+    } catch {
+      preConnectSnapshot.set(ws, new Set())
+    }
+
+    const returnTo = req.body.returnTo || '/settings'
     const data = await accounts.startHostedAuth({
-      successRedirectUrl: `${frontendUrl}/settings?unipile=connected`,
-      failureRedirectUrl: `${frontendUrl}/settings?unipile=failed`,
+      successRedirectUrl: `${frontendUrl}${returnTo}?unipile=connected`,
+      failureRedirectUrl: `${frontendUrl}${returnTo}?unipile=failed`,
       notifyUrl: `${backendUrl}/api/webhooks/unipile`,
-      name: req.body.name,
+      name: ws,
     })
     res.json(data)
   } catch (err) {
@@ -88,9 +136,93 @@ router.post('/accounts/connect', async (req, res) => {
   }
 })
 
+// POST /api/unipile/accounts/sync
+// Called after the hosted-auth redirect returns.
+// Compares current Unipile accounts against the pre-connect snapshot to detect
+// exactly which account was just added, then associates it with this workspace.
+router.post('/accounts/sync', async (req, res) => {
+  try {
+    const ws = wsId(req)
+
+    // Fetch current Unipile accounts
+    const data = await accounts.list()
+    console.log('[unipile/sync] raw response:', JSON.stringify(data).slice(0, 500))
+    const all = data?.items || data?.accounts || data?.objects || data?.data || (Array.isArray(data) ? data : [])
+    console.log('[unipile/sync] ws:', ws, '| accounts found:', all.length)
+
+    if (!supabase || ws === 'ws_default') {
+      return res.json({ items: all, synced: 0 })
+    }
+
+    // Accounts that existed before the user went to Unipile
+    const snapshot = preConnectSnapshot.get(ws) || new Set()
+    preConnectSnapshot.delete(ws) // consume the snapshot
+
+    // Accounts already saved in DB for any workspace
+    const { data: claimed, error: claimErr } = await supabase
+      .from('workspace_linkedin_accounts')
+      .select('unipile_account_id')
+
+    if (claimErr) {
+      console.warn('[unipile/sync] DB error:', claimErr.message)
+      return res.json({ items: all, synced: 0 })
+    }
+
+    const claimedIds = new Set((claimed || []).map(r => r.unipile_account_id))
+
+    // New account = not in pre-connect snapshot AND not already claimed by any workspace
+    const newAccounts = all.filter(a => !snapshot.has(a.id) && !claimedIds.has(a.id))
+    console.log('[unipile/sync] new accounts to claim:', newAccounts.map(a => a.id))
+
+    if (newAccounts.length > 0) {
+      const { error: insertErr } = await supabase.from('workspace_linkedin_accounts').insert(
+        newAccounts.map(a => ({
+          workspace_id:       ws,
+          unipile_account_id: a.id,
+          name:               extractName(a) || a.username || null,
+        }))
+      )
+      if (insertErr) console.warn('[unipile/sync] Insert error:', insertErr.message)
+    }
+
+    // Return this workspace's full account list
+    const { data: myRows } = await supabase
+      .from('workspace_linkedin_accounts')
+      .select('unipile_account_id')
+      .eq('workspace_id', ws)
+    const myIds = new Set((myRows || []).map(r => r.unipile_account_id))
+    const myAccounts = all.filter(a => myIds.has(a.id))
+
+    res.json({ items: myAccounts, synced: newAccounts.length })
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message })
+  }
+})
+
 // DELETE /api/unipile/accounts/:id
+// Disconnects from Unipile and removes the workspace association.
 router.delete('/accounts/:id', async (req, res) => {
   try {
+    const ws = wsId(req)
+
+    // Verify this account belongs to the current workspace
+    if (supabase && ws !== 'ws_default') {
+      const { data: row } = await supabase
+        .from('workspace_linkedin_accounts')
+        .select('id')
+        .eq('workspace_id', ws)
+        .eq('unipile_account_id', req.params.id)
+        .maybeSingle()
+      if (!row) return res.status(403).json({ message: 'Account does not belong to this workspace' })
+
+      // Remove workspace association
+      await supabase
+        .from('workspace_linkedin_accounts')
+        .delete()
+        .eq('unipile_account_id', req.params.id)
+    }
+
+    // Delete from Unipile
     const data = await accounts.delete(req.params.id)
     res.json(data)
   } catch (err) {

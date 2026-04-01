@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
@@ -16,32 +16,48 @@ import "./CampaignDetail.css";
 
 // ── Step type definitions ─────────────────────────────────────
 const STEP_TYPES = [
-  {
-    type: "visit_profile",
-    icon: "◎",
-    label: "Visit LinkedIn profile",
-    hasConfig: false,
-  },
-  {
-    type: "like_post",
-    icon: "◇",
-    label: "Like last LinkedIn post",
-    hasConfig: false,
-  },
-  { type: "follow", icon: "◆", label: "Follow on LinkedIn", hasConfig: false },
-  { type: "wait", icon: "⏰", label: "Wait", hasConfig: true },
-  {
-    type: "connection_request",
-    icon: "◈",
-    label: "Send connection request",
-    hasConfig: true,
-  },
-  {
-    type: "message",
-    icon: "✉",
-    label: "Send LinkedIn message",
-    hasConfig: true,
-  },
+  // Actions
+  { type: "visit_profile",    icon: "◎",  label: "Visit profile",                   hasConfig: false },
+  { type: "like_post",        icon: "♡",  label: "Like last post",                   hasConfig: false },
+  { type: "follow",           icon: "◆",  label: "Follow Lead",                      hasConfig: false },
+  { type: "wait",             icon: "⏰", label: "Wait x days",                      hasConfig: true  },
+  { type: "connection_request",icon: "◈", label: "Send connection request",          hasConfig: true  },
+  { type: "message",          icon: "✉",  label: "Send message",                     hasConfig: true  },
+  { type: "voice_note",       icon: "🎙", label: "Send voice note",                  hasConfig: true  },
+  { type: "comment_post",     icon: "💬", label: "Comment last post",                hasConfig: true  },
+  { type: "inmail",           icon: "📨", label: "LinkedIn InMail",                  hasConfig: true  },
+  { type: "add_tag",          icon: "🏷", label: "Add tag",                          hasConfig: true  },
+  { type: "reply_comment",    icon: "↩",  label: "Reply Comment",                    hasConfig: true  },
+  { type: "message_open",     icon: "📬", label: "Send message to open profile",     hasConfig: true  },
+  // Conditions
+  { type: "cond_has_linkedin",    icon: "🔗", label: "Has LinkedIn URL",           hasConfig: false, isCondition: true },
+  { type: "cond_1st_level",       icon: "①",  label: "Lead is 1st level",          hasConfig: false, isCondition: true },
+  { type: "cond_opened_message",  icon: "✓",  label: "Opened LinkedIn Message",    hasConfig: false, isCondition: true },
+  { type: "cond_check_column",    icon: "☰",  label: "Check data in column",       hasConfig: true,  isCondition: true },
+  { type: "cond_open_profile",    icon: "◉",  label: "Lead is Open Profile",       hasConfig: false, isCondition: true },
+];
+
+const ACTION_STEPS = [
+  { type: "connection_request", icon: "➕", label: "Send connection request" },
+  { type: "message", icon: "✉", label: "Send message" },
+  { type: "voice_note", icon: "🎙", label: "Send voice note" },
+  { type: "comment_post", icon: "💬", label: "Comment last post" },
+  { type: "like_post", icon: "♡", label: "Like last post" },
+  { type: "visit_profile", icon: "◎", label: "Visit profile" },
+  { type: "inmail", icon: "📨", label: "LinkedIn InMail" },
+  { type: "add_tag", icon: "🏷", label: "Add tag" },
+  { type: "reply_comment", icon: "↩", label: "Reply Comment" },
+  { type: "message_open", icon: "📬", label: "Send message to open profile" },
+  { type: "follow", icon: "＋", label: "Follow Lead" },
+  { type: "wait", icon: "⏰", label: "Wait x days" },
+];
+
+const CONDITION_STEPS = [
+  { type: "cond_has_linkedin", icon: "🔗", label: "Has LinkedIn URL" },
+  { type: "cond_1st_level", icon: "①", label: "Lead is 1st level" },
+  { type: "cond_opened_message", icon: "✓", label: "Opened LinkedIn Message" },
+  { type: "cond_check_column", icon: "☰", label: "Check data in column" },
+  { type: "cond_open_profile", icon: "◉", label: "Lead is Open Profile" },
 ];
 
 function stepMeta(type) {
@@ -61,10 +77,16 @@ function nodeLabel(node) {
 }
 
 function nodeConfigured(node) {
-  if (!stepMeta(node.type).hasConfig) return true;
+  const meta = stepMeta(node.type);
+  if (!meta.hasConfig) return true;
   if (node.type === "wait") return (node.config?.days || 0) > 0;
-  if (node.type === "connection_request") return true; // note is optional
-  if (node.type === "message") return !!node.config?.text?.trim();
+  if (node.type === "connection_request") return true;
+  if (["message", "message_open", "voice_note", "comment_post", "reply_comment"].includes(node.type))
+    return !!node.config?.text?.trim();
+  if (node.type === "inmail")
+    return !!node.config?.subject?.trim() && !!node.config?.body?.trim();
+  if (node.type === "add_tag") return !!node.config?.tag?.trim();
+  if (node.type === "cond_check_column") return !!node.config?.field?.trim();
   return true;
 }
 
@@ -473,6 +495,8 @@ export default function CampaignDetail() {
               setCampaign((prev) => ({ ...prev, sequence: updated }))
             }
             toast={toast}
+            campaignStatus={campaign.status}
+            onToggleStatus={handleToggleStatus}
           />
         )}
         {tab === "persona" && (
@@ -1296,12 +1320,15 @@ function BuilderTab({
   linkedinAccounts,
   onSaved,
   toast,
+  campaignStatus,
+  onToggleStatus,
 }) {
   const [nodes, setNodes] = useState(() =>
     (initialNodes || []).map((n, i) => ({ ...n, _id: n.id || `n_${i}` })),
   );
   const [selectedId, setSelectedId] = useState(null);
   const [addingAt, setAddingAt] = useState(null); // index to insert after (-1 = beginning)
+  const [pickerTab, setPickerTab] = useState("action");
   const [saving, setSaving] = useState(false);
 
   const selectedNode = nodes.find((n) => n._id === selectedId) || null;
@@ -1364,8 +1391,17 @@ function BuilderTab({
       {/* Canvas */}
       <div className="builder-canvas" onClick={() => setSelectedId(null)}>
         {/* Start node */}
-        <div className="builder-entry-node">
-          <span>▶</span> Start the campaign
+        <div
+          className={`builder-entry-node ${campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
+          onClick={(e) => { e.stopPropagation(); onToggleStatus?.(); }}
+          title={campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
+          style={{ cursor: "pointer" }}
+        >
+          {campaignStatus === "active" ? (
+            <><span>⏸</span> Running</>
+          ) : (
+            <><span>▶</span> Start</>
+          )}
         </div>
 
         {/* Add first node */}
@@ -1387,85 +1423,49 @@ function BuilderTab({
         {nodes.map((node, i) => {
           const meta = stepMeta(node.type);
           const ok = nodeConfigured(node);
+          const sub = node.type === "wait"
+            ? `${node.config?.days || 1} day${(node.config?.days || 1) !== 1 ? "s" : ""}`
+            : node.config?.text
+              ? node.config.text.slice(0, 42) + (node.config.text.length > 42 ? "…" : "")
+              : node.config?.note
+                ? node.config.note.slice(0, 42) + (node.config.note.length > 42 ? "…" : "")
+                : null;
           return (
             <div key={node._id}>
               <div
-                className={`builder-node ${!ok ? "missing" : ""} ${selectedId === node._id ? "selected" : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedId(node._id);
-                }}
+                className={`builder-node${meta.isCondition ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node._id ? " selected" : ""}`}
+                onClick={(e) => { e.stopPropagation(); setSelectedId(node._id); }}
               >
                 <div className="node-icon">{meta.icon}</div>
                 <div className="node-content">
-                  <div className="node-label">{nodeLabel(node)}</div>
-                  {!ok && <div className="node-error">Message required</div>}
-                  {ok &&
-                    meta.hasConfig &&
-                    node.type !== "wait" &&
-                    node.config?.text && (
-                      <div className="node-preview">
-                        "{node.config.text.slice(0, 50)}
-                        {node.config.text.length > 50 ? "…" : ""}"
-                      </div>
-                    )}
-                  {ok &&
-                    node.type === "connection_request" &&
-                    node.config?.note && (
-                      <div className="node-preview">
-                        Note: "{node.config.note.slice(0, 40)}…"
-                      </div>
-                    )}
+                  <div className="node-label">{meta.label}</div>
+                  {!ok
+                    ? <div className="node-error">Configure required</div>
+                    : sub && <div className="node-sub">{sub}</div>
+                  }
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
-                    flexShrink: 0,
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="node-actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn btn-icon btn-ghost"
-                    style={{ fontSize: 10, padding: "2px 5px", lineHeight: 1 }}
+                    style={{ fontSize: 10, opacity: i === 0 ? 0.3 : 1 }}
                     disabled={i === 0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveNode(node._id, -1);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, -1); }}
                     title="Move up"
-                  >
-                    ▲
-                  </button>
+                  >▲</button>
                   <button
                     className="btn btn-icon btn-ghost"
-                    style={{ fontSize: 10, padding: "2px 5px", lineHeight: 1 }}
+                    style={{ fontSize: 10, opacity: i === nodes.length - 1 ? 0.3 : 1 }}
                     disabled={i === nodes.length - 1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveNode(node._id, 1);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, 1); }}
                     title="Move down"
-                  >
-                    ▼
-                  </button>
+                  >▼</button>
+                  <button
+                    className="btn btn-icon btn-ghost"
+                    style={{ fontSize: 11, color: "var(--danger)" }}
+                    onClick={(e) => { e.stopPropagation(); deleteNode(node._id); }}
+                    title="Remove"
+                  >✕</button>
                 </div>
-                <button
-                  className="btn btn-icon btn-ghost node-edit-btn"
-                  style={{
-                    fontSize: 11,
-                    color: "var(--danger)",
-                    flexShrink: 0,
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteNode(node._id);
-                  }}
-                  title="Remove step"
-                >
-                  ✕
-                </button>
               </div>
 
               {/* Connector + add button between nodes */}
@@ -1489,15 +1489,12 @@ function BuilderTab({
 
         {/* Save button */}
         <button
-          className="btn btn-primary"
-          style={{ marginTop: 16 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            saveSequence(nodes);
-          }}
+          className="btn btn-primary btn-sm"
+          style={{ marginTop: 20, fontSize: 12 }}
+          onClick={(e) => { e.stopPropagation(); saveSequence(nodes); }}
           disabled={saving}
         >
-          {saving ? "Saving…" : "✓ Save Sequence"}
+          {saving ? "Saving…" : "Save Sequence"}
         </button>
       </div>
 
@@ -1508,28 +1505,49 @@ function BuilderTab({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="node-config-header">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16 }}>
-                {stepMeta(selectedNode.type).icon}
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {["message", "message_open", "inmail"].includes(selectedNode.type) ? (
+                <div className="msg-step-icon">
+                  <span style={{ fontSize: 11 }}>in</span>
+                </div>
+              ) : (
+                <span style={{ fontSize: 16 }}>
+                  {stepMeta(selectedNode.type).icon}
+                </span>
+              )}
               <h3 style={{ fontSize: 14, fontWeight: 700 }}>
                 {stepMeta(selectedNode.type).label}
               </h3>
             </div>
-            <button
-              className="btn btn-icon btn-ghost"
-              onClick={() => setSelectedId(null)}
-            >
-              ✕
-            </button>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {["message", "message_open", "inmail"].includes(selectedNode.type) && (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  style={{ fontSize: 12, color: "var(--signal)", border: "1px solid var(--signal)", padding: "3px 10px" }}
+                  onClick={() => {
+                    deleteNode(selectedNode._id);
+                    setAddingAt(nodes.indexOf(selectedNode) - 1);
+                  }}
+                >
+                  Change
+                </button>
+              )}
+              <button
+                className="btn btn-icon btn-ghost"
+                onClick={() => setSelectedId(null)}
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           <div
             style={{
-              padding: 20,
+              padding: 24,
               display: "flex",
               flexDirection: "column",
-              gap: 16,
+              gap: 20,
+              flex: 1,
             }}
           >
             {selectedNode.type === "wait" && (
@@ -1606,83 +1624,168 @@ function BuilderTab({
                       marginTop: 4,
                     }}
                   >
-                    Variables: {"{firstName}"} {"{lastName}"} {"{company}"}
+                    Variables: {"{firstName}"} {"{lastName}"} {"{fullName}"} {"{company}"} {"{jobTitle}"} {"{location}"}
                   </div>
                 </div>
               </>
             )}
 
             {selectedNode.type === "message" && (
+              <MessageStepEditor
+                node={selectedNode}
+                linkedinAccounts={linkedinAccounts}
+                updateNode={updateNode}
+                toast={toast}
+              />
+            )}
+
+            {/* voice_note / comment_post / reply_comment — simple text */}
+            {["voice_note", "comment_post", "reply_comment"].includes(selectedNode.type) && (
+              <div className="input-group">
+                <label className="input-label">
+                  {selectedNode.type === "voice_note" && "Voice Note Script"}
+                  {selectedNode.type === "comment_post" && "Comment Text"}
+                  {selectedNode.type === "reply_comment" && "Reply Text"}
+                </label>
+                <textarea
+                  className="input"
+                  rows={5}
+                  placeholder={
+                    selectedNode.type === "voice_note"
+                      ? "Hi {firstName}, I wanted to reach out because…"
+                      : selectedNode.type === "comment_post"
+                      ? "Great post! {firstName}, I completely agree with…"
+                      : "Thanks for your comment, {firstName}!"
+                  }
+                  value={selectedNode.config?.text || ""}
+                  onChange={(e) => updateNode(selectedNode._id, { text: e.target.value })}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Variables: {"{firstName}"} {"{lastName}"} {"{company}"} {"{jobTitle}"}
+                </div>
+              </div>
+            )}
+
+            {/* message_open — same composer as message */}
+            {selectedNode.type === "message_open" && (
+              <MessageStepEditor
+                node={selectedNode}
+                linkedinAccounts={linkedinAccounts}
+                updateNode={updateNode}
+                toast={toast}
+              />
+            )}
+
+            {/* inmail — subject + body */}
+            {selectedNode.type === "inmail" && (
               <>
-                {linkedinAccounts.length > 0 && (
-                  <div className="input-group">
-                    <label className="input-label">Send From</label>
-                    <select
-                      className="input"
-                      value={selectedNode.config?.accountId || ""}
-                      onChange={(e) => {
-                        const acc = linkedinAccounts.find(
-                          (a) => a.id === e.target.value,
-                        );
-                        updateNode(selectedNode._id, {
-                          accountId: e.target.value,
-                          accountName: acc?.name || "",
-                        });
-                      }}
-                    >
-                      <option value="">Select account…</option>
-                      {linkedinAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name || a.id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 <div className="input-group">
-                  <label className="input-label">Message</label>
+                  <label className="input-label">Subject</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Quick question, {firstName}"
+                    value={selectedNode.config?.subject || ""}
+                    onChange={(e) => updateNode(selectedNode._id, { subject: e.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Message Body</label>
                   <textarea
                     className="input"
                     rows={6}
-                    placeholder="Hey {firstName}, following up on my connection request…"
-                    value={selectedNode.config?.text || ""}
-                    onChange={(e) =>
-                      updateNode(selectedNode._id, { text: e.target.value })
-                    }
+                    placeholder="Hi {firstName}, I noticed you work at {company}…"
+                    value={selectedNode.config?.body || ""}
+                    onChange={(e) => updateNode(selectedNode._id, { body: e.target.value })}
                   />
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      marginTop: 4,
-                    }}
-                  >
-                    Variables: {"{firstName}"} {"{lastName}"} {"{company}"}{" "}
-                    {"{calendarLink}"}
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    Variables: {"{firstName}"} {"{lastName}"} {"{company}"} {"{jobTitle}"} {"{location}"}
                   </div>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Send Condition</label>
-                  <select
-                    className="input"
-                    value={selectedNode.config?.condition || "always"}
-                    onChange={(e) =>
-                      updateNode(selectedNode._id, {
-                        condition: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="always">Always send</option>
-                    <option value="if_accepted">
-                      Only if connection accepted
-                    </option>
-                    <option value="if_no_reply">Only if no reply yet</option>
-                  </select>
                 </div>
               </>
             )}
 
-            {!stepMeta(selectedNode.type).hasConfig && (
+            {/* add_tag */}
+            {selectedNode.type === "add_tag" && (
+              <div className="input-group">
+                <label className="input-label">Tag Name</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="e.g. hot-lead, follow-up, interested"
+                  value={selectedNode.config?.tag || ""}
+                  onChange={(e) => updateNode(selectedNode._id, { tag: e.target.value })}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  This tag will be saved to the lead's profile in the campaign.
+                </div>
+              </div>
+            )}
+
+            {/* Conditions */}
+            {selectedNode.type?.startsWith("cond_") && (
+              <div
+                style={{
+                  padding: "12px 16px",
+                  background: "rgba(255, 193, 7, 0.08)",
+                  border: "1px solid rgba(255, 193, 7, 0.3)",
+                  borderRadius: "var(--radius-md)",
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.5,
+                }}
+              >
+                {selectedNode.type === "cond_has_linkedin" &&
+                  "Continues only if the lead has a LinkedIn URL. Leads without a LinkedIn URL are skipped."}
+                {selectedNode.type === "cond_1st_level" &&
+                  "Continues only if the lead is already a 1st-level connection. Others are skipped."}
+                {selectedNode.type === "cond_opened_message" &&
+                  "Continues only if the lead has opened a previous LinkedIn message. Others are skipped."}
+                {selectedNode.type === "cond_open_profile" &&
+                  "Continues only if the lead is an Open Profile (can receive InMail). Others are skipped."}
+              </div>
+            )}
+
+            {selectedNode.type === "cond_check_column" && (
+              <>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    background: "rgba(255, 193, 7, 0.08)",
+                    border: "1px solid rgba(255, 193, 7, 0.3)",
+                    borderRadius: "var(--radius-md)",
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.5,
+                    marginBottom: 4,
+                  }}
+                >
+                  Checks a field on the lead record. Leads that don't match the expected value are skipped.
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Field Name</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. company, jobTitle, location"
+                    value={selectedNode.config?.field || ""}
+                    onChange={(e) => updateNode(selectedNode._id, { field: e.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Expected Value (contains)</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. CEO, New York, SaaS"
+                    value={selectedNode.config?.value || ""}
+                    onChange={(e) => updateNode(selectedNode._id, { value: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+
+            {!stepMeta(selectedNode.type).hasConfig && !(selectedNode.type?.startsWith("cond_")) && (
               <div
                 style={{
                   fontSize: 13,
@@ -1697,19 +1800,19 @@ function BuilderTab({
 
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <button
-                className="btn btn-danger"
-                style={{ flex: 1 }}
+                className="btn btn-ghost btn-sm"
+                style={{ color: "var(--danger)", fontSize: 12 }}
                 onClick={() => deleteNode(selectedNode._id)}
               >
                 Remove Step
               </button>
               <button
-                className="btn btn-primary"
-                style={{ flex: 2 }}
+                className="btn btn-primary btn-sm"
+                style={{ flex: 1, fontSize: 12 }}
                 onClick={() => saveSequence(nodes)}
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save Sequence"}
+                {saving ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
@@ -1720,74 +1823,69 @@ function BuilderTab({
       {addingAt !== null && (
         <div className="modal-overlay" onClick={() => setAddingAt(null)}>
           <div
-            className="modal-box animate-fade-in"
-            style={{ maxWidth: 480 }}
+            className="step-picker-modal animate-fade-in"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="modal-header">
-              <h2 className="modal-title">Add Step</h2>
+            {/* Header */}
+            <div className="step-picker-header">
+              <div className="step-picker-tabs">
+                <button
+                  className={`step-picker-tab${pickerTab === "action" ? " active" : ""}`}
+                  onClick={() => setPickerTab("action")}
+                >
+                  Add an action
+                </button>
+                <button
+                  className={`step-picker-tab${pickerTab === "condition" ? " active" : ""}`}
+                  onClick={() => setPickerTab("condition")}
+                >
+                  Add a condition
+                </button>
+              </div>
               <button
                 className="btn btn-icon btn-ghost"
                 onClick={() => setAddingAt(null)}
+                style={{ marginLeft: "auto" }}
               >
                 ✕
               </button>
             </div>
-            <div className="modal-body">
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {STEP_TYPES.map((s) => (
-                  <button
-                    key={s.type}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "12px 16px",
-                      background: "var(--surface-2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-md)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: "all var(--transition-fast)",
-                    }}
-                    onClick={() => addNode(s.type, addingAt)}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "var(--signal)";
-                      e.currentTarget.style.background = "var(--signal-subtle)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border)";
-                      e.currentTarget.style.background = "var(--surface-2)";
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 20,
-                        width: 28,
-                        textAlign: "center",
-                        flexShrink: 0,
-                        color: "var(--signal)",
-                      }}
+
+            {/* Grid */}
+            <div className="step-picker-body">
+              {pickerTab === "action" ? (
+                <div className="step-picker-grid">
+                  {ACTION_STEPS.map((s) => (
+                    <button
+                      key={s.type}
+                      className="step-picker-card"
+                      onClick={() => addNode(s.type, addingAt)}
                     >
-                      {s.icon}
-                    </span>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>
-                        {s.label}
+                      <div className="step-picker-icon">
+                        <span className="spi-action">{s.icon}</span>
+                        <span className="spi-linkedin">in</span>
                       </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "var(--text-muted)",
-                          marginTop: 2,
-                        }}
-                      >
-                        {s.hasConfig ? "Configurable" : "Automatic action"}
+                      <span className="step-picker-label">{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="step-picker-grid">
+                  {CONDITION_STEPS.map((s) => (
+                    <button
+                      key={s.type}
+                      className="step-picker-card"
+                      onClick={() => addNode(s.type, addingAt)}
+                    >
+                      <div className="step-picker-icon">
+                        <span className="spi-action">{s.icon}</span>
+                        <span className="spi-linkedin">in</span>
                       </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                      <span className="step-picker-label">{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2416,5 +2514,227 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Message Step Editor ────────────────────────────────────────
+const CONTACT_VARS = [
+  { group: "Contact" },
+  { label: "First Name",      value: "{firstName}",     preview: "John" },
+  { label: "Last Name",       value: "{lastName}",      preview: "Smith" },
+  { label: "Full Name",       value: "{fullName}",      preview: "John Smith" },
+  { label: "Job Title",       value: "{jobTitle}",      preview: "Head of Sales" },
+  { label: "Company",         value: "{company}",       preview: "Acme Corp" },
+  { label: "Location",        value: "{location}",      preview: "London, UK" },
+  { group: "Sender" },
+  { label: "Calendar Link",   value: "{calendarLink}",  preview: "https://cal.com/you" },
+  { label: "Your Company",    value: "{senderCompany}", preview: "ReachFlow" },
+  { label: "Your Website",    value: "{senderWebsite}", preview: "https://reachflow.io" },
+];
+
+const SEND_CONDITIONS = [
+  { value: "always",          label: "Always send" },
+  { value: "if_accepted",     label: "Only if connection accepted" },
+  { value: "if_no_reply",     label: "Send only if the recipient has never sent a message" },
+];
+
+function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
+  const [showVarMenu, setShowVarMenu]     = useState(false);
+  const [showAiPrompt, setShowAiPrompt]   = useState(false);
+  const [aiPrompt, setAiPrompt]           = useState("");
+  const [generatingAI, setGeneratingAI]   = useState(false);
+  const [showPreview, setShowPreview]     = useState(false);
+  const textareaRef = useRef(null);
+
+  const config  = node.config || {};
+  const msgText = config.text || "";
+  const isEmpty = !msgText.trim();
+  const selAcc  = linkedinAccounts.find((a) => a.id === config.accountId);
+
+  function insertVar(v) {
+    const ta = textareaRef.current;
+    if (!ta) { updateNode(node._id, { text: msgText + v }); setShowVarMenu(false); return; }
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const next  = msgText.slice(0, start) + v + msgText.slice(end);
+    updateNode(node._id, { text: next });
+    setShowVarMenu(false);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + v.length, start + v.length); }, 0);
+  }
+
+  async function handleGenerateAI() {
+    if (!aiPrompt.trim()) return;
+    setGeneratingAI(true);
+    try {
+      const result = await campaignsApi.generateMessage({ prompt: aiPrompt });
+      updateNode(node._id, { text: result.message });
+      setShowAiPrompt(false);
+      setAiPrompt("");
+    } catch (err) {
+      toast?.(err.message || "AI generation failed", "danger");
+    } finally {
+      setGeneratingAI(false);
+    }
+  }
+
+  function previewText() {
+    let t = msgText;
+    CONTACT_VARS.filter((v) => v.value).forEach((v) => {
+      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), v.preview);
+    });
+    return t;
+  }
+
+  return (
+    <>
+      {/* Sender account */}
+      <div className="input-group">
+        <label className="input-label" style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 10 }}>
+          Select a sender account
+        </label>
+        {selAcc ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="sender-chip">
+              <div className="sender-avatar">{(selAcc.name || "?")[0].toUpperCase()}</div>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{selAcc.name}</span>
+              <button
+                className="sender-chip-remove"
+                onClick={() => updateNode(node._id, { accountId: "", accountName: "" })}
+              >
+                ×
+              </button>
+            </div>
+            <select
+              className="input"
+              style={{ fontSize: 12, padding: "4px 8px", width: "auto" }}
+              value={config.accountId}
+              onChange={(e) => {
+                const acc = linkedinAccounts.find((a) => a.id === e.target.value);
+                updateNode(node._id, { accountId: e.target.value, accountName: acc?.name || "" });
+              }}
+            >
+              {linkedinAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name || a.id}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <select
+            className="input"
+            value=""
+            onChange={(e) => {
+              const acc = linkedinAccounts.find((a) => a.id === e.target.value);
+              updateNode(node._id, { accountId: e.target.value, accountName: acc?.name || "" });
+            }}
+          >
+            <option value="">Select account…</option>
+            {linkedinAccounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Message composer */}
+      <div className="msg-composer">
+        {/* Toolbar */}
+        <div className="msg-toolbar">
+          <button
+            className={`msg-toolbar-btn${showAiPrompt ? " active" : ""}`}
+            onClick={() => { setShowAiPrompt((v) => !v); setShowPreview(false); }}
+          >
+            ✦ AI Prompt
+          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              className="msg-toolbar-btn"
+              onClick={() => setShowVarMenu((v) => !v)}
+            >
+              + Contact Variables
+            </button>
+            {showVarMenu && (
+              <div className="var-dropdown" onMouseLeave={() => setShowVarMenu(false)}>
+                {CONTACT_VARS.map((v, i) =>
+                  v.group ? (
+                    <div key={i} className="var-dropdown-group">{v.group}</div>
+                  ) : (
+                    <button key={v.value} className="var-dropdown-item" onClick={() => insertVar(v.value)}>
+                      <span className="var-tag">{v.value}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.label}</span>
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+          <button className="msg-toolbar-btn">📎 Add</button>
+          <button
+            className={`msg-toolbar-btn${showPreview ? " active" : ""}`}
+            onClick={() => { setShowPreview((v) => !v); setShowAiPrompt(false); }}
+          >
+            ◉ Preview
+          </button>
+        </div>
+
+        {/* AI Prompt bar */}
+        {showAiPrompt && (
+          <div className="ai-prompt-bar">
+            <input
+              className="input"
+              style={{ fontSize: 12, flex: 1 }}
+              placeholder="Describe the message you want… e.g. Follow up after connection, mention their company"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleGenerateAI()}
+              autoFocus
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!aiPrompt.trim() || generatingAI}
+              onClick={handleGenerateAI}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {generatingAI ? "Generating…" : "✦ Generate"}
+            </button>
+          </div>
+        )}
+
+        {/* Message body */}
+        {showPreview ? (
+          <div className="msg-preview-body">
+            {previewText() || <span style={{ color: "var(--text-disabled)" }}>Nothing to preview yet.</span>}
+          </div>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            className="msg-textarea"
+            rows={9}
+            placeholder=""
+            value={msgText}
+            onChange={(e) => updateNode(node._id, { text: e.target.value })}
+          />
+        )}
+      </div>
+
+      {/* Validation */}
+      {isEmpty && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--danger)" }}>
+          <span>⊙</span> Type your message
+        </div>
+      )}
+
+      {/* Send condition */}
+      <div className="input-group" style={{ margin: 0 }}>
+        <select
+          className="input msg-condition-select"
+          value={config.condition || "if_no_reply"}
+          onChange={(e) => updateNode(node._id, { condition: e.target.value })}
+        >
+          {SEND_CONDITIONS.map((c) => (
+            <option key={c.value} value={c.value}>{c.label}</option>
+          ))}
+        </select>
+      </div>
+    </>
   );
 }

@@ -609,28 +609,73 @@ export function Members() {
   )
 }
 
+const TRIAL_START_B = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+const TRIAL_DAYS_B = 7;
+const trialEndB = new Date(TRIAL_START_B.getTime() + TRIAL_DAYS_B * 24 * 60 * 60 * 1000);
+const daysLeftB = Math.max(0, Math.ceil((trialEndB - Date.now()) / (1000 * 60 * 60 * 24)));
+
 export function Billing() {
   return (
     <div className="page animate-fade-in">
       <div className="page-header">
         <h1 className="page-title">Billing</h1>
       </div>
-      <div
-        className="card"
-        style={{ maxWidth: 480, padding: 40, textAlign: "center" }}
-      >
-        <div style={{ fontSize: 40, marginBottom: 16, color: "var(--signal)" }}>
-          ◇
+
+      <div className="card" style={{ maxWidth: 480, padding: 24, border: "2px solid var(--signal)", position: "relative" }}>
+        <div style={{
+          position: "absolute", top: -11, left: 20,
+          background: "var(--signal)", color: "#fff",
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+          padding: "2px 10px", borderRadius: 20, textTransform: "uppercase",
+        }}>
+          Active Plan
         </div>
-        <h3 style={{ fontWeight: 700, marginBottom: 8 }}>
-          Stripe Billing — Phase 8
-        </h3>
-        <p
-          style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6 }}
-        >
-          Subscription management via Stripe is implemented in Phase 8 when
-          ReachFlow launches as a white-label SaaS product.
-        </p>
+
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 2 }}>Free Trial</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Full access for 7 days — no credit card required.</div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "var(--signal)", lineHeight: 1 }}>{daysLeftB}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>days left</div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+            <span>Trial started</span>
+            <span>Ends {trialEndB.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+          </div>
+          <div style={{ height: 6, background: "var(--border)", borderRadius: 6, overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${Math.round(((TRIAL_DAYS_B - daysLeftB) / TRIAL_DAYS_B) * 100)}%`,
+              background: daysLeftB <= 2 ? "var(--danger, #e55)" : "var(--signal)",
+              borderRadius: 6,
+            }} />
+          </div>
+        </div>
+
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 20px", display: "flex", flexDirection: "column", gap: 7 }}>
+          {[
+            "1 LinkedIn account",
+            "Unlimited connection requests during trial",
+            "1 active campaign",
+            "AI agents & message generation",
+            "Full analytics access",
+          ].map((f) => (
+            <li key={f} style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "var(--signal)", fontWeight: 700, flexShrink: 0 }}>✓</span>
+              {f}
+            </li>
+          ))}
+        </ul>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-primary btn-sm">Upgrade Plan</button>
+          <button className="btn btn-ghost btn-sm">View all plans</button>
+        </div>
       </div>
     </div>
   )

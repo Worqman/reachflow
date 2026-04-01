@@ -6,6 +6,18 @@ import { supabase } from '../services/supabase.js'
 
 const router = Router()
 
+// Verify webhook secret if configured
+router.use((req, res, next) => {
+  const secret = process.env.UNIPILE_WEBHOOK_SECRET
+  if (!secret) return next() // No secret configured — skip check (dev mode)
+  const provided = req.headers['x-unipile-secret'] || req.headers['x-webhook-secret']
+  if (provided !== secret) {
+    console.warn('[webhook] Rejected request with invalid secret')
+    return res.status(401).json({ message: 'Invalid webhook secret' })
+  }
+  next()
+})
+
 // ── Shared helper: handle a new connection (accepted invite) ────
 // Called from both the webhook and the polling sync endpoint
 export async function handleNewConnection({ providerUserId, prospectName, accountId }) {
@@ -14,10 +26,11 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
 
   // Find the lead and their campaign
   let campaignId = null
+  let workspaceId = null
   if (supabase) {
     const { data: leadRow } = await supabase
       .from('campaign_leads')
-      .select('campaign_id, status')
+      .select('campaign_id, status, workspace_id')
       .eq('provider_id', providerUserId)
       .single()
 
@@ -28,6 +41,7 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
     }
 
     campaignId = leadRow?.campaign_id || null
+    workspaceId = leadRow?.workspace_id || null
 
     await supabase
       .from('campaign_leads')
@@ -38,13 +52,13 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
 
   // Execute builder sequence message steps after connection_request node
   if (campaignId) {
-    await executePostConnectionSteps(providerUserId, accountId, campaignId)
+    await executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId)
   }
 
   // Trigger AI opening message if an agent is assigned to the campaign
   const agentId = await findAgentForProspect(providerUserId)
   if (agentId) {
-    await generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId })
+    await generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId })
   }
 }
 
@@ -88,6 +102,17 @@ router.post('/unipile', async (req, res) => {
       case 'account_created': {
         const { account_id, name, provider } = event.data || {}
         console.log(`[Webhook] Account connected: ${name} (${account_id}) via ${provider}`)
+        // `name` is the workspace ID we passed when creating the hosted-auth link
+        if (supabase && account_id && name) {
+          const { error } = await supabase
+            .from('workspace_linkedin_accounts')
+            .upsert(
+              { workspace_id: name, unipile_account_id: account_id, name: null },
+              { onConflict: 'unipile_account_id' }
+            )
+          if (error) console.error('[Webhook] Failed to save account to DB:', error.message)
+          else console.log(`[Webhook] Saved account ${account_id} to workspace ${name}`)
+        }
         break
       }
 

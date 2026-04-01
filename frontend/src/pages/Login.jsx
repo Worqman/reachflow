@@ -1,52 +1,66 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { useToast } from '../components/Toast'
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { useToast } from "../components/Toast";
 
 export default function Login() {
-  const navigate = useNavigate()
-  const { toast } = useToast()
+  const navigate = useNavigate();
+  const { toast } = useToast();
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit(e) {
-    e.preventDefault()
-    setError('')
+    e.preventDefault();
+    setError("");
 
     if (!supabase) {
-      setError('Supabase is not configured.')
-      return
+      setError("Supabase is not configured.");
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
-      })
-      if (signInError) throw signInError
+      });
+      if (signInError) throw signInError;
 
-      toast?.('Signed in successfully', 'success')
-      navigate('/onboarding')
+      toast?.("Signed in successfully", "success");
+      navigate("/onboarding");
     } catch (err) {
-      console.error(err)
-      setError(err.message || 'Invalid email or password')
-      toast?.(err.message || 'Could not sign in', 'danger')
+      console.error(err);
+      setError(err.message || "Invalid email or password");
+      toast?.(err.message || "Could not sign in", "danger");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   return (
-    <div className="page auth-page animate-fade-in" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card" style={{ width: 380, maxWidth: '100%', padding: 32 }}>
-        <div style={{ marginBottom: 24, textAlign: 'center' }}>
+    <div
+      className="page auth-page animate-fade-in"
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        margin: "auto",
+      }}
+    >
+      <div
+        className="card"
+        style={{ width: 380, maxWidth: "100%", padding: 32 }}
+      >
+        <div style={{ marginBottom: 24, textAlign: "center" }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>◇</div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>Welcome back</h1>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          <h1 className="page-title" style={{ marginBottom: 4 }}>
+            Welcome back
+          </h1>
+          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
             Sign in to access your ReachFlow workspace.
           </p>
         </div>
@@ -82,18 +96,40 @@ export default function Login() {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ marginTop: 8 }} disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign in'}
+          <div style={{ textAlign: "right", marginTop: -4 }}>
+            <Link
+              to="/forgot-password"
+              className="link"
+              style={{ fontSize: 12 }}
+            >
+              Forgot password?
+            </Link>
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ marginTop: 4 }}
+            disabled={loading}
+          >
+            {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
-        <div style={{ marginTop: 16, fontSize: 13, textAlign: 'center', color: 'var(--text-muted)' }}>
-          Don&apos;t have an account?{' '}
+        <div
+          style={{
+            marginTop: 16,
+            fontSize: 13,
+            textAlign: "center",
+            color: "var(--text-muted)",
+          }}
+        >
+          Don&apos;t have an account?{" "}
           <Link to="/register" className="link">
             Create one
           </Link>
         </div>
       </div>
     </div>
-  )
+  );
 }

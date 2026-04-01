@@ -11,7 +11,7 @@ const supabase = createClient(
 // ── GET /api/members?workspace_id=xxx ──────────────────────────────
 // Returns confirmed members + pending invites
 router.get("/", async (req, res) => {
-  const { workspace_id } = req.query;
+  const workspace_id = req.workspaceId || req.query.workspace_id;
   if (!workspace_id)
     return res.status(400).json({ error: "workspace_id required" });
 
@@ -74,6 +74,23 @@ router.post("/invite", async (req, res) => {
     if (!workspace_id || !email)
       return res.status(400).json({ error: "workspace_id and email required" });
 
+    // Verify caller is owner or admin
+    const { data: callerMembership } = await supabase
+      .from('workspace_members')
+      .select('role')
+      .eq('workspace_id', workspace_id)
+      .eq('user_id', req.user.id)
+      .maybeSingle()
+    const { data: ownerWs } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('id', workspace_id)
+      .eq('owner_id', req.user.id)
+      .maybeSingle()
+    if (!ownerWs && callerMembership?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only workspace owners or admins can invite members' })
+    }
+
     let invitedBy = req.user?.id || null;
     if (!invitedBy) {
       const { data: workspaceRow } = await supabase
@@ -133,9 +150,13 @@ router.patch("/:memberId/role", async (req, res) => {
   // Prevent changing owner role
   const { data: target } = await supabase
     .from("workspace_members")
-    .select("role")
+    .select("role, workspace_id")
     .eq("id", req.params.memberId)
     .single();
+
+  if (target?.workspace_id !== req.workspaceId) {
+    return res.status(403).json({ error: 'Access denied' })
+  }
 
   if (target?.role === "owner")
     return res.status(403).json({ error: "Cannot change owner role" });
@@ -156,9 +177,13 @@ router.delete("/:memberId", async (req, res) => {
   // Prevent removing owner
   const { data: target } = await supabase
     .from("workspace_members")
-    .select("role")
+    .select("role, workspace_id")
     .eq("id", req.params.memberId)
     .single();
+
+  if (target?.workspace_id !== req.workspaceId) {
+    return res.status(403).json({ error: 'Access denied' })
+  }
 
   if (target?.role === "owner")
     return res.status(403).json({ error: "Cannot remove the workspace owner" });

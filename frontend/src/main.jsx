@@ -183,7 +183,7 @@ function RequireAuth({ children }) {
 
     checkSetup()
     return () => { alive = false }
-  }, [user, location.pathname])
+  }, [user?.id, location.pathname])
 
   if (checking) {
     return (

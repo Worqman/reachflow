@@ -7,7 +7,11 @@
       "Bash(curl -s http://localhost:3001/api/agents)",
       "Bash(find /Users/lorikrama/Desktop/reachflow-v1 -type f -name *.sql)",
       "WebSearch",
-      "Bash(find /Users/lorikrama/Desktop/reachflow-v1/backend/src -type f \\\\\\(-name *.ts -o -name *.js \\\\\\))"
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1/backend/src -type f \\\\\\(-name *.ts -o -name *.js \\\\\\))",
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1 -type f \\\\\\(-name *.sql -o -name *migration* -o -name *schema* \\\\\\))",
+      "Bash(find /Users/lorikrama/Desktop/reachflow-v1 -name *meetings* -o -name *meeting*)",
+      "Bash(grep -E \"\\\\.\\(sql|js|jsx\\)$\")",
+      "Bash(node:*)"
     ]
   }
 }

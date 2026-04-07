@@ -64,8 +64,8 @@ function chatToConversation(chat, backendConvMap) {
   const unread = (chat.unread_count || 0) > 0;
 
   const backend = backendConvMap[chat.id] || null;
-  const status = backend?.status || (unread ? "review" : "ai_active");
-  const aiPaused = backend?.aiPaused ?? status !== "ai_active";
+  const status = backend?.status || "review";
+  const aiPaused = backend?.aiPaused ?? true;
 
   return {
     id: chat.id,
@@ -139,10 +139,13 @@ export default function Inbox() {
         if (c.linkedinChatId) backendMap[c.linkedinChatId] = c;
       }
 
-      // Build lookup maps from meetings for cross-referencing
+      // Build lookup maps from meetings for cross-referencing — scoped to current account
+      const accountMeetings = (meetingsData || []).filter(
+        (m) => !m.account_id || m.account_id === accId
+      );
       const meetingByChatId = {};
       const meetingByName = {};
-      for (const m of meetingsData || []) {
+      for (const m of accountMeetings) {
         if (m.linkedin_chat_id) meetingByChatId[m.linkedin_chat_id] = m;
         if (m.prospect_name) {
           meetingByName[m.prospect_name.toLowerCase().trim()] = m;
@@ -169,7 +172,13 @@ export default function Inbox() {
           }
           if (conv.status === "booked") {
             // Enrich with booked date if we have it
-            const m = meetingByChatId[chat.id] || meetingByName[conv.name.toLowerCase().trim()];
+            const m =
+              meetingByChatId[chat.id] ||
+              accountMeetings.find(
+                (mtg) =>
+                  mtg.prospect_name?.toLowerCase().trim() ===
+                  conv.name.toLowerCase().trim()
+              );
             return { ...conv, bookedAt: m?.booked_at || conv.bookedAt || null };
           }
           return conv;
@@ -567,7 +576,7 @@ export default function Inbox() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {active.status !== "booked" &&
+              {/* {active.status !== "booked" &&
                 (aiPaused ? (
                   <button
                     className="btn btn-sm btn-primary"
@@ -587,7 +596,7 @@ export default function Inbox() {
                   >
                     ⏸ Pause AI
                   </button>
-                ))}
+                ))} */}
               {active.status !== "booked" ? (
                 <button
                   className="btn btn-sm btn-secondary"

@@ -2,7 +2,8 @@ import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '../services/supabase.js'
-import { linkedin, relations as unipileRelations } from '../services/unipile.js'
+import { linkedin, chats as unipileChats, relations as unipileRelations } from '../services/unipile.js'
+import { isWithinSchedule, consumeDailyLimit, getDailyCount } from '../services/limits.js'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -319,7 +320,7 @@ async function resolveProviderId(lead, accountId) {
 // Execute pre-connection sequence steps for one lead:
 //   visit_profile → (wait ignored) → connection_request
 // Returns 'invited' on success, throws on failure.
-async function executePreConnectionSteps(lead, sequence, accountId, workspaceId) {
+async function executePreConnectionSteps(lead, sequence, accountId, workspaceId, campaignId, frequency = {}) {
   const nodes = sequence?.nodes || []
 
   // Find connection_request step index (we stop there)
@@ -336,38 +337,86 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId)
 
   for (const node of stepsToRun) {
     switch (node.type) {
-      case 'visit_profile':
-        console.log(`[sequence] visiting profile of ${lead.name}`)
+      case 'visit_profile': {
+        const allowed = consumeDailyLimit(campaignId, 'profileVisits', frequency.profileVisits)
+        if (!allowed) {
+          console.log(`[sequence] visit_profile skipped for ${lead.name} — daily limit (${frequency.profileVisits}) reached`)
+          break
+        }
+        console.log(`[sequence] visiting profile of ${lead.name} (today: ${getDailyCount(campaignId, 'profileVisits')}/${frequency.profileVisits || '∞'})`)
         await linkedin.visitProfile(accountId, providerUserId)
         break
-      case 'like_post':
-        console.log(`[sequence] like_post skipped for ${lead.name} (not implemented)`)
+      }
+      case 'like_post': {
+        if (!consumeDailyLimit(campaignId, 'likesToPosts', frequency.likesToPosts)) {
+          console.log(`[sequence] like_post skipped for ${lead.name} — daily limit reached`)
+          break
+        }
+        try {
+          const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+          const posts = postsData?.items || postsData?.objects || []
+          if (!posts.length) { console.log(`[sequence] like_post — no posts found for ${lead.name}`); break }
+          const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+          await linkedin.likePost(accountId, postId)
+          console.log(`[sequence] liked post ${postId} for ${lead.name}`)
+        } catch (err) {
+          console.error(`[sequence] like_post error for ${lead.name}: ${err.message}`)
+        }
         break
-      case 'follow':
-        console.log(`[sequence] follow skipped for ${lead.name} (no Unipile endpoint)`)
+      }
+      case 'follow': {
+        if (!consumeDailyLimit(campaignId, 'followLead', frequency.followLead)) {
+          console.log(`[sequence] follow skipped for ${lead.name} — daily limit reached`)
+          break
+        }
+        try {
+          await linkedin.followUser(accountId, providerUserId)
+          console.log(`[sequence] followed ${lead.name}`)
+        } catch (err) {
+          console.error(`[sequence] follow error for ${lead.name}: ${err.message}`)
+        }
         break
-      case 'comment_post':
-        console.log(`[sequence] comment_post skipped for ${lead.name} (requires post fetch — not implemented)`)
+      }
+      case 'comment_post': {
+        if (!consumeDailyLimit(campaignId, 'aiComments', frequency.aiComments)) {
+          console.log(`[sequence] comment_post skipped for ${lead.name} — daily limit reached`)
+          break
+        }
+        const commentText = node.config?.text?.trim()
+        if (!commentText) break
+        try {
+          const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+          const posts = postsData?.items || postsData?.objects || []
+          if (!posts.length) { console.log(`[sequence] comment_post — no posts found for ${lead.name}`); break }
+          const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+          const profile = await getWorkspaceProfile(workspaceId)
+          const text = interpolateVars(commentText, lead, profile)
+          await linkedin.commentOnPost(accountId, postId, text)
+          console.log(`[sequence] commented on post ${postId} for ${lead.name}`)
+        } catch (err) {
+          console.error(`[sequence] comment_post error for ${lead.name}: ${err.message}`)
+        }
         break
+      }
       case 'wait':
-        console.log(`[sequence] wait ${node.config?.days}d skipped (no scheduler)`)
+        // Wait is skipped in pre-connection — delay is handled in post-connection phase
+        console.log(`[sequence] wait ${node.config?.days}d skipped in pre-connection phase`)
         break
-      // Conditions in pre-connection phase
+      // ── Conditions ──────────────────────────────────────────────
       case 'cond_has_linkedin': {
         if (!lead.linkedin_url) {
-          console.log(`[sequence] cond_has_linkedin FAILED for ${lead.name} — skipping lead`)
+          console.log(`[sequence] cond_has_linkedin FAILED for ${lead.name}`)
           throw new Error(`CONDITION_FAILED:cond_has_linkedin`)
         }
         break
       }
       case 'cond_1st_level': {
-        // Check if lead is already a connection
         try {
           const data = await unipileRelations.list({ accountId, limit: 250 })
           const relations = data?.items || data?.objects || data?.relations || []
           const isConnected = relations.some(r => r.provider_id === providerUserId || r.id === providerUserId)
           if (!isConnected) {
-            console.log(`[sequence] cond_1st_level FAILED for ${lead.name} — not yet connected, skipping`)
+            console.log(`[sequence] cond_1st_level FAILED for ${lead.name} — not yet connected`)
             throw new Error(`CONDITION_FAILED:cond_1st_level`)
           }
         } catch (err) {
@@ -381,15 +430,29 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId)
         const expected = (node.config?.value || '').toLowerCase()
         const actual = String(lead[field] || lead[field?.toLowerCase()] || '').toLowerCase()
         if (field && expected && !actual.includes(expected)) {
-          console.log(`[sequence] cond_check_column FAILED for ${lead.name} — ${field} does not contain "${expected}"`)
+          console.log(`[sequence] cond_check_column FAILED for ${lead.name} — ${field} !contains "${expected}"`)
           throw new Error(`CONDITION_FAILED:cond_check_column`)
         }
         break
       }
+      case 'cond_open_profile': {
+        try {
+          const profileData = await linkedin.visitProfile(accountId, providerUserId)
+          const isOpen = profileData?.is_open_profile || profileData?.open_profile || profileData?.openProfile || false
+          if (!isOpen) {
+            console.log(`[sequence] cond_open_profile FAILED for ${lead.name} — not an open profile`)
+            throw new Error(`CONDITION_FAILED:cond_open_profile`)
+          }
+          console.log(`[sequence] cond_open_profile PASSED for ${lead.name}`)
+        } catch (err) {
+          if (err.message?.startsWith('CONDITION_FAILED')) throw err
+          console.log(`[sequence] cond_open_profile check error — passing through: ${err.message}`)
+        }
+        break
+      }
       case 'cond_opened_message':
-      case 'cond_open_profile':
-        // Cannot be checked pre-connection — allow through
-        console.log(`[sequence] condition ${node.type} cannot be evaluated pre-connection — passing through`)
+        // Cannot be meaningfully checked pre-connection — pass through
+        console.log(`[sequence] cond_opened_message cannot be evaluated pre-connection — passing through`)
         break
       case 'connection_request': {
         const profile = await getWorkspaceProfile(workspaceId)
@@ -405,12 +468,12 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId)
   }
 }
 
-// Execute post-connection sequence steps (message steps after connection_request)
-// Called from the webhook after connection_accepted.
-export async function executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId) {
+// Execute post-connection sequence steps (nodes after connection_request).
+// startFromIndex: resume from a specific node (used by wait scheduling).
+export async function executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, startFromIndex = 0) {
   try {
     const { data: campaign } = await supabase
-      .from('campaigns').select('sequence, workspace_id').eq('id', campaignId).single()
+      .from('campaigns').select('sequence, settings, workspace_id').eq('id', campaignId).single()
     if (!campaign?.sequence?.nodes) return
 
     const nodes = campaign.sequence.nodes
@@ -418,8 +481,16 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
     if (connectIdx < 0) return
 
     const postNodes = nodes.slice(connectIdx + 1)
+    const frequency = campaign.settings?.frequency || {}
 
-    // Resolve lead data for variable interpolation
+    // Respect campaign schedule for post-connection outreach
+    const schedule = campaign.settings?.schedule
+    const timezone = campaign.settings?.timezone || 'UTC'
+    if (startFromIndex === 0 && schedule?.length && !isWithinSchedule(schedule, timezone)) {
+      console.log(`[sequence] post-connection steps skipped — outside active schedule (${timezone})`)
+      return
+    }
+
     const { data: lead } = await supabase
       .from('campaign_leads')
       .select('*')
@@ -429,31 +500,111 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
     const effectiveWsId = workspaceId || campaign?.workspace_id
     const profile = await getWorkspaceProfile(effectiveWsId)
 
-    for (const node of postNodes) {
+    for (let i = startFromIndex; i < postNodes.length; i++) {
+      const node = postNodes[i]
       switch (node.type) {
+
+        // ── Messages ──────────────────────────────────────────────
         case 'message': {
-          if (node.config?.text?.trim()) {
-            const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
-            console.log(`[sequence] sending post-connection message to ${providerUserId}`)
-            await linkedin.sendMessage({ accountId, providerUserId, text })
+          if (!node.config?.text?.trim()) break
+          if (!consumeDailyLimit(campaignId, 'messages', frequency.messages)) {
+            console.log(`[sequence] message skipped for ${providerUserId} — daily limit reached`)
+            break
           }
+          const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
+          const attachments = node.config?.attachments || []
+          console.log(`[sequence] sending message to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
+          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
           break
         }
         case 'message_open': {
-          if (node.config?.text?.trim()) {
-            const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
-            console.log(`[sequence] sending open-profile message to ${providerUserId}`)
-            await linkedin.sendMessage({ accountId, providerUserId, text })
+          if (!node.config?.text?.trim()) break
+          if (!consumeDailyLimit(campaignId, 'messages', frequency.messages)) {
+            console.log(`[sequence] message_open skipped for ${providerUserId} — daily limit reached`)
+            break
           }
+          const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
+          const attachments = node.config?.attachments || []
+          console.log(`[sequence] sending open-profile message to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
+          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
           break
         }
         case 'inmail': {
-          if (node.config?.body?.trim()) {
-            const body = interpolateVars(node.config.body.trim(), lead || {}, profile)
-            const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
-            const text = subject ? `${subject}\n\n${body}` : body
-            console.log(`[sequence] sending InMail to ${providerUserId}`)
-            await linkedin.sendMessage({ accountId, providerUserId, text })
+          if (!node.config?.body?.trim()) break
+          if (!consumeDailyLimit(campaignId, 'inmails', frequency.inmails)) {
+            console.log(`[sequence] inmail skipped for ${providerUserId} — daily limit reached`)
+            break
+          }
+          const body    = interpolateVars(node.config.body.trim(), lead || {}, profile)
+          const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
+          const text    = subject ? `${subject}\n\n${body}` : body
+          const attachments = node.config?.attachments || []
+          console.log(`[sequence] sending InMail to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
+          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
+          break
+        }
+        case 'voice_note':
+          console.log(`[sequence] voice_note not supported via Unipile — skipping`)
+          break
+
+        // ── Engagement actions ─────────────────────────────────────
+        case 'visit_profile': {
+          if (!consumeDailyLimit(campaignId, 'profileVisits', frequency.profileVisits)) {
+            console.log(`[sequence] visit_profile skipped for ${providerUserId} — daily limit reached`)
+            break
+          }
+          await linkedin.visitProfile(accountId, providerUserId)
+          console.log(`[sequence] visited profile of ${providerUserId}`)
+          break
+        }
+        case 'like_post': {
+          if (!consumeDailyLimit(campaignId, 'likesToPosts', frequency.likesToPosts)) {
+            console.log(`[sequence] like_post skipped for ${providerUserId} — daily limit reached`)
+            break
+          }
+          try {
+            const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+            const posts = postsData?.items || postsData?.objects || []
+            if (!posts.length) { console.log(`[sequence] like_post — no posts found for ${providerUserId}`); break }
+            const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+            await linkedin.likePost(accountId, postId)
+            console.log(`[sequence] liked post ${postId} for ${providerUserId}`)
+          } catch (err) {
+            console.error(`[sequence] like_post error: ${err.message}`)
+          }
+          break
+        }
+        case 'follow': {
+          if (!consumeDailyLimit(campaignId, 'followLead', frequency.followLead)) {
+            console.log(`[sequence] follow skipped for ${providerUserId} — daily limit reached`)
+            break
+          }
+          try {
+            await linkedin.followUser(accountId, providerUserId)
+            console.log(`[sequence] followed ${providerUserId}`)
+          } catch (err) {
+            console.error(`[sequence] follow error: ${err.message}`)
+          }
+          break
+        }
+        case 'comment_post':
+        case 'reply_comment': {
+          if (!consumeDailyLimit(campaignId, 'aiComments', frequency.aiComments)) {
+            console.log(`[sequence] ${node.type} skipped for ${providerUserId} — daily limit reached`)
+            break
+          }
+          const commentText = node.config?.text?.trim()
+          if (!commentText) break
+          try {
+            const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+            const posts = postsData?.items || postsData?.objects || []
+            if (!posts.length) { console.log(`[sequence] ${node.type} — no posts found for ${providerUserId}`); break }
+            const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+            const text = interpolateVars(commentText, lead || {}, profile)
+            await linkedin.commentOnPost(accountId, postId, text)
+            console.log(`[sequence] ${node.type} on post ${postId} for ${providerUserId}`)
+          } catch (err) {
+            console.error(`[sequence] ${node.type} error: ${err.message}`)
           }
           break
         }
@@ -467,40 +618,32 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
                 .update({ tags: [...existingTags, node.config.tag] })
                 .eq('id', lead.id)
             }
-            console.log(`[sequence] tagged ${lead.name} with "${node.config.tag}"`)
+            console.log(`[sequence] tagged ${lead?.name || providerUserId} with "${node.config.tag}"`)
           }
           break
         }
-        case 'wait':
-          console.log(`[sequence] wait ${node.config?.days}d skipped (no scheduler)`)
-          break
-        case 'voice_note':
-          console.log(`[sequence] voice_note not supported via Unipile — skipping`)
-          break
-        case 'comment_post':
-        case 'reply_comment':
-          console.log(`[sequence] ${node.type} requires post fetch — skipping`)
-          break
-        case 'follow':
-        case 'like_post':
-        case 'visit_profile':
-          // These are pre-connection steps; running them post-connection too if specified
-          if (node.type === 'visit_profile') {
-            await linkedin.visitProfile(accountId, providerUserId)
-          } else {
-            console.log(`[sequence] ${node.type} post-connection skipped`)
-          }
-          break
-        // Conditions in post-connection phase
+
+        // ── Wait — schedule resume from the next node ──────────────
+        case 'wait': {
+          const days = node.config?.days || 1
+          const delayMs = days * 24 * 60 * 60 * 1000
+          console.log(`[sequence] wait ${days}d — scheduling resume at node ${i + 1} for ${providerUserId}`)
+          setTimeout(
+            () => executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, i + 1),
+            delayMs
+          )
+          return // stop current run; will resume after delay
+        }
+
+        // ── Conditions ────────────────────────────────────────────
         case 'cond_has_linkedin':
           if (!lead?.linkedin_url) {
-            console.log(`[sequence] cond_has_linkedin FAILED post-connection for ${providerUserId} — stopping`)
+            console.log(`[sequence] cond_has_linkedin FAILED post-connection — stopping`)
             return
           }
           break
         case 'cond_1st_level':
-          // Post-connection = they ARE connected, so condition passes
-          break
+          break // post-connection = they ARE connected, always passes
         case 'cond_check_column': {
           const field = node.config?.field
           const expected = (node.config?.value || '').toLowerCase()
@@ -511,10 +654,45 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
           }
           break
         }
-        case 'cond_opened_message':
-        case 'cond_open_profile':
-          console.log(`[sequence] condition ${node.type} cannot be evaluated — passing through`)
+        case 'cond_open_profile': {
+          try {
+            const profileData = await linkedin.visitProfile(accountId, providerUserId)
+            const isOpen = profileData?.is_open_profile || profileData?.open_profile || profileData?.openProfile || false
+            if (!isOpen) {
+              console.log(`[sequence] cond_open_profile FAILED for ${providerUserId} — not an open profile, stopping`)
+              return
+            }
+            console.log(`[sequence] cond_open_profile PASSED for ${providerUserId}`)
+          } catch (err) {
+            console.log(`[sequence] cond_open_profile check error — continuing: ${err.message}`)
+          }
           break
+        }
+        case 'cond_opened_message': {
+          try {
+            // Find the chat_id stored on the lead (set when opening message was sent)
+            const chatId = lead?.chat_id
+            if (!chatId) {
+              console.log(`[sequence] cond_opened_message — no chat found for ${providerUserId}, passing through`)
+              break
+            }
+            const messagesData = await unipileChats.getMessages(chatId, { limit: 50 })
+            const messages = messagesData?.items || messagesData?.objects || []
+            // A message is "opened" if any sent message (is_sender=1) has a read/seen indicator
+            const hasBeenOpened = messages.some(m =>
+              (m.is_sender === 1 || m.is_sender === true) &&
+              (m.is_read || m.seen || m.read_at || m.seen_at)
+            )
+            if (!hasBeenOpened) {
+              console.log(`[sequence] cond_opened_message FAILED for ${providerUserId} — message not opened yet, stopping`)
+              return
+            }
+            console.log(`[sequence] cond_opened_message PASSED for ${providerUserId}`)
+          } catch (err) {
+            console.log(`[sequence] cond_opened_message check error — continuing: ${err.message}`)
+          }
+          break
+        }
         default:
           console.log(`[sequence] unknown post-connection step type: ${node.type}`)
       }
@@ -587,7 +765,8 @@ router.post('/:id/sync-statuses', async (req, res) => {
 })
 
 // ── POST /api/campaigns/:id/send-invites ───────────────────────
-// Runs the pre-connection sequence (visit_profile + connection_request) for all pending leads.
+// Runs the pre-connection sequence (visit_profile + connection_request) for pending leads.
+// Sends one at a time with a 15–20 minute random delay between each, up to the daily limit (default 20).
 router.post('/:id/send-invites', async (req, res) => {
   try {
     const { data: campaign } = await supabase
@@ -599,39 +778,75 @@ router.post('/:id/send-invites', async (req, res) => {
       return res.status(400).json({ message: 'Campaign has no LinkedIn account configured. Set it in Campaign Settings.' })
     }
 
+    // Check schedule: only run during active days/hours
+    const schedule = campaign.settings?.schedule
+    const timezone = campaign.settings?.timezone || 'UTC'
+    if (schedule?.length && !isWithinSchedule(schedule, timezone)) {
+      const dayName = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(new Date())
+      return res.json({ sent: 0, message: `Campaign is outside its active schedule (${dayName}, ${timezone})` })
+    }
+
+    const dailyLimit = campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? 20
+
+    // Count how many invites have already been sent today for this campaign
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const { count: sentToday } = await supabase
+      .from('campaign_leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('campaign_id', req.params.id)
+      .eq('status', 'invited')
+      .gte('updated_at', todayStart.toISOString())
+
+    const remaining = dailyLimit - (sentToday || 0)
+    if (remaining <= 0) {
+      return res.json({ sent: 0, message: `Daily limit of ${dailyLimit} connections already reached for today` })
+    }
+
     const { data: pendingLeads } = await supabase
       .from('campaign_leads')
       .select('*')
       .eq('campaign_id', req.params.id)
       .eq('status', 'pending')
+      .limit(remaining)
 
     if (!pendingLeads?.length) {
       return res.json({ sent: 0, message: 'No pending leads' })
     }
 
-    console.log(`[send-invites] campaign=${req.params.id} accountId=${accountId} leads=${pendingLeads.length}`)
+    console.log(`[send-invites] campaign=${req.params.id} accountId=${accountId} leads=${pendingLeads.length} dailyLimit=${dailyLimit} sentToday=${sentToday || 0}`)
 
-    const results = []
-    for (const lead of pendingLeads) {
+    // Respond immediately so the client isn't left waiting during the long delay loop
+    res.json({ queued: pendingLeads.length, message: `Sending ${pendingLeads.length} connection request(s) with 15–20 min delays` })
+
+    // Process leads one by one in the background with a delay between each
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+    for (let i = 0; i < pendingLeads.length; i++) {
+      const lead = pendingLeads[i]
       try {
-        await executePreConnectionSteps(lead, campaign.sequence, accountId, wsId(req))
+        await executePreConnectionSteps(lead, campaign.sequence, accountId, wsId(req), campaign.id, campaign.settings?.frequency || {})
         await supabase.from('campaign_leads').update({ status: 'invited' }).eq('id', lead.id)
-        results.push({ id: lead.id, name: lead.name, ok: true })
-        console.log(`[send-invites] ✓ sequence executed for ${lead.name}`)
+        console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
       } catch (err) {
         const status = err.message?.startsWith('CONDITION_FAILED') ? 'skipped' : 'failed'
         await supabase.from('campaign_leads').update({ status }).eq('id', lead.id)
         const detail = err.data ? JSON.stringify(err.data) : err.message
-        console.error(`[send-invites] ✗ failed for ${lead.name}:`, detail)
-        results.push({ id: lead.id, name: lead.name, ok: false, error: detail })
+        console.error(`[send-invites] ✗ (${i + 1}/${pendingLeads.length}) failed for ${lead.name}:`, detail)
+      }
+
+      // Wait 15–20 minutes between each invite (skip delay after the last one)
+      if (i < pendingLeads.length - 1) {
+        const delayMs = (15 + Math.floor(Math.random() * 6)) * 60 * 1000
+        console.log(`[send-invites] waiting ${Math.round(delayMs / 60000)} min before next invite…`)
+        await sleep(delayMs)
       }
     }
 
-    const sent = results.filter(r => r.ok).length
-    res.json({ sent, total: pendingLeads.length, results })
+    console.log(`[send-invites] done — processed ${pendingLeads.length} lead(s)`)
   } catch (err) {
     console.error('[send-invites] error:', err)
-    res.status(500).json({ message: err.message })
+    if (!res.headersSent) res.status(500).json({ message: err.message })
   }
 })
 

@@ -165,7 +165,7 @@ export const linkedin = {
    * Requires accountId + providerUserId (LinkedIn member URN).
    * Note: can only message existing connections on standard LinkedIn.
    */
-  sendMessage: async ({ accountId, providerUserId, text } = {}) => {
+  sendMessage: async ({ accountId, providerUserId, text, attachments = [] } = {}) => {
     const apiKey = process.env.UNIPILE_API_KEY
     if (!apiKey) throw new Error('UNIPILE_API_KEY is not configured')
     const url = `${getBaseUrl()}/chats`
@@ -174,6 +174,11 @@ export const linkedin = {
     form.append('attendees_ids', providerUserId)
     form.append('text', text)
     form.append('linkedin[api]', 'classic')
+    for (const att of attachments) {
+      const buffer = Buffer.from(att.data, 'base64')
+      const blob = new Blob([buffer], { type: att.type || 'application/octet-stream' })
+      form.append('attachments', blob, att.name)
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'X-API-KEY': apiKey, Accept: 'application/json' },
@@ -272,6 +277,41 @@ export const linkedin = {
     const params = new URLSearchParams({ account_id: accountId, type: 'LOCATION', keywords: query, limit: '5' })
     return request('GET', `/linkedin/search/parameters?${params}`)
   },
+
+  /**
+   * Get recent posts authored by a LinkedIn user.
+   */
+  getUserPosts: (accountId, providerUserId, { limit = 5 } = {}) => {
+    const params = new URLSearchParams({ account_id: accountId, limit: String(limit) })
+    return request('GET', `/users/${encodeURIComponent(providerUserId)}/posts?${params}`)
+  },
+
+  /**
+   * Like (react to) a post by its Unipile post identifier.
+   */
+  likePost: (accountId, postId) =>
+    request('POST', `/posts/${encodeURIComponent(postId)}/reactions`, {
+      account_id:    accountId,
+      reaction_type: 'LIKE',
+    }),
+
+  /**
+   * Follow a LinkedIn user.
+   */
+  followUser: (accountId, providerUserId) =>
+    request('POST', '/users/follow', {
+      account_id:  accountId,
+      provider_id: providerUserId,
+    }),
+
+  /**
+   * Post a comment on a LinkedIn post.
+   */
+  commentOnPost: (accountId, postId, text) =>
+    request('POST', `/posts/${encodeURIComponent(postId)}/comments`, {
+      account_id: accountId,
+      text,
+    }),
 }
 
 export default { accounts, chats, linkedin, isConfigured }

@@ -1604,28 +1604,13 @@ function BuilderTab({
                 <div className="input-group">
                   <label className="input-label">
                     Connection Note{" "}
-                    <span style={{ color: "var(--text-muted)" }}>
-                      (optional)
-                    </span>
+                    <span style={{ color: "var(--text-muted)" }}>(optional)</span>
                   </label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    placeholder="Hi {firstName}, I came across your profile and thought it would be great to connect…"
-                    value={selectedNode.config?.note || ""}
-                    onChange={(e) =>
-                      updateNode(selectedNode._id, { note: e.target.value })
-                    }
+                  <ConnectionNoteEditor
+                    node={selectedNode}
+                    updateNode={updateNode}
+                    toast={toast}
                   />
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      marginTop: 4,
-                    }}
-                  >
-                    Variables: {"{firstName}"} {"{lastName}"} {"{fullName}"} {"{company}"} {"{jobTitle}"} {"{location}"}
-                  </div>
                 </div>
               </>
             )}
@@ -2295,32 +2280,116 @@ function AnalyticsTab({ campaignId }) {
 }
 
 // ── Settings Tab ──────────────────────────────────────────────
+const DEFAULT_SCHEDULE = [
+  { day: "Monday",    enabled: true,  start: "08:00", end: "18:00" },
+  { day: "Tuesday",   enabled: true,  start: "08:00", end: "18:00" },
+  { day: "Wednesday", enabled: true,  start: "08:00", end: "18:00" },
+  { day: "Thursday",  enabled: true,  start: "08:00", end: "18:00" },
+  { day: "Friday",    enabled: true,  start: "08:00", end: "18:00" },
+  { day: "Saturday",  enabled: false, start: "00:00", end: "00:00" },
+  { day: "Sunday",    enabled: false, start: "00:00", end: "00:00" },
+];
+
+const DEFAULT_FREQUENCY = {
+  messages:           20,
+  inmails:            5,
+  connectionRequests: 18,
+  aiComments:         30,
+  likesToPosts:       30,
+  profileVisits:      30,
+  followLead:         30,
+};
+
+const FREQUENCY_ITEMS = [
+  { key: "messages",           label: "Messages",            icon: "💬" },
+  { key: "inmails",            label: "InMails",             icon: "✉️" },
+  { key: "connectionRequests", label: "Connection Requests", icon: "🔗" },
+  { key: "aiComments",         label: "AI Comments",         icon: "💡" },
+  { key: "likesToPosts",       label: "Likes to posts",      icon: "❤️" },
+  { key: "profileVisits",      label: "Profile visits",      icon: "👁️" },
+  { key: "followLead",         label: "Follow Lead",         icon: "➕" },
+];
+
 function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
   const [form, setForm] = useState({
-    linkedinAccountId: campaign.settings?.linkedinAccountId || "",
+    linkedinAccountId:   campaign.settings?.linkedinAccountId || "",
     linkedinAccountName: campaign.settings?.linkedinAccountName || "",
-    agentId: campaign.settings?.agentId || "",
-    dailyConnectionLimit: campaign.settings?.dailyConnectionLimit || 20,
-    dailyMessageLimit: campaign.settings?.dailyMessageLimit || 30,
-    timezone: campaign.settings?.timezone || "Europe/London",
-    activeHoursStart: campaign.settings?.activeHoursStart || "09:00",
-    activeHoursEnd: campaign.settings?.activeHoursEnd || "18:00",
+    agentId:             campaign.settings?.agentId || "",
+    timezone:            campaign.settings?.timezone || "Europe/London",
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  async function handleSave() {
-    if (form.activeHoursStart >= form.activeHoursEnd) {
-      toast?.("Active hours end time must be after start time", "danger");
-      return;
+  const [schedule, setSchedule] = useState(
+    campaign.settings?.schedule || DEFAULT_SCHEDULE
+  );
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  const [frequency, setFrequency] = useState(
+    campaign.settings?.frequency || {
+      ...DEFAULT_FREQUENCY,
+      connectionRequests: campaign.settings?.dailyConnectionLimit ?? DEFAULT_FREQUENCY.connectionRequests,
+      messages:           campaign.settings?.dailyMessageLimit    ?? DEFAULT_FREQUENCY.messages,
     }
-    setSaving(true);
+  );
+  const [savingFrequency, setSavingFrequency] = useState(false);
+
+  function updateScheduleDay(idx, patch) {
+    setSchedule((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
+  }
+
+  function resetSchedule() {
+    setSchedule(DEFAULT_SCHEDULE);
+  }
+
+  async function handleSaveSchedule() {
+    setSavingSchedule(true);
+    try {
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: { ...campaign.settings, ...form, schedule },
+      });
+      onSaved(updated);
+      toast?.("Schedule saved", "success");
+    } catch (err) {
+      toast?.(err.message || "Could not save schedule", "danger");
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  function adjustFreq(key, delta) {
+    setFrequency((prev) => ({
+      ...prev,
+      [key]: Math.max(0, (prev[key] ?? 0) + delta),
+    }));
+  }
+
+  async function handleSaveFrequency() {
+    setSavingFrequency(true);
     try {
       const updated = await campaignsApi.update(campaign.id, {
         settings: {
           ...campaign.settings,
           ...form,
+          frequency,
+          dailyConnectionLimit: frequency.connectionRequests,
+          dailyMessageLimit:    frequency.messages,
         },
+      });
+      onSaved(updated);
+      toast?.("Frequency saved", "success");
+    } catch (err) {
+      toast?.(err.message || "Could not save frequency", "danger");
+    } finally {
+      setSavingFrequency(false);
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: { ...campaign.settings, ...form },
       });
       onSaved(updated);
       toast?.("Settings saved", "success");
@@ -2333,12 +2402,7 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
 
   async function handleDelete() {
     // eslint-disable-next-line no-alert
-    if (
-      !window.confirm(
-        `Delete campaign "${campaign.name}"? This cannot be undone.`,
-      )
-    )
-      return;
+    if (!window.confirm(`Delete campaign "${campaign.name}"? This cannot be undone.`)) return;
     setDeleting(true);
     try {
       await campaignsApi.delete(campaign.id);
@@ -2350,14 +2414,9 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 20,
-        maxWidth: 600,
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 640 }}>
+
+      {/* ── General ── */}
       <div className="card">
         <h3 style={{ fontWeight: 700, marginBottom: 16 }}>Campaign Settings</h3>
 
@@ -2368,18 +2427,12 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
             value={form.linkedinAccountId}
             onChange={(e) => {
               const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-              setForm((f) => ({
-                ...f,
-                linkedinAccountId: e.target.value,
-                linkedinAccountName: acc?.name || "",
-              }));
+              setForm((f) => ({ ...f, linkedinAccountId: e.target.value, linkedinAccountName: acc?.name || "" }));
             }}
           >
             <option value="">Select account…</option>
             {linkedinAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.id}
-              </option>
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
             ))}
             {linkedinAccounts.length === 0 && (
               <option disabled>No accounts connected — add in Settings</option>
@@ -2392,56 +2445,16 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           <select
             className="input"
             value={form.agentId}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, agentId: e.target.value }))
-            }
+            onChange={(e) => setForm((f) => ({ ...f, agentId: e.target.value }))}
           >
             <option value="">No agent</option>
             {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
+              <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
-          <div
-            style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}
-          >
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
             Configure persona details in the Persona tab.
           </div>
-        </div>
-
-        <div className="input-group">
-          <label className="input-label">Daily Connection Requests</label>
-          <input
-            className="input"
-            type="number"
-            value={form.dailyConnectionLimit}
-            min={1}
-            max={50}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                dailyConnectionLimit: Number(e.target.value),
-              }))
-            }
-          />
-        </div>
-
-        <div className="input-group">
-          <label className="input-label">Daily Message Limit</label>
-          <input
-            className="input"
-            type="number"
-            value={form.dailyMessageLimit}
-            min={1}
-            max={100}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                dailyMessageLimit: Number(e.target.value),
-              }))
-            }
-          />
         </div>
 
         <div className="input-group">
@@ -2449,71 +2462,302 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           <select
             className="input"
             value={form.timezone}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, timezone: e.target.value }))
-            }
+            onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
           >
             <option value="Europe/London">Europe/London (UTC+0/+1)</option>
             <option value="Europe/Paris">Europe/Paris (UTC+1/+2)</option>
-            <option value="America/New_York">
-              America/New_York (UTC-5/-4)
-            </option>
-            <option value="America/Los_Angeles">
-              America/Los_Angeles (UTC-8/-7)
-            </option>
+            <option value="America/New_York">America/New_York (UTC-5/-4)</option>
+            <option value="America/Los_Angeles">America/Los_Angeles (UTC-8/-7)</option>
             <option value="Asia/Dubai">Asia/Dubai (UTC+4)</option>
           </select>
         </div>
 
-        <div className="input-group">
-          <label className="input-label">Active Hours</label>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              className="input"
-              type="time"
-              value={form.activeHoursStart}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, activeHoursStart: e.target.value }))
-              }
-              style={{ width: 120 }}
-            />
-            <span style={{ color: "var(--text-muted)" }}>to</span>
-            <input
-              className="input"
-              type="time"
-              value={form.activeHoursEnd}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, activeHoursEnd: e.target.value }))
-              }
-              style={{ width: 120 }}
-            />
-          </div>
-        </div>
-
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-        >
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? "Saving…" : "Save Settings"}
         </button>
       </div>
 
+      {/* ── Schedule ── */}
       <div className="card">
-        <h3
-          style={{ fontWeight: 700, marginBottom: 12, color: "var(--danger)" }}
-        >
+        <h3 style={{ fontWeight: 700, marginBottom: 4 }}>Schedule</h3>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>
+          Set which days and hours your campaign is active.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {schedule.map((row, idx) => (
+            <div
+              key={row.day}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "120px 56px 16px 1fr auto auto",
+                alignItems: "center",
+                gap: 10,
+                opacity: row.enabled ? 1 : 0.45,
+              }}
+            >
+              {/* Day label */}
+              <span style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}>
+                {row.day}
+              </span>
+
+              {/* Toggle */}
+              <label className="toggle" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={row.enabled}
+                  onChange={(e) => updateScheduleDay(idx, { enabled: e.target.checked })}
+                />
+                <span className="toggle-track" />
+              </label>
+
+              {/* Divider */}
+              <span style={{ borderTop: "1px solid var(--border)", width: "100%" }} />
+
+              {/* Time range */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  className="input"
+                  type="time"
+                  value={row.start}
+                  disabled={!row.enabled}
+                  onChange={(e) => updateScheduleDay(idx, { start: e.target.value })}
+                  style={{ width: 110, fontSize: 13 }}
+                />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>to</span>
+                <input
+                  className="input"
+                  type="time"
+                  value={row.end}
+                  disabled={!row.enabled}
+                  onChange={(e) => updateScheduleDay(idx, { end: e.target.value })}
+                  style={{ width: 110, fontSize: 13 }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button className="btn btn-secondary" onClick={resetSchedule}>
+            Reset Schedule
+          </button>
+          <button className="btn btn-primary" onClick={handleSaveSchedule} disabled={savingSchedule}>
+            {savingSchedule ? "Saving…" : "Save schedule"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Frequency ── */}
+      <div className="card">
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          {/* Left description */}
+          <div style={{ flex: "0 0 200px" }}>
+            <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Frequency</h3>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+              Set how many times you want your campaign to run per day. We recommend leaving these as default to avoid LinkedIn restrictions.
+            </p>
+          </div>
+
+          {/* Right counters */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+            {FREQUENCY_ITEMS.map(({ key, label, icon }) => (
+              <div
+                key={key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  marginBottom: 6,
+                  background: "var(--surface-2, #1a1f2e)",
+                }}
+              >
+                <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{icon}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{label}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }}
+                    onClick={() => adjustFreq(key, -1)}
+                  >
+                    −
+                  </button>
+                  <span style={{ width: 32, textAlign: "center", fontWeight: 600, fontSize: 14 }}>
+                    {frequency[key] ?? DEFAULT_FREQUENCY[key]}
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }}
+                    onClick={() => adjustFreq(key, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button className="btn btn-primary" onClick={handleSaveFrequency} disabled={savingFrequency}>
+            {savingFrequency ? "Saving…" : "Save Frequency"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Danger Zone ── */}
+      <div className="card">
+        <h3 style={{ fontWeight: 700, marginBottom: 12, color: "var(--danger)" }}>
           Danger Zone
         </h3>
-        <button
-          className="btn btn-danger"
-          onClick={handleDelete}
-          disabled={deleting}
-        >
+        <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
           {deleting ? "Deleting…" : "Delete Campaign"}
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Connection Note Editor ─────────────────────────────────────
+const NOTE_CHAR_LIMIT = 300;
+
+function ConnectionNoteEditor({ node, updateNode, toast }) {
+  const [showVarMenu,   setShowVarMenu]   = useState(false);
+  const [showAiPrompt,  setShowAiPrompt]  = useState(false);
+  const [aiPrompt,      setAiPrompt]      = useState("");
+  const [generatingAI,  setGeneratingAI]  = useState(false);
+  const [showPreview,   setShowPreview]   = useState(false);
+  const textareaRef = useRef(null);
+
+  const noteText = node.config?.note || "";
+  const charsLeft = NOTE_CHAR_LIMIT - noteText.length;
+
+  function insertVar(v) {
+    const ta = textareaRef.current;
+    if (!ta) { updateNode(node._id, { note: noteText + v }); setShowVarMenu(false); return; }
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const next  = noteText.slice(0, start) + v + noteText.slice(end);
+    if (next.length > NOTE_CHAR_LIMIT) return;
+    updateNode(node._id, { note: next });
+    setShowVarMenu(false);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + v.length, start + v.length); }, 0);
+  }
+
+  async function handleGenerateAI() {
+    if (!aiPrompt.trim()) return;
+    setGeneratingAI(true);
+    try {
+      const result = await campaignsApi.generateMessage({ prompt: aiPrompt + " Keep it under 300 characters." });
+      const truncated = result.message.slice(0, NOTE_CHAR_LIMIT);
+      updateNode(node._id, { note: truncated });
+      setShowAiPrompt(false);
+      setAiPrompt("");
+    } catch (err) {
+      toast?.(err.message || "AI generation failed", "danger");
+    } finally {
+      setGeneratingAI(false);
+    }
+  }
+
+  function previewText() {
+    let t = noteText;
+    CONTACT_VARS.filter((v) => v.value).forEach((v) => {
+      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), v.preview);
+    });
+    return t;
+  }
+
+  return (
+    <>
+      <div className="msg-composer">
+        {/* Toolbar */}
+        <div className="msg-toolbar">
+          <button
+            className={`msg-toolbar-btn${showAiPrompt ? " active" : ""}`}
+            onClick={() => { setShowAiPrompt((v) => !v); setShowPreview(false); }}
+          >
+            ✦ AI Prompt
+          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              className="msg-toolbar-btn"
+              onClick={() => setShowVarMenu((v) => !v)}
+            >
+              + Contact Variables
+            </button>
+            {showVarMenu && (
+              <div className="var-dropdown" onMouseLeave={() => setShowVarMenu(false)}>
+                {CONTACT_VARS.map((v, i) =>
+                  v.group ? (
+                    <div key={i} className="var-dropdown-group">{v.group}</div>
+                  ) : (
+                    <button key={v.value} className="var-dropdown-item" onClick={() => insertVar(v.value)}>
+                      <span className="var-tag">{v.value}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.label}</span>
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            className={`msg-toolbar-btn${showPreview ? " active" : ""}`}
+            onClick={() => { setShowPreview((v) => !v); setShowAiPrompt(false); }}
+          >
+            ◉ Preview
+          </button>
+        </div>
+
+        {/* AI Prompt bar */}
+        {showAiPrompt && (
+          <div className="ai-prompt-bar">
+            <input
+              className="input"
+              style={{ fontSize: 12, flex: 1 }}
+              placeholder="Describe the connection note… e.g. Mention shared interest in SaaS, keep it friendly"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleGenerateAI()}
+              autoFocus
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!aiPrompt.trim() || generatingAI}
+              onClick={handleGenerateAI}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {generatingAI ? "Generating…" : "✦ Generate"}
+            </button>
+          </div>
+        )}
+
+        {/* Note body */}
+        {showPreview ? (
+          <div className="msg-preview-body">
+            {previewText() || <span style={{ color: "var(--text-disabled)" }}>Nothing to preview yet.</span>}
+          </div>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            className="msg-textarea"
+            rows={4}
+            placeholder="Hi {firstName}, I came across your profile and thought it would be great to connect…"
+            value={noteText}
+            maxLength={NOTE_CHAR_LIMIT}
+            onChange={(e) => updateNode(node._id, { note: e.target.value })}
+          />
+        )}
+      </div>
+
+      {/* Char counter */}
+      <div style={{ fontSize: 11, color: charsLeft < 30 ? "var(--danger)" : "var(--text-muted)", textAlign: "right", marginTop: 4 }}>
+        {charsLeft} / {NOTE_CHAR_LIMIT} characters remaining
+      </div>
+    </>
   );
 }
 
@@ -2545,6 +2789,28 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
   const [generatingAI, setGeneratingAI]   = useState(false);
   const [showPreview, setShowPreview]     = useState(false);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  function handleFileSelect(e) {
+    const files = Array.from(e.target.files);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = ev.target.result.split(",")[1];
+        const current = node.config?.attachments || [];
+        updateNode(node._id, {
+          attachments: [...current, { name: file.name, type: file.type, size: file.size, data: base64 }],
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  }
+
+  function removeAttachment(idx) {
+    const attachments = (node.config?.attachments || []).filter((_, i) => i !== idx);
+    updateNode(node._id, { attachments });
+  }
 
   const config  = node.config || {};
   const msgText = config.text || "";
@@ -2667,7 +2933,17 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
               </div>
             )}
           </div>
-          <button className="msg-toolbar-btn">📎 Add</button>
+          <button className="msg-toolbar-btn" onClick={() => fileInputRef.current?.click()}>
+            📎 Add
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx,.ppt,.pptx"
+            style={{ display: "none" }}
+            onChange={handleFileSelect}
+          />
           <button
             className={`msg-toolbar-btn${showPreview ? " active" : ""}`}
             onClick={() => { setShowPreview((v) => !v); setShowAiPrompt(false); }}
@@ -2713,6 +2989,34 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
             value={msgText}
             onChange={(e) => updateNode(node._id, { text: e.target.value })}
           />
+        )}
+
+        {/* Attachment chips */}
+        {(node.config?.attachments || []).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderTop: "1px solid var(--border)" }}>
+            {(node.config.attachments).map((att, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  background: "var(--surface-3, #252a3a)", borderRadius: 5,
+                  padding: "3px 8px", fontSize: 12, maxWidth: 220,
+                }}
+              >
+                <span>📎</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{att.name}</span>
+                <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>
+                  {att.size > 1024 * 1024 ? `${(att.size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(att.size / 1024)}KB`}
+                </span>
+                <button
+                  onClick={() => removeAttachment(i)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0 2px", fontSize: 14, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

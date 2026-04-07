@@ -4,6 +4,7 @@ import { conversationStore } from '../services/store.js'
 import { chats } from '../services/unipile.js'
 import { getAgentById } from './agents.js'
 import { supabase } from '../services/supabase.js'
+import { isWithinSchedule, consumeDailyLimit } from '../services/limits.js'
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -69,17 +70,14 @@ router.get('/', (req, res) => {
   res.json(ws && ws !== 'ws_default' ? all.filter(c => c.workspaceId === ws) : all)
 })
 
-// POST /api/conversations — manually enable AI for an Inbox chat
+// POST /api/conversations — track an Inbox chat (AI is not enabled for inbox)
 router.post('/', (req, res) => {
   const { linkedinChatId, linkedinAccountId, agentId, prospectId } = req.body
   if (!linkedinChatId) return res.status(400).json({ message: 'linkedinChatId required' })
 
   // Return existing if already tracked
   const existing = conversationStore.list().find(c => c.linkedinChatId === linkedinChatId)
-  if (existing) {
-    const updated = conversationStore.update(existing.id, { aiPaused: false, status: 'ai_active', ...(agentId && { agentId }) })
-    return res.json(updated)
-  }
+  if (existing) return res.json(existing)
 
   const conv = conversationStore.create(req.workspaceId, {
     linkedinChatId,
@@ -87,8 +85,9 @@ router.post('/', (req, res) => {
     prospectId,
     agentId: agentId || null,
     workspaceId: req.workspaceId,
-    status:   'ai_active',
-    aiPaused: false,
+    source:   'inbox',
+    status:   'review',
+    aiPaused: true,
   })
   res.status(201).json(conv)
 })
@@ -161,13 +160,13 @@ router.post('/:id/sync', async (req, res) => {
     const lastMsg = allMsgs[0]
     const lastIsProspect = lastMsg && (lastMsg.is_sender === 0 || lastMsg.is_sender === false)
 
-    if (lastIsProspect && !conv.aiPaused && lastProspectMsgId) {
+    if (lastIsProspect && !conv.aiPaused && lastProspectMsgId && conv.source === 'campaign') {
       console.log(`[sync] New prospect message — scheduling AI reply in 45 min for conv ${conv.id}`)
       scheduleAIReply(conv.id)
       return res.json({ triggered: true, scheduled: true, newMessageId: lastProspectMsgId })
     }
 
-    res.json({ triggered: false, reason: lastIsProspect ? 'ai paused' : 'last message is ours or no new messages' })
+    res.json({ triggered: false, reason: lastIsProspect ? (conv.source !== 'campaign' ? 'not a campaign conversation' : 'ai paused') : 'last message is ours or no new messages' })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
@@ -186,6 +185,7 @@ router.post('/:id/mark-booked', async (req, res) => {
   // Persist meeting to Supabase
   if (supabase) {
     const meetingRow = {
+      workspace_id:      conv.workspaceId || null,
       linkedin_chat_id:  conv.linkedinChatId || null,
       prospect_id:       conv.prospectId || null,
       prospect_name:     req.body.prospectName || null,
@@ -284,13 +284,50 @@ CRITICAL RULES:
 - If they ask for the calendar link, include it directly in your reply`
 }
 
+// Fetch campaign settings for a prospect (used for schedule + frequency checks)
+async function getCampaignSettingsForProspect(prospectId) {
+  if (!supabase || !prospectId) return null
+  try {
+    const { data: lead } = await supabase
+      .from('campaign_leads')
+      .select('campaign_id')
+      .eq('provider_id', prospectId)
+      .limit(1)
+      .maybeSingle()
+    if (!lead?.campaign_id) return null
+    const { data: campaign } = await supabase
+      .from('campaigns')
+      .select('id, settings')
+      .eq('id', lead.campaign_id)
+      .single()
+    return campaign || null
+  } catch {
+    return null
+  }
+}
+
 // Internal: generate a Claude reply and send it back to LinkedIn via Unipile
 export async function generateAIReply(conversationId) {
   const conv = conversationStore.get(conversationId)
-  if (!conv || conv.aiPaused) return null
+  if (!conv || conv.aiPaused || conv.source !== 'campaign') return null
 
   const agent = await getAgentById(conv.agentId)
   if (!agent || !agent.persona) return null
+
+  // Enforce campaign schedule and message frequency limit
+  const campaignData = await getCampaignSettingsForProspect(conv.prospectId)
+  if (campaignData) {
+    const settings  = campaignData.settings || {}
+    if (settings.schedule?.length && !isWithinSchedule(settings.schedule, settings.timezone)) {
+      console.log(`[AI reply] skipped for ${conv.prospectId} — outside campaign schedule`)
+      return null
+    }
+    const msgLimit = settings.frequency?.messages
+    if (!consumeDailyLimit(campaignData.id, 'messages', msgLimit)) {
+      console.log(`[AI reply] skipped for ${conv.prospectId} — daily message limit (${msgLimit}) reached`)
+      return null
+    }
+  }
 
   const profile = await getWorkspaceProfile(conv.workspaceId)
   const recentMessages = conv.messages.slice(-8) // last 4 exchanges
@@ -345,6 +382,28 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
   const agent = await getAgentById(agentId)
   if (!agent || !agent.persona) return null
 
+  // Enforce campaign schedule and message frequency limit
+  if (campaignId && supabase) {
+    try {
+      const { data: campaign } = await supabase
+        .from('campaigns').select('settings').eq('id', campaignId).single()
+      if (campaign) {
+        const settings = campaign.settings || {}
+        if (settings.schedule?.length && !isWithinSchedule(settings.schedule, settings.timezone)) {
+          console.log(`[AI opening] skipped for ${providerUserId} — outside campaign schedule`)
+          return null
+        }
+        const msgLimit = settings.frequency?.messages
+        if (!consumeDailyLimit(campaignId, 'messages', msgLimit)) {
+          console.log(`[AI opening] skipped for ${providerUserId} — daily message limit (${msgLimit}) reached`)
+          return null
+        }
+      }
+    } catch (err) {
+      console.log(`[AI opening] could not check schedule/frequency: ${err.message}`)
+    }
+  }
+
   const profile = await getWorkspaceProfile(workspaceId)
 
   try {
@@ -376,6 +435,7 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
           linkedinAccountId: accountId,
           prospectId:        providerUserId,
           agentId,
+          source:   'campaign',
           status:   'ai_active',
           aiPaused: false,
         })

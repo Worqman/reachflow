@@ -160,13 +160,13 @@ router.post('/:id/sync', async (req, res) => {
     const lastMsg = allMsgs[0]
     const lastIsProspect = lastMsg && (lastMsg.is_sender === 0 || lastMsg.is_sender === false)
 
-    if (lastIsProspect && !conv.aiPaused && lastProspectMsgId && conv.source === 'campaign') {
+    if (lastIsProspect && !conv.aiPaused && lastProspectMsgId) {
       console.log(`[sync] New prospect message — scheduling AI reply in 45 min for conv ${conv.id}`)
       scheduleAIReply(conv.id)
       return res.json({ triggered: true, scheduled: true, newMessageId: lastProspectMsgId })
     }
 
-    res.json({ triggered: false, reason: lastIsProspect ? (conv.source !== 'campaign' ? 'not a campaign conversation' : 'ai paused') : 'last message is ours or no new messages' })
+    res.json({ triggered: false, reason: lastIsProspect ? 'ai paused' : 'last message is ours or no new messages' })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
@@ -309,7 +309,7 @@ async function getCampaignSettingsForProspect(prospectId) {
 // Internal: generate a Claude reply and send it back to LinkedIn via Unipile
 export async function generateAIReply(conversationId) {
   const conv = conversationStore.get(conversationId)
-  if (!conv || conv.aiPaused || conv.source !== 'campaign') return null
+  if (!conv || conv.aiPaused) return null
 
   const agent = await getAgentById(conv.agentId)
   if (!agent || !agent.persona) return null
@@ -430,7 +430,7 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
     if (chatId) {
       const existing = conversationStore.list().find(c => c.linkedinChatId === chatId)
       if (!existing) {
-        conversationStore.create(undefined, {
+        conversationStore.create(workspaceId, {
           linkedinChatId:    chatId,
           linkedinAccountId: accountId,
           prospectId:        providerUserId,

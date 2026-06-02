@@ -25,36 +25,43 @@ function extractName(obj) {
   )
 }
 
-// Enrich a list of chats: fetch LinkedIn profiles for chats missing a display name.
-// Unipile chat list responses use a flat `attendee_provider_id` field (not an attendees array).
-async function enrichChats(chatList, accountId) {
-  const enriched = await Promise.all(chatList.map(async (chat) => {
-    // Already enriched in a previous pass
-    if (chat._enrichedName) return chat
+// Enrich a list of chats: look up names from campaign_leads by provider_id.
+async function enrichChats(chatList) {
+  if (!supabase) return chatList
 
-    const pid = chat.attendee_provider_id
-    if (!pid || !accountId) return chat
+  // Collect all attendee provider IDs that need a name
+  const pids = chatList
+    .filter(c => c.attendee_provider_id && !c._enrichedName)
+    .map(c => c.attendee_provider_id)
 
-    try {
-      const profile = await linkedin.visitProfile(accountId, pid)
-      const fetchedName = extractName(profile)
-      return {
-        ...chat,
-        _enrichedName:     fetchedName || null,
-        _enrichedHeadline: profile?.headline || profile?.occupation || null,
-      }
-    } catch {
-      return chat
+  if (!pids.length) return chatList
+
+  // Single DB query to get names for all provider IDs
+  const { data: leads } = await supabase
+    .from('campaign_leads')
+    .select('provider_id, name, title')
+    .in('provider_id', pids)
+
+  const nameMap = {}
+  for (const lead of leads || []) {
+    if (lead.provider_id && lead.name) {
+      nameMap[lead.provider_id] = { name: lead.name, headline: lead.title || '' }
     }
-  }))
-  return enriched
+  }
+
+  return chatList.map(chat => {
+    if (chat._enrichedName) return chat
+    const match = nameMap[chat.attendee_provider_id]
+    if (!match) return chat
+    return { ...chat, _enrichedName: match.name, _enrichedHeadline: match.headline }
+  })
 }
 
 
 const router = Router()
 
 // Guard — 503 if Unipile env vars are missing
-router.use((req, res, next) => {
+router.use((_req, res, next) => {
   if (!isConfigured()) {
     return res.status(503).json({
       message: 'Unipile is not configured. Add UNIPILE_API_KEY and UNIPILE_DSN to .env',
@@ -247,9 +254,8 @@ router.get('/chats', async (req, res) => {
     // Enrich all chats that have an attendee_provider_id but no cached name yet
     const needsEnrich = items.filter(chat => chat.attendee_provider_id && !chat._enrichedName)
     let enrichedItems = items
-    if (needsEnrich.length > 0 && account_id) {
-      console.log(`[chats] enriching ${needsEnrich.length} chats`)
-      enrichedItems = await enrichChats(items, account_id)
+    if (needsEnrich.length > 0) {
+      enrichedItems = await enrichChats(items)
     }
 
     res.json({ ...data, items: enrichedItems })

@@ -100,7 +100,29 @@ router.get('/', async (req, res) => {
     .order('created_at', { ascending: false })
 
   if (error) return res.status(500).json({ message: error.message })
-  res.json(data.map(dbToApi))
+
+  // Fetch live lead counts for all campaigns in one query
+  const campaignIds = data.map(c => c.id)
+  let leadCounts = {}
+  if (campaignIds.length) {
+    const { data: leads } = await supabase
+      .from('campaign_leads')
+      .select('campaign_id, status')
+      .in('campaign_id', campaignIds)
+
+    for (const lead of leads || []) {
+      if (!leadCounts[lead.campaign_id]) leadCounts[lead.campaign_id] = { sent: 0, accepted: 0, replied: 0 }
+      const c = leadCounts[lead.campaign_id]
+      if (['invited','connected','replied','booked','rejected'].includes(lead.status)) c.sent++
+      if (['connected','replied','booked'].includes(lead.status)) c.accepted++
+      if (['replied','booked'].includes(lead.status)) c.replied++
+    }
+  }
+
+  res.json(data.map(row => ({
+    ...dbToApi(row),
+    analytics: leadCounts[row.id] || { sent: 0, accepted: 0, replied: 0 },
+  })))
 })
 
 // ── POST /api/campaigns ────────────────────────────────────────
@@ -478,9 +500,8 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
 
     const nodes = campaign.sequence.nodes
     const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
-    if (connectIdx < 0) return
-
-    const postNodes = nodes.slice(connectIdx + 1)
+    // If no connection_request node, treat all nodes as post-connection steps
+    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : nodes
     const frequency = campaign.settings?.frequency || {}
 
     // Respect campaign schedule for post-connection outreach
@@ -625,9 +646,11 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
 
         // ── Wait — schedule resume from the next node ──────────────
         case 'wait': {
-          const days = node.config?.days || 1
-          const delayMs = days * 24 * 60 * 60 * 1000
-          console.log(`[sequence] wait ${days}d — scheduling resume at node ${i + 1} for ${providerUserId}`)
+          const n = node.config?.days || 1
+          const unit = node.config?.unit || 'days'
+          const msPerUnit = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+          const delayMs = n * msPerUnit
+          console.log(`[sequence] wait ${n} ${unit} — scheduling resume at node ${i + 1} for ${providerUserId}`)
           setTimeout(
             () => executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, i + 1),
             delayMs
@@ -702,130 +725,121 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
   }
 }
 
+// ── Shared: sync invited leads → connected for a campaign ──────
+export async function syncCampaignStatuses(campaignId, workspaceId) {
+  const query = supabase.from('campaigns').select('*').eq('id', campaignId)
+  if (workspaceId && workspaceId !== 'ws_default') query.eq('workspace_id', workspaceId)
+  const { data: campaign } = await query.single()
+  if (!campaign) throw new Error('Campaign not found')
+
+  const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
+  if (!accountId) return { connected: 0, checked: 0, message: 'No LinkedIn account configured' }
+
+  const { data: invitedLeads } = await supabase
+    .from('campaign_leads')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'invited')
+
+  if (!invitedLeads?.length) return { connected: 0, checked: 0, message: 'No invited leads to check' }
+
+  let allRelations = []
+  try {
+    const data = await unipileRelations.list({ accountId, limit: 250 })
+    allRelations = data?.items || data?.objects || data?.relations || []
+  } catch (err) {
+    throw new Error(`Unipile relations fetch failed: ${err.message}`)
+  }
+
+  const connectedIds = new Set(allRelations.map(r => r.member_id || r.provider_id || r.id).filter(Boolean))
+  console.log(`[sync] ${allRelations.length} relations fetched, checking ${invitedLeads.length} invited leads`)
+  const { handleNewConnection } = await import('../webhooks/unipile.js')
+
+  let connected = 0
+  for (const lead of invitedLeads) {
+    if (!lead.provider_id) continue
+    if (connectedIds.has(lead.provider_id)) {
+      console.log(`[sync] ${lead.name} is now connected — running post-connection steps`)
+      await handleNewConnection({ providerUserId: lead.provider_id, prospectName: lead.name || '', accountId })
+      connected++
+    }
+  }
+
+  return { connected, checked: invitedLeads.length }
+}
+
 // ── POST /api/campaigns/:id/sync-statuses ──────────────────────
 // Polls Unipile relations list and detects which "invited" leads have accepted.
 // Triggers post-connection steps (builder message + AI) for each new connection.
 router.post('/:id/sync-statuses', async (req, res) => {
   try {
-    const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
-    if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
-
-    const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
-    if (!accountId) return res.status(400).json({ message: 'No LinkedIn account set in campaign settings' })
-
-    // Get all invited leads for this campaign
-    const { data: invitedLeads } = await supabase
-      .from('campaign_leads')
-      .select('*')
-      .eq('campaign_id', req.params.id)
-      .eq('status', 'invited')
-
-    if (!invitedLeads?.length) return res.json({ connected: 0, message: 'No invited leads to check' })
-
-    // Fetch current relations from Unipile (paginate up to 250)
-    let allRelations = []
-    try {
-      const data = await unipileRelations.list({ accountId, limit: 250 })
-      allRelations = data?.items || data?.objects || data?.relations || []
-    } catch (err) {
-      console.error('[sync] Failed to fetch relations:', err.message)
-      return res.status(500).json({ message: `Unipile relations fetch failed: ${err.message}` })
-    }
-
-    // Build a set of provider_ids that are now connections
-    const connectedIds = new Set(
-      allRelations.map(r => r.provider_id || r.id).filter(Boolean)
-    )
-
-    console.log(`[sync] ${allRelations.length} relations fetched, checking ${invitedLeads.length} invited leads`)
-
-    // Import the shared handler
-    const { handleNewConnection } = await import('../webhooks/unipile.js')
-
-    let connected = 0
-    for (const lead of invitedLeads) {
-      if (!lead.provider_id) continue
-      if (connectedIds.has(lead.provider_id)) {
-        console.log(`[sync] ${lead.name} is now connected — running post-connection steps`)
-        await handleNewConnection({
-          providerUserId: lead.provider_id,
-          prospectName:   lead.name || '',
-          accountId,
-        })
-        connected++
-      }
-    }
-
-    res.json({ connected, checked: invitedLeads.length })
+    const result = await syncCampaignStatuses(req.params.id, wsId(req))
+    res.json(result)
   } catch (err) {
     console.error('[sync-statuses] error:', err)
-    res.status(500).json({ message: err.message })
+    const status = err.message === 'Campaign not found' ? 404 : 500
+    res.status(status).json({ message: err.message })
   }
 })
 
-// ── POST /api/campaigns/:id/send-invites ───────────────────────
-// Runs the pre-connection sequence (visit_profile + connection_request) for pending leads.
-// Sends one at a time with a 15–20 minute random delay between each, up to the daily limit (default 20).
-router.post('/:id/send-invites', async (req, res) => {
-  try {
-    const { data: campaign } = await supabase
-      .from('campaigns').select('*').eq('id', req.params.id).eq('workspace_id', wsId(req)).single()
-    if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
+// ── Shared: run send-invites logic for a campaign ──────────────
+// Returns { queued, message } or throws. Used by both the route and the scheduler.
+export async function runCampaignInvites(campaignId, workspaceId) {
+  const query = supabase.from('campaigns').select('*').eq('id', campaignId)
+  if (workspaceId && workspaceId !== 'ws_default') query.eq('workspace_id', workspaceId)
+  const { data: campaign } = await query.single()
+  if (!campaign) throw new Error('Campaign not found')
 
-    const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
-    if (!accountId) {
-      return res.status(400).json({ message: 'Campaign has no LinkedIn account configured. Set it in Campaign Settings.' })
-    }
+  if (campaign.status !== 'active') {
+    return { queued: 0, message: 'Campaign is paused' }
+  }
 
-    // Check schedule: only run during active days/hours
-    const schedule = campaign.settings?.schedule
-    const timezone = campaign.settings?.timezone || 'UTC'
-    if (schedule?.length && !isWithinSchedule(schedule, timezone)) {
-      const dayName = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(new Date())
-      return res.json({ sent: 0, message: `Campaign is outside its active schedule (${dayName}, ${timezone})` })
-    }
+  const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
+  if (!accountId) throw new Error('Campaign has no LinkedIn account configured')
 
-    const dailyLimit = campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? 20
+  const schedule = campaign.settings?.schedule
+  const timezone = campaign.settings?.timezone || 'UTC'
+  if (schedule?.length && !isWithinSchedule(schedule, timezone)) {
+    const dayName = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(new Date())
+    return { queued: 0, message: `Outside active schedule (${dayName}, ${timezone})` }
+  }
 
-    // Count how many invites have already been sent today for this campaign
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const { count: sentToday } = await supabase
-      .from('campaign_leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('campaign_id', req.params.id)
-      .eq('status', 'invited')
-      .gte('updated_at', todayStart.toISOString())
+  const dailyLimit = campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? 20
 
-    const remaining = dailyLimit - (sentToday || 0)
-    if (remaining <= 0) {
-      return res.json({ sent: 0, message: `Daily limit of ${dailyLimit} connections already reached for today` })
-    }
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const { count: sentToday } = await supabase
+    .from('campaign_leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('campaign_id', campaignId)
+    .eq('status', 'invited')
+    .gte('updated_at', todayStart.toISOString())
 
-    const { data: pendingLeads } = await supabase
-      .from('campaign_leads')
-      .select('*')
-      .eq('campaign_id', req.params.id)
-      .eq('status', 'pending')
-      .limit(remaining)
+  const remaining = dailyLimit - (sentToday || 0)
+  if (remaining <= 0) {
+    return { queued: 0, message: `Daily limit of ${dailyLimit} already reached` }
+  }
 
-    if (!pendingLeads?.length) {
-      return res.json({ sent: 0, message: 'No pending leads' })
-    }
+  const { data: pendingLeads } = await supabase
+    .from('campaign_leads')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'pending')
+    .limit(remaining)
 
-    console.log(`[send-invites] campaign=${req.params.id} accountId=${accountId} leads=${pendingLeads.length} dailyLimit=${dailyLimit} sentToday=${sentToday || 0}`)
+  if (!pendingLeads?.length) {
+    return { queued: 0, message: 'No pending leads' }
+  }
 
-    // Respond immediately so the client isn't left waiting during the long delay loop
-    res.json({ queued: pendingLeads.length, message: `Sending ${pendingLeads.length} connection request(s) with 15–20 min delays` })
+  console.log(`[send-invites] campaign=${campaignId} accountId=${accountId} leads=${pendingLeads.length} dailyLimit=${dailyLimit} sentToday=${sentToday || 0}`)
 
-    // Process leads one by one in the background with a delay between each
+  // Process leads in the background — do not await this loop
+  ;(async () => {
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
-
     for (let i = 0; i < pendingLeads.length; i++) {
       const lead = pendingLeads[i]
       try {
-        await executePreConnectionSteps(lead, campaign.sequence, accountId, wsId(req), campaign.id, campaign.settings?.frequency || {})
+        await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
         await supabase.from('campaign_leads').update({ status: 'invited' }).eq('id', lead.id)
         console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
       } catch (err) {
@@ -834,19 +848,28 @@ router.post('/:id/send-invites', async (req, res) => {
         const detail = err.data ? JSON.stringify(err.data) : err.message
         console.error(`[send-invites] ✗ (${i + 1}/${pendingLeads.length}) failed for ${lead.name}:`, detail)
       }
-
-      // Wait 15–20 minutes between each invite (skip delay after the last one)
       if (i < pendingLeads.length - 1) {
         const delayMs = (15 + Math.floor(Math.random() * 6)) * 60 * 1000
         console.log(`[send-invites] waiting ${Math.round(delayMs / 60000)} min before next invite…`)
         await sleep(delayMs)
       }
     }
+    console.log(`[send-invites] done — processed ${pendingLeads.length} lead(s) for campaign ${campaignId}`)
+  })()
 
-    console.log(`[send-invites] done — processed ${pendingLeads.length} lead(s)`)
+  return { queued: pendingLeads.length, message: `Sending ${pendingLeads.length} connection request(s) with 15–20 min delays` }
+}
+
+// ── POST /api/campaigns/:id/send-invites ───────────────────────
+router.post('/:id/send-invites', async (req, res) => {
+  try {
+    const result = await runCampaignInvites(req.params.id, wsId(req))
+    res.json(result)
   } catch (err) {
     console.error('[send-invites] error:', err)
-    if (!res.headersSent) res.status(500).json({ message: err.message })
+    const status = err.message === 'Campaign not found' ? 404
+      : err.message.includes('no LinkedIn account') ? 400 : 500
+    res.status(status).json({ message: err.message })
   }
 })
 
@@ -965,7 +988,7 @@ router.put('/:id/sequence', async (req, res) => {
 router.get('/:id/analytics', async (req, res) => {
   const { data: leads, error } = await supabase
     .from('campaign_leads')
-    .select('status, created_at, updated_at')
+    .select('status, added_at')
     .eq('campaign_id', req.params.id)
 
   if (error) return res.status(500).json({ message: error.message })
@@ -984,27 +1007,24 @@ router.get('/:id/analytics', async (req, res) => {
   const days = Array.from({ length: DAYS }, (_, i) => {
     const d = new Date(now)
     d.setDate(d.getDate() - (DAYS - 1 - i))
-    return d.toISOString().slice(0, 10)   // YYYY-MM-DD
+    return d.toISOString().slice(0, 10)
   })
 
   const byDay = {}
   for (const d of days) byDay[d] = { sent: 0, accepted: 0, replied: 0 }
 
   for (const r of rows) {
-    const createdDay  = r.created_at?.slice(0, 10)
-    const updatedDay  = r.updated_at?.slice(0, 10)
+    const day = r.added_at?.slice(0, 10)
+    if (!day || !byDay[day]) continue
 
-    // "sent" = when the lead was created (invite went out)
-    if (createdDay && byDay[createdDay] && ['invited','connected','replied','booked','rejected'].includes(r.status)) {
-      byDay[createdDay].sent += 1
+    if (['invited','connected','replied','booked','rejected'].includes(r.status)) {
+      byDay[day].sent += 1
     }
-    // "accepted" = when status moved to connected (use updated_at as proxy)
-    if (updatedDay && byDay[updatedDay] && ['connected','replied','booked'].includes(r.status)) {
-      byDay[updatedDay].accepted += 1
+    if (['connected','replied','booked'].includes(r.status)) {
+      byDay[day].accepted += 1
     }
-    // "replied" = when status moved to replied/booked
-    if (updatedDay && byDay[updatedDay] && ['replied','booked'].includes(r.status)) {
-      byDay[updatedDay].replied += 1
+    if (['replied','booked'].includes(r.status)) {
+      byDay[day].replied += 1
     }
   }
 

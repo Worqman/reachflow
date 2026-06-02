@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
     const campStats = {}
     for (const lead of leadRows) {
       const c = campStats[lead.campaign_id] || { sent: 0, accepted: 0, replied: 0, booked: 0 }
-      c.sent++
+      if (['invited', 'connected', 'replied', 'booked', 'rejected'].includes(lead.status)) c.sent++
       if (['connected', 'replied', 'booked'].includes(lead.status)) c.accepted++
       if (['replied', 'booked'].includes(lead.status)) c.replied++
       if (lead.status === 'booked') c.booked++
@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
     // ── Stats ──────────────────────────────────────────────────
     const thisWeekLeads = leadRows.filter(l => l.updated_at >= weekAgo)
     const invitesSentThisWeek = thisWeekLeads.filter(l =>
-      ['invited', 'pending', 'connected', 'replied', 'booked'].includes(l.status)
+      ['invited', 'connected', 'replied', 'booked', 'rejected'].includes(l.status)
     ).length
     const connectedThisWeek = thisWeekLeads.filter(l =>
       ['connected', 'replied', 'booked'].includes(l.status)

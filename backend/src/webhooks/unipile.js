@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { conversationStore, agentStore } from '../services/store.js'
+import { conversationStore } from '../services/store.js'
 import { generateAIReply, generateOpeningMessage } from '../routes/conversations.js'
 import { executePostConnectionSteps } from '../routes/campaigns.js'
 import { supabase } from '../services/supabase.js'
@@ -137,8 +137,10 @@ router.post('/unipile', async (req, res) => {
             linkedinChatId:    chatId,
             linkedinAccountId: accountId,
             prospectId:        senderId,
-            agentId:           agentId || agentStore.list()[0]?.id || null,
+            agentId:           agentId || null,
             status:            'ai_active',
+            source:            agentId ? 'campaign' : 'inbox',
+            aiPaused:          !agentId,
           })
         }
 

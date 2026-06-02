@@ -1,11 +1,7 @@
 import express from "express";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../services/supabase.js";
 
 const router = express.Router();
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-);
 
 // GET /api/company-profiles?workspace_id=xxx
 router.get("/", async (req, res) => {

@@ -576,7 +576,7 @@ export default function Inbox() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* {active.status !== "booked" &&
+              {active.status !== "booked" &&
                 (aiPaused ? (
                   <button
                     className="btn btn-sm btn-primary"
@@ -596,7 +596,7 @@ export default function Inbox() {
                   >
                     ⏸ Pause AI
                   </button>
-                ))} */}
+                ))}
               {active.status !== "booked" ? (
                 <button
                   className="btn btn-sm btn-secondary"

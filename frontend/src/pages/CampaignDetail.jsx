@@ -17,47 +17,47 @@ import "./CampaignDetail.css";
 // ── Step type definitions ─────────────────────────────────────
 const STEP_TYPES = [
   // Actions
-  { type: "visit_profile",    icon: "◎",  label: "Visit profile",                   hasConfig: false },
-  { type: "like_post",        icon: "♡",  label: "Like last post",                   hasConfig: false },
-  { type: "follow",           icon: "◆",  label: "Follow Lead",                      hasConfig: false },
-  { type: "wait",             icon: "⏰", label: "Wait x days",                      hasConfig: true  },
-  { type: "connection_request",icon: "◈", label: "Send connection request",          hasConfig: true  },
-  { type: "message",          icon: "✉",  label: "Send message",                     hasConfig: true  },
-  { type: "voice_note",       icon: "🎙", label: "Send voice note",                  hasConfig: true  },
-  { type: "comment_post",     icon: "💬", label: "Comment last post",                hasConfig: true  },
-  { type: "inmail",           icon: "📨", label: "LinkedIn InMail",                  hasConfig: true  },
-  { type: "add_tag",          icon: "🏷", label: "Add tag",                          hasConfig: true  },
-  { type: "reply_comment",    icon: "↩",  label: "Reply Comment",                    hasConfig: true  },
-  { type: "message_open",     icon: "📬", label: "Send message to open profile",     hasConfig: true  },
+  { type: "visit_profile",     icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>, label: "Visit profile",                hasConfig: false },
+  { type: "like_post",         icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>, label: "Like last post",                hasConfig: false },
+  { type: "follow",            icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Follow Lead",                   hasConfig: false },
+  { type: "wait",              icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Wait x days",                   hasConfig: true  },
+  { type: "connection_request",icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>, label: "Send connection request",        hasConfig: true  },
+  { type: "message",           icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>, label: "Send message",                  hasConfig: true  },
+  { type: "voice_note",        icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>, label: "Send voice note",               hasConfig: true  },
+  { type: "comment_post",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Comment last post",              hasConfig: true  },
+  { type: "inmail",            icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>, label: "LinkedIn InMail",               hasConfig: true  },
+  { type: "add_tag",           icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>, label: "Add tag",                        hasConfig: true  },
+  { type: "reply_comment",     icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>, label: "Reply Comment",                 hasConfig: true  },
+  { type: "message_open",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>, label: "Send message to open profile", hasConfig: true  },
   // Conditions
-  { type: "cond_has_linkedin",    icon: "🔗", label: "Has LinkedIn URL",           hasConfig: false, isCondition: true },
-  { type: "cond_1st_level",       icon: "①",  label: "Lead is 1st level",          hasConfig: false, isCondition: true },
-  { type: "cond_opened_message",  icon: "✓",  label: "Opened LinkedIn Message",    hasConfig: false, isCondition: true },
-  { type: "cond_check_column",    icon: "☰",  label: "Check data in column",       hasConfig: true,  isCondition: true },
-  { type: "cond_open_profile",    icon: "◉",  label: "Lead is Open Profile",       hasConfig: false, isCondition: true },
+  { type: "cond_has_linkedin",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>, label: "Has LinkedIn URL",        hasConfig: false, isCondition: true },
+  { type: "cond_1st_level",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Lead is 1st level",       hasConfig: false, isCondition: true },
+  { type: "cond_opened_message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>, label: "Opened LinkedIn Message", hasConfig: false, isCondition: true },
+  { type: "cond_check_column",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>, label: "Check data in column",   hasConfig: true,  isCondition: true },
+  { type: "cond_open_profile",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label: "Lead is Open Profile",    hasConfig: false, isCondition: true },
 ];
 
 const ACTION_STEPS = [
-  { type: "connection_request", icon: "➕", label: "Send connection request" },
-  { type: "message", icon: "✉", label: "Send message" },
-  { type: "voice_note", icon: "🎙", label: "Send voice note" },
-  { type: "comment_post", icon: "💬", label: "Comment last post" },
-  { type: "like_post", icon: "♡", label: "Like last post" },
-  { type: "visit_profile", icon: "◎", label: "Visit profile" },
-  { type: "inmail", icon: "📨", label: "LinkedIn InMail" },
-  { type: "add_tag", icon: "🏷", label: "Add tag" },
-  { type: "reply_comment", icon: "↩", label: "Reply Comment" },
-  { type: "message_open", icon: "📬", label: "Send message to open profile" },
-  { type: "follow", icon: "＋", label: "Follow Lead" },
-  { type: "wait", icon: "⏰", label: "Wait x days" },
+  { type: "connection_request", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>, label: "Send connection request" },
+  { type: "message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>, label: "Send message" },
+  { type: "voice_note", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>, label: "Send voice note" },
+  { type: "comment_post", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Comment last post" },
+  { type: "like_post", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>, label: "Like last post" },
+  { type: "visit_profile", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>, label: "Visit profile" },
+  { type: "inmail", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>, label: "LinkedIn InMail" },
+  { type: "add_tag", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>, label: "Add tag" },
+  { type: "reply_comment", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>, label: "Reply Comment" },
+  { type: "message_open", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>, label: "Send message to open profile" },
+  { type: "follow", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Follow Lead" },
+  { type: "wait", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Wait x days" },
 ];
 
 const CONDITION_STEPS = [
-  { type: "cond_has_linkedin", icon: "🔗", label: "Has LinkedIn URL" },
-  { type: "cond_1st_level", icon: "①", label: "Lead is 1st level" },
-  { type: "cond_opened_message", icon: "✓", label: "Opened LinkedIn Message" },
-  { type: "cond_check_column", icon: "☰", label: "Check data in column" },
-  { type: "cond_open_profile", icon: "◉", label: "Lead is Open Profile" },
+  { type: "cond_has_linkedin", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>, label: "Has LinkedIn URL" },
+  { type: "cond_1st_level", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Lead is 1st level" },
+  { type: "cond_opened_message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>, label: "Opened LinkedIn Message" },
+  { type: "cond_check_column", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>, label: "Check data in column" },
+  { type: "cond_open_profile", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label: "Lead is Open Profile" },
 ];
 
 function stepMeta(type) {
@@ -70,9 +70,15 @@ function stepMeta(type) {
   );
 }
 
+function waitLabel(config) {
+  const n = config?.days || 1;
+  const unit = config?.unit || "days";
+  const unitLabel = unit === "minutes" ? (n !== 1 ? "mins" : "min") : unit === "hours" ? (n !== 1 ? "hours" : "hour") : (n !== 1 ? "days" : "day");
+  return `Wait ${n} ${unitLabel}`;
+}
+
 function nodeLabel(node) {
-  if (node.type === "wait")
-    return `Wait ${node.config?.days || 1} day${(node.config?.days || 1) !== 1 ? "s" : ""}`;
+  if (node.type === "wait") return waitLabel(node.config);
   return stepMeta(node.type).label;
 }
 
@@ -93,49 +99,49 @@ function nodeConfigured(node) {
 const IMPORT_SOURCES = [
   {
     id: "finder",
-    icon: "◈",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
     label: "Lead Finder",
     desc: "Search Apollo's 300M+ contact database",
   },
   {
     id: "csv",
-    icon: "⬆",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
     label: "Import from CSV",
     desc: "Upload a CSV of LinkedIn profile URLs",
   },
   {
     id: "url",
-    icon: "🔗",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
     label: "LinkedIn Search URL",
     desc: "Paste a LinkedIn search results URL",
   },
   {
     id: "profile",
-    icon: "👤",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     label: "LinkedIn Profile URL",
     desc: "Paste a single LinkedIn profile URL to import one person",
   },
   {
     id: "event",
-    icon: "◆",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
     label: "LinkedIn Event",
     desc: "Import attendees from a LinkedIn event",
   },
   {
     id: "post",
-    icon: "◇",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
     label: "LinkedIn Post",
     desc: "Import people who liked or commented",
   },
   {
     id: "group",
-    icon: "◉",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
     label: "LinkedIn Group",
     desc: "Import members from a LinkedIn group",
   },
   {
     id: "list",
-    icon: "☰",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
     label: "Add from my list",
     desc: "Choose from your saved lead lists",
   },
@@ -210,19 +216,16 @@ export default function CampaignDetail() {
     setSendingInvites(true);
     try {
       const result = await campaignsApi.sendInvites(id);
-      if (result.message === "No pending leads") {
-        toast?.("No pending leads to send invites to", "danger");
-      } else if (result.sent === 0 && result.total > 0) {
-        const firstError =
-          result.results?.find((r) => !r.ok)?.error || "Unknown error";
-        toast?.(`All invites failed: ${firstError}`, "danger");
-        console.error("[send-invites] failures:", result.results);
+      const count = result.queued ?? result.sent ?? 0;
+      if (count === 0) {
+        toast?.(result.message || "No pending leads to send invites to", "danger");
       } else {
         toast?.(
-          `Sent ${result.sent} of ${result.total} connection request${result.total !== 1 ? "s" : ""}`,
+          `Queued ${count} connection request${count !== 1 ? "s" : ""} — sending with delays`,
           "success",
         );
-        refreshLeads();
+        // Delay refresh slightly to allow the first invite status to be written
+        setTimeout(refreshLeads, 3000);
       }
     } catch (err) {
       toast?.(err.message || "Failed to send invites", "danger");
@@ -342,10 +345,13 @@ export default function CampaignDetail() {
     try {
       const updated = await campaignsApi.update(id, { status: next });
       setCampaign(updated);
-      toast?.(
-        `Campaign ${next === "active" ? "resumed" : "paused"}`,
-        "success",
-      );
+      if (next === "active") {
+        // Immediately trigger invites when user clicks Run
+        campaignsApi.sendInvites(id).catch(() => {});
+        toast?.("Campaign started — sending invites", "success");
+      } else {
+        toast?.("Campaign paused", "success");
+      }
     } catch (err) {
       toast?.(err.message || "Could not update status", "danger");
     }
@@ -461,7 +467,7 @@ export default function CampaignDetail() {
       />
 
       {/* Tab content */}
-      <div className="detail-content">
+      <div className={`detail-content${tab !== "builder" ? " detail-content-padded" : ""}`}>
         {tab === "leads" && (
           <LeadsTab
             campaignId={id}
@@ -1121,9 +1127,12 @@ function LeadsTab({
         >
           <div style={{ fontSize: 24, marginBottom: 10 }}>◎</div>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>No leads yet</div>
-          <div style={{ fontSize: 13 }}>
+          <div style={{ fontSize: 13, marginBottom: 20 }}>
             Import contacts to start your outreach.
           </div>
+          <button className="btn btn-primary" style={{ fontSize: 15, padding: "10px 24px" }} onClick={onImport}>
+            + Import Contacts
+          </button>
         </div>
       ) : (
         <div className="table-wrap">
@@ -1351,7 +1360,7 @@ function BuilderTab({
     const newNode = {
       _id: `n_${Date.now()}`,
       type,
-      config: type === "wait" ? { days: 1 } : {},
+      config: type === "wait" ? { days: 1, unit: "days" } : {},
     };
     setNodes((prev) => {
       const next = [...prev];
@@ -1424,7 +1433,7 @@ function BuilderTab({
           const meta = stepMeta(node.type);
           const ok = nodeConfigured(node);
           const sub = node.type === "wait"
-            ? `${node.config?.days || 1} day${(node.config?.days || 1) !== 1 ? "s" : ""}`
+            ? waitLabel(node.config)
             : node.config?.text
               ? node.config.text.slice(0, 42) + (node.config.text.length > 42 ? "…" : "")
               : node.config?.note
@@ -1511,7 +1520,7 @@ function BuilderTab({
                   <span style={{ fontSize: 11 }}>in</span>
                 </div>
               ) : (
-                <span style={{ fontSize: 16 }}>
+                <span style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                   {stepMeta(selectedNode.type).icon}
                 </span>
               )}
@@ -1558,7 +1567,6 @@ function BuilderTab({
                     className="input"
                     type="number"
                     min={1}
-                    max={30}
                     value={selectedNode.config?.days || 1}
                     onChange={(e) =>
                       updateNode(selectedNode._id, {
@@ -1567,9 +1575,18 @@ function BuilderTab({
                     }
                     style={{ width: 80 }}
                   />
-                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                    days
-                  </span>
+                  <select
+                    className="input"
+                    value={selectedNode.config?.unit || "days"}
+                    onChange={(e) =>
+                      updateNode(selectedNode._id, { unit: e.target.value })
+                    }
+                    style={{ width: 110 }}
+                  >
+                    <option value="minutes">MINS</option>
+                    <option value="hours">HOURS</option>
+                    <option value="days">DAYS</option>
+                  </select>
                 </div>
               </div>
             )}
@@ -2301,13 +2318,13 @@ const DEFAULT_FREQUENCY = {
 };
 
 const FREQUENCY_ITEMS = [
-  { key: "messages",           label: "Messages",            icon: "💬" },
-  { key: "inmails",            label: "InMails",             icon: "✉️" },
-  { key: "connectionRequests", label: "Connection Requests", icon: "🔗" },
-  { key: "aiComments",         label: "AI Comments",         icon: "💡" },
-  { key: "likesToPosts",       label: "Likes to posts",      icon: "❤️" },
-  { key: "profileVisits",      label: "Profile visits",      icon: "👁️" },
-  { key: "followLead",         label: "Follow Lead",         icon: "➕" },
+  { key: "messages",           label: "Messages",            icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+  { key: "inmails",            label: "InMails",             icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg> },
+  { key: "connectionRequests", label: "Connection Requests", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg> },
+  { key: "aiComments",         label: "AI Comments",         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
+  { key: "likesToPosts",       label: "Likes to posts",      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> },
+  { key: "profileVisits",      label: "Profile visits",      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> },
+  { key: "followLead",         label: "Follow Lead",         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg> },
 ];
 
 function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
@@ -2517,21 +2534,21 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
               {/* Time range */}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <input
-                  className="input"
+                  className="input time-picker"
                   type="time"
                   value={row.start}
                   disabled={!row.enabled}
                   onChange={(e) => updateScheduleDay(idx, { start: e.target.value })}
-                  style={{ width: 110, fontSize: 13 }}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
                 />
                 <span style={{ fontSize: 12, color: "var(--text-muted)" }}>to</span>
                 <input
-                  className="input"
+                  className="input time-picker"
                   type="time"
                   value={row.end}
                   disabled={!row.enabled}
                   onChange={(e) => updateScheduleDay(idx, { end: e.target.value })}
-                  style={{ width: 110, fontSize: 13 }}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
                 />
               </div>
             </div>
@@ -2575,7 +2592,9 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
                   background: "var(--surface-2, #1a1f2e)",
                 }}
               >
-                <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{icon}</span>
+                <span style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", flexShrink: 0 }}>
+                  {React.cloneElement(icon, { style: { width: 20, height: 20 } })}
+                </span>
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{label}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <button

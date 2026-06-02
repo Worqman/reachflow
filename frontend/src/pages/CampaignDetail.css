@@ -52,6 +52,10 @@
   overflow-y: auto;
 }
 
+.detail-content-padded {
+  padding: 24px;
+}
+
 /* Import modal grid */
 .import-sources-grid {
   display: grid;
@@ -77,9 +81,16 @@
 }
 
 .import-source-icon {
-  font-size: 20px;
   color: var(--signal);
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.import-source-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: var(--signal);
 }
 .import-source-label {
   font-size: 13px;
@@ -215,6 +226,18 @@
   justify-content: center;
   font-size: 13px;
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+.node-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: var(--text-muted);
+  flex-shrink: 0;
+}
+.node-config-header svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -643,9 +666,31 @@
   flex-shrink: 0;
 }
 
+input[type="time"].time-picker {
+  width: 120px;
+  font-size: 13px;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+input[type="time"].time-picker::-webkit-calendar-picker-indicator {
+  filter: invert(72%) sepia(68%) saturate(534%) hue-rotate(93deg) brightness(107%) contrast(96%);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
 .spi-action {
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+}
+
+.spi-action svg {
+  width: 22px;
+  height: 22px;
+  stroke: #ffffff;
 }
 
 .spi-linkedin {

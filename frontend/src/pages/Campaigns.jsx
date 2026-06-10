@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from '../components/Modal'
 import { campaigns as campaignsApi } from '../lib/api'
+import { SkeletonTableRows } from '../components/Skeleton'
 import './Campaigns.css'
 
 export default function Campaigns() {
@@ -84,7 +85,12 @@ export default function Campaigns() {
       </div>
 
       {loading ? (
-        <div style={{ padding: 32, color: 'var(--text-muted)', fontSize: 13 }}>Loading campaigns…</div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th/><th>Campaign</th><th>AI Assistant</th><th>Sent</th><th>Acceptance</th><th>Reply Rate</th><th>Created</th></tr></thead>
+            <tbody><SkeletonTableRows rows={5} cols={7} /></tbody>
+          </table>
+        </div>
       ) : list.length === 0 ? (
         <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>◈</div>
@@ -93,7 +99,7 @@ export default function Campaigns() {
           <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>+ Create Campaign</button>
         </div>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap data-loaded">
           <table>
             <thead>
               <tr>

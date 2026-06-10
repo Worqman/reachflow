@@ -1,17 +1,105 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { campaigns as campaignsApi, leads as leadsApi, unipile } from "../lib/api";
 import "./LeadFinder.css";
 
+// LinkedIn industry list with official numeric IDs (used as facetIndustry in search)
 const INDUSTRIES = [
-  "Accounting",
-  "Financial Services",
-  "Legal",
-  "Property & Construction",
-  "SaaS / Tech",
-  "Marketing",
-  "Healthcare",
-  "Retail",
-  "Manufacturing",
+  { id: "1",   name: "Accounting" },
+  { id: "3",   name: "Airlines / Aviation" },
+  { id: "5",   name: "Alternative Medicine" },
+  { id: "6",   name: "Animation" },
+  { id: "7",   name: "Apparel & Fashion" },
+  { id: "8",   name: "Architecture & Planning" },
+  { id: "10",  name: "Automotive" },
+  { id: "12",  name: "Banking" },
+  { id: "13",  name: "Biotechnology" },
+  { id: "14",  name: "Broadcast Media" },
+  { id: "16",  name: "Business Supplies & Equipment" },
+  { id: "17",  name: "Capital Markets" },
+  { id: "18",  name: "Chemicals" },
+  { id: "19",  name: "Civic & Social Organization" },
+  { id: "20",  name: "Civil Engineering" },
+  { id: "21",  name: "Commercial Real Estate" },
+  { id: "22",  name: "Computer & Network Security" },
+  { id: "23",  name: "Computer Games" },
+  { id: "24",  name: "Computer Hardware" },
+  { id: "26",  name: "Computer Software" },
+  { id: "27",  name: "Construction" },
+  { id: "28",  name: "Consumer Electronics" },
+  { id: "29",  name: "Consumer Goods" },
+  { id: "30",  name: "Consumer Services" },
+  { id: "31",  name: "Cosmetics" },
+  { id: "33",  name: "Defense & Space" },
+  { id: "34",  name: "Design" },
+  { id: "35",  name: "Education Management" },
+  { id: "36",  name: "E-Learning" },
+  { id: "37",  name: "Electrical / Electronic Manufacturing" },
+  { id: "38",  name: "Entertainment" },
+  { id: "39",  name: "Environmental Services" },
+  { id: "40",  name: "Events Services" },
+  { id: "41",  name: "Executive Office" },
+  { id: "44",  name: "Financial Services" },
+  { id: "47",  name: "Food & Beverages" },
+  { id: "48",  name: "Food Production" },
+  { id: "53",  name: "Government Administration" },
+  { id: "55",  name: "Graphic Design" },
+  { id: "56",  name: "Health, Wellness & Fitness" },
+  { id: "57",  name: "Higher Education" },
+  { id: "58",  name: "Hospital & Health Care" },
+  { id: "59",  name: "Hospitality" },
+  { id: "60",  name: "Human Resources" },
+  { id: "63",  name: "Industrial Automation" },
+  { id: "65",  name: "Information Technology & Services" },
+  { id: "66",  name: "Insurance" },
+  { id: "69",  name: "Internet" },
+  { id: "70",  name: "Investment Banking" },
+  { id: "71",  name: "Investment Management" },
+  { id: "74",  name: "Law Practice" },
+  { id: "75",  name: "Legal Services" },
+  { id: "77",  name: "Leisure, Travel & Tourism" },
+  { id: "79",  name: "Logistics & Supply Chain" },
+  { id: "80",  name: "Luxury Goods & Jewelry" },
+  { id: "81",  name: "Machinery" },
+  { id: "82",  name: "Management Consulting" },
+  { id: "84",  name: "Market Research" },
+  { id: "85",  name: "Marketing & Advertising" },
+  { id: "86",  name: "Mechanical or Industrial Engineering" },
+  { id: "87",  name: "Media Production" },
+  { id: "88",  name: "Medical Device" },
+  { id: "89",  name: "Medical Practice" },
+  { id: "90",  name: "Mental Health Care" },
+  { id: "92",  name: "Mining & Metals" },
+  { id: "96",  name: "Nanotechnology" },
+  { id: "98",  name: "Nonprofit Organization Management" },
+  { id: "99",  name: "Oil & Energy" },
+  { id: "100", name: "Online Media" },
+  { id: "102", name: "Package / Freight Delivery" },
+  { id: "106", name: "Pharmaceuticals" },
+  { id: "107", name: "Philanthropy" },
+  { id: "111", name: "Primary / Secondary Education" },
+  { id: "113", name: "Professional Training & Coaching" },
+  { id: "115", name: "Public Policy" },
+  { id: "116", name: "Public Relations & Communications" },
+  { id: "117", name: "Public Safety" },
+  { id: "118", name: "Publishing" },
+  { id: "121", name: "Real Estate" },
+  { id: "124", name: "Renewables & Environment" },
+  { id: "125", name: "Research" },
+  { id: "126", name: "Restaurants" },
+  { id: "127", name: "Retail" },
+  { id: "128", name: "Security & Investigations" },
+  { id: "129", name: "Semiconductors" },
+  { id: "132", name: "Sports" },
+  { id: "133", name: "Staffing & Recruiting" },
+  { id: "135", name: "Telecommunications" },
+  { id: "137", name: "Think Tanks" },
+  { id: "140", name: "Transportation / Trucking / Railroad" },
+  { id: "141", name: "Utilities" },
+  { id: "142", name: "Venture Capital & Private Equity" },
+  { id: "144", name: "Warehousing" },
+  { id: "145", name: "Wholesale" },
+  { id: "147", name: "Wireless" },
+  { id: "148", name: "Writing & Editing" },
 ];
 const SIZES = [
   "1–10",
@@ -94,6 +182,7 @@ export default function LeadFinder() {
   // ── Filters mode state ────────────────────────────────────────
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingCount, setLoadingCount] = useState(0);
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState([]);
   const [sizes, setSizes] = useState([]);
@@ -126,6 +215,11 @@ export default function LeadFinder() {
   // ── Save to List state ────────────────────────────────────────
   const [savingToList, setSavingToList] = useState(false);
   const [savedToList, setSavedToList] = useState(false);
+
+  // ── Results table search + sort ───────────────────────────────
+  const [tableSearch, setTableSearch] = useState("");
+  const [sortBy, setSortBy] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
 
   // Load connected LinkedIn accounts
   useEffect(() => {
@@ -202,27 +296,19 @@ export default function LeadFinder() {
       return;
     }
     setLoading(true);
+    setLoadingCount(0);
     setSelected([]);
     setFilterError("");
     setFilterSource("");
     try {
       const trimmedUrl = linkedinSearchUrl.trim();
       const trimmedJobTitle = jobTitle.trim();
-      const trimmedIndustry = industry.trim();
       const trimmedLocation = location.trim();
-      const keywordParts = [jobTitle, industry, location]
-        .map((value) => value.trim())
-        .filter(Boolean);
-      const keywordText =
-        keywordParts.length > 0 ? keywordParts.join(" ") : undefined;
 
       const basePayload = {
         url: trimmedUrl || undefined,
-        // Keep keyword fallback, but also send individual filters so the backend
-        // can map all fields when building provider-side search parameters.
-        keywords: !trimmedUrl ? keywordText : undefined,
         title: !trimmedUrl ? trimmedJobTitle || undefined : undefined,
-        industry: !trimmedUrl ? trimmedIndustry || undefined : undefined,
+        industry_id: !trimmedUrl && industry ? industry : undefined,
         location_text: !trimmedUrl ? trimmedLocation || undefined : undefined,
         seniority: !trimmedUrl && seniority.length > 0 ? seniority : undefined,
         company_sizes: !trimmedUrl && sizes.length > 0 ? sizes : undefined,
@@ -231,7 +317,7 @@ export default function LeadFinder() {
       const allItems = [];
       let cursor = undefined;
       let source = "";
-      for (let i = 0; i < 5; i += 1) {
+      for (let i = 0; i < 100; i += 1) {
         const data = await unipile.searchPeople(accountId, {
           ...basePayload,
           cursor,
@@ -239,6 +325,7 @@ export default function LeadFinder() {
         const items =
           data?.items || data?.objects || data?.users || data?.results || [];
         allItems.push(...items);
+        setLoadingCount(allItems.length);
         if (!source) source = data?.source || "";
         const nextCursor =
           data?.cursor || data?.next_cursor || data?.nextCursor;
@@ -271,7 +358,7 @@ export default function LeadFinder() {
   const handleReset = () => {
     setSizes([]);
     setSeniority([]);
-    setIndustry("");
+    setIndustry("");  // ID string — empty = "Any industry"
     setJobTitle("");
     setLocation("");
     setSearched(false);
@@ -345,6 +432,32 @@ export default function LeadFinder() {
 
   // ── Shared results table ──────────────────────────────────────
   const tableRows = mode === "engagers" ? engagersResults : results;
+
+  function handleSort(col) {
+    if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortBy(col); setSortDir("asc"); }
+  }
+
+  const displayRows = useMemo(() => {
+    let rows = tableRows;
+    if (tableSearch) {
+      const q = tableSearch.toLowerCase();
+      rows = rows.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          (r.title || "").toLowerCase().includes(q) ||
+          (r.company || "").toLowerCase().includes(q),
+      );
+    }
+    if (sortBy) {
+      rows = [...rows].sort((a, b) => {
+        const av = (a[sortBy] || "").toLowerCase();
+        const bv = (b[sortBy] || "").toLowerCase();
+        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+    }
+    return rows;
+  }, [tableRows, tableSearch, sortBy, sortDir]);
   const showTable =
     mode === "filters"
       ? searched
@@ -468,7 +581,9 @@ export default function LeadFinder() {
                 >
                   <option value="">Any industry</option>
                   {INDUSTRIES.map((i) => (
-                    <option key={i}>{i}</option>
+                    <option key={i.id} value={i.id}>
+                      {i.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -789,12 +904,23 @@ export default function LeadFinder() {
             </div>
           ) : showLoading ? (
             <div className="empty-state" style={{ height: "100%" }}>
-              <div style={{ fontSize: 32 }}>↻</div>
-              <p style={{ color: "var(--text-muted)" }}>
-                {mode === "filters"
-                  ? "Searching LinkedIn…"
-                  : "Fetching post engagers…"}
+              <div className="search-radar">
+                <div className="search-radar-ring" />
+                <div className="search-radar-ring" />
+                <div className="search-radar-ring" />
+                <div className="search-radar-icon">◎</div>
+              </div>
+              <p style={{ color: "var(--text-secondary)", fontWeight: 600, marginTop: 4 }}>
+                {mode === "filters" ? "Searching LinkedIn…" : "Fetching post engagers…"}
               </p>
+              {mode === "filters" && loadingCount > 0 && (
+                <p style={{ color: "var(--signal)", fontSize: 13, margin: 0 }}>
+                  {loadingCount} profiles found so far
+                </p>
+              )}
+              <div className="search-dots">
+                <span /><span /><span />
+              </div>
             </div>
           ) : engagersError && mode === "engagers" ? (
             <div className="empty-state" style={{ height: "100%" }}>
@@ -815,25 +941,26 @@ export default function LeadFinder() {
           ) : (
             <>
               <div className="results-header">
-                <div>
-                  <span style={{ fontWeight: 700, fontSize: 15 }}>
-                    {tableRows.length}{" "}
-                    {mode === "engagers"
-                      ? `${engagerType} found`
-                      : "matches found"}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+                    {displayRows.length !== tableRows.length
+                      ? `${displayRows.length} of ${tableRows.length}`
+                      : tableRows.length}{" "}
+                    {mode === "engagers" ? `${engagerType} found` : "matches found"}
                   </span>
-                  {mode === "filters" && (
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        fontSize: 13,
-                        marginLeft: 8,
-                      }}
-                    >
-                      {filterSource === "connections"
-                        ? "from your connections"
-                        : "from LinkedIn"}
+                  {mode === "filters" && !tableSearch && (
+                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                      {filterSource === "connections" ? "from your connections" : "from LinkedIn"}
                     </span>
+                  )}
+                  {tableRows.length > 0 && (
+                    <input
+                      className="input"
+                      style={{ fontSize: 12, padding: "5px 10px", height: "auto", maxWidth: 220 }}
+                      placeholder="Filter results…"
+                      value={tableSearch}
+                      onChange={(e) => setTableSearch(e.target.value)}
+                    />
                   )}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -846,13 +973,13 @@ export default function LeadFinder() {
                     className="btn btn-secondary btn-sm"
                     onClick={() =>
                       setSelected(
-                        selected.length === tableRows.length
+                        selected.length === displayRows.length
                           ? []
-                          : tableRows.map((r) => r.id),
+                          : displayRows.map((r) => r.id),
                       )
                     }
                   >
-                    {selected.length === tableRows.length
+                    {selected.length > 0 && selected.length === displayRows.length
                       ? "Deselect All"
                       : "Select All"}
                   </button>
@@ -886,15 +1013,28 @@ export default function LeadFinder() {
                     <tr>
                       <th style={{ width: 40 }}></th>
                       <th></th>
-                      <th>Name</th>
-                      <th>Job Title</th>
-                      <th>Company</th>
-                      <th>Location</th>
+                      {[
+                        { key: "name", label: "Name" },
+                        { key: "title", label: "Job Title" },
+                        { key: "company", label: "Company" },
+                        { key: "location", label: "Location" },
+                      ].map(({ key, label }) => (
+                        <th
+                          key={key}
+                          style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+                          onClick={() => handleSort(key)}
+                        >
+                          {label}{" "}
+                          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                            {sortBy === key ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+                          </span>
+                        </th>
+                      ))}
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {tableRows.map((r) => (
+                    {displayRows.map((r) => (
                       <tr key={r.id}>
                         <td>
                           <input

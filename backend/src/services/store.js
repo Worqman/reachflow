@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID } from "crypto";
+import { supabase } from "./supabase.js";
 
 const DEFAULT_WORKSPACE_ID = "ws_default";
 
@@ -201,9 +202,63 @@ export const leadStore = {
 };
 
 // ── Conversations ──────────────────────────────────────────────
+
+// Convert camelCase in-memory record → snake_case Supabase row
+function convToDb(conv) {
+  return {
+    id:                  conv.id,
+    workspace_id:        conv.workspaceId        || null,
+    linkedin_chat_id:    conv.linkedinChatId     || null,
+    linkedin_account_id: conv.linkedinAccountId  || null,
+    prospect_id:         conv.prospectId         || null,
+    agent_id:            conv.agentId            || null,
+    campaign_id:         conv.campaignId         || null,
+    source:              conv.source             || 'inbox',
+    status:              conv.status             || 'review',
+    ai_paused:           conv.aiPaused           ?? true,
+    messages:            conv.messages           || [],
+    created_at:          conv.createdAt,
+    updated_at:          conv.updatedAt,
+  }
+}
+
+// Convert Supabase row → camelCase in-memory record
+function convFromDb(row) {
+  return {
+    id:                  row.id,
+    workspaceId:         row.workspace_id,
+    linkedinChatId:      row.linkedin_chat_id,
+    linkedinAccountId:   row.linkedin_account_id,
+    prospectId:          row.prospect_id,
+    agentId:             row.agent_id,
+    campaignId:          row.campaign_id,
+    source:              row.source,
+    status:              row.status,
+    aiPaused:            row.ai_paused,
+    messages:            row.messages || [],
+    createdAt:           row.created_at,
+    updatedAt:           row.updated_at,
+  }
+}
+
+// Fire-and-forget upsert — never blocks callers
+function persistConversation(conv) {
+  if (!supabase) return
+  supabase.from('conversations').upsert(convToDb(conv), { onConflict: 'id' })
+    .then(({ error }) => { if (error) console.error('[store] conv persist error:', error.message) })
+    .catch(() => {})
+}
+
 export const conversationStore = {
-  list: (workspaceId = DEFAULT_WORKSPACE_ID) =>
-    db.conversations.filter((c) => c.workspaceId === workspaceId),
+  // Returns all conversations when no workspaceId given, filtered otherwise.
+  list: (workspaceId) =>
+    workspaceId
+      ? db.conversations.filter((c) => c.workspaceId === workspaceId)
+      : db.conversations,
+
+  // Find a single conversation by LinkedIn chat ID across all workspaces.
+  findByChatId: (chatId) =>
+    db.conversations.find((c) => c.linkedinChatId === chatId) || null,
 
   get: (id) => db.conversations.find((c) => c.id === id) || null,
 
@@ -219,6 +274,7 @@ export const conversationStore = {
       ...data,
     };
     db.conversations.push(conv);
+    persistConversation(conv);
     return conv;
   },
 
@@ -231,6 +287,7 @@ export const conversationStore = {
       ...message,
     });
     conv.updatedAt = new Date().toISOString();
+    persistConversation(conv);
     return conv;
   },
 
@@ -242,9 +299,29 @@ export const conversationStore = {
       ...data,
       updatedAt: new Date().toISOString(),
     };
+    persistConversation(db.conversations[idx]);
     return db.conversations[idx];
   },
 };
+
+// Load all conversations from Supabase into memory on server startup.
+// Call this once after the server starts.
+export async function initConversationStore() {
+  if (!supabase) return
+  try {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('*')
+      .order('updated_at', { ascending: false })
+    if (error) throw error
+    if (data?.length) {
+      db.conversations = data.map(convFromDb)
+      console.log(`[store] Loaded ${db.conversations.length} conversation(s) from Supabase`)
+    }
+  } catch (err) {
+    console.error('[store] Failed to load conversations from Supabase:', err.message)
+  }
+}
 
 // ── Meetings ───────────────────────────────────────────────────
 export const meetingStore = {

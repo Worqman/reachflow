@@ -45,6 +45,7 @@
 .detail-tab.active {
   color: var(--signal);
   border-bottom-color: var(--signal);
+  transition: color var(--transition-fast), border-bottom-color var(--transition-fast);
 }
 
 .detail-content {
@@ -103,6 +104,52 @@
   line-height: 1.4;
 }
 
+/* ── Builder animations ─────────────────────────────────────── */
+
+/* Staggered slide-in for nodes on initial load */
+@keyframes nodeSlideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+/* Spring pop-in for newly added nodes */
+@keyframes nodePopIn {
+  0%   { opacity: 0; transform: translateY(-16px) scale(0.92); }
+  60%  { transform: translateY(4px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0)    scale(1);     }
+}
+
+/* Connector line draw */
+@keyframes connDraw {
+  from { transform: scaleY(0); transform-origin: top; }
+  to   { transform: scaleY(1); transform-origin: top; }
+}
+
+/* Entry node pulse when running */
+@keyframes activePulse {
+  0%,100% { box-shadow: 0 0 0 0   rgba(57,255,135,0);    }
+  50%     { box-shadow: 0 0 0 8px rgba(57,255,135,0.15); }
+}
+
+/* Add button ripple ring */
+@keyframes addBtnRing {
+  0%   { box-shadow: 0 0 0 0 rgba(57,255,135,0.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(57,255,135,0); }
+  100% { box-shadow: 0 0 0 0 rgba(57,255,135,0);  }
+}
+
+/* Step picker pop-in */
+@keyframes pickerPopIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+/* Config panel slide from right */
+@keyframes configSlideIn {
+  from { transform: translateX(28px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
 /* Builder */
 .builder-wrap {
   display: flex;
@@ -147,6 +194,7 @@
   border-color: var(--signal);
   color: var(--signal);
   background: var(--signal-subtle);
+  animation: activePulse 2s ease infinite;
 }
 
 .builder-connector {
@@ -154,6 +202,7 @@
   height: 24px;
   background: var(--border);
   margin: 0 auto;
+  animation: connDraw 0.18s ease both;
 }
 
 .builder-connector-wrap {
@@ -183,6 +232,7 @@
   border-color: var(--signal);
   color: var(--signal);
   background: var(--signal-subtle);
+  animation: addBtnRing 0.7s ease forwards;
 }
 
 .builder-node {
@@ -195,15 +245,49 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: border-color var(--transition-fast);
   position: relative;
+  transition: border-color var(--transition-fast), transform 0.16s ease, box-shadow 0.16s ease;
+  animation: nodeSlideIn 0.24s ease both;
+}
+.builder-node--new {
+  animation: nodePopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
+  animation-delay: 0ms !important;
+}
+
+/* Drag & drop */
+.builder-node[draggable] {
+  cursor: grab;
+}
+.builder-node.dragging {
+  opacity: 0.3;
+  cursor: grabbing !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+.builder-drop-target > .builder-node {
+  border-top-color: var(--signal);
+  box-shadow: 0 -4px 16px rgba(57, 255, 135, 0.25), 0 0 0 1px var(--signal-subtle);
+  transform: translateY(0) !important;
+}
+.builder-drop-target::before {
+  content: '';
+  display: block;
+  height: 2px;
+  background: var(--signal);
+  border-radius: 2px;
+  margin: 0 0 0 0;
+  box-shadow: 0 0 8px rgba(57, 255, 135, 0.5);
+  animation: fadeIn 0.1s ease;
 }
 
 .builder-node:hover {
   border-color: var(--border-2);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
 }
 .builder-node.selected {
   border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-subtle);
 }
 .builder-node.missing {
   border-color: var(--danger);
@@ -285,6 +369,7 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  animation: configSlideIn 0.22s ease both;
 }
 
 .node-config-header {
@@ -585,6 +670,7 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
+  animation: pickerPopIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .step-picker-header {
@@ -645,13 +731,15 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   text-align: center;
 }
 
 .step-picker-card:hover {
   border-color: #0a66c2;
   background: rgba(10, 102, 194, 0.06);
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 8px 24px rgba(10, 102, 194, 0.18);
 }
 
 .step-picker-icon {

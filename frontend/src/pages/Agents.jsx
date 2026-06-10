@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { agents as agentsApi } from "../lib/api";
 import { useToast } from "../components/Toast";
+import { Sk } from "../components/Skeleton";
 import "./Agents.css";
 
 const TONE_OPTIONS = [
@@ -144,8 +145,22 @@ export default function Agents() {
       </div>
 
       {loading ? (
-        <div style={{ padding: 32, color: "var(--text-muted)", fontSize: 13 }}>
-          Loading agents…
+        <div className="agents-grid">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="agent-card card" style={{ opacity: 1 - i * 0.2 }}>
+              <div className="agent-card-header">
+                <Sk w={90} h={22} r={999} />
+                <Sk w={40} h={22} r={4} />
+              </div>
+              <Sk w="60%" h={20} r={6} style={{ marginBottom: 8 }} />
+              <Sk w="100%" h={13} r={4} style={{ marginBottom: 4 }} />
+              <Sk w="80%" h={13} r={4} style={{ marginBottom: 16 }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Sk w="50%" h={28} r={6} />
+                <Sk w="50%" h={28} r={6} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className="agents-grid">
@@ -323,6 +338,7 @@ function SectionHeader({ icon, title, noBorder }) {
 function CreateAgentModal({ onClose, onCreated, toast }) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
+  const [yourRole, setYourRole] = useState("");
   const [serviceOffer, setServiceOffer] = useState("");
   const [targetingBrief, setTargetingBrief] = useState("");
   const [tone, setTone] = useState("professional");
@@ -333,6 +349,7 @@ function CreateAgentModal({ onClose, onCreated, toast }) {
     try {
       const agent = await agentsApi.create({ name: name.trim() });
       const result = await agentsApi.generatePersona(agent.id, {
+        yourRole,
         serviceOffer,
         targetingBrief,
         tone,
@@ -456,6 +473,19 @@ function CreateAgentModal({ onClose, onCreated, toast }) {
 
               <div className="input-group" style={{ margin: 0 }}>
                 <label className="input-label">
+                  What is your role?
+                </label>
+                <input
+                  className="input"
+                  placeholder="e.g. Head of Sales, Founder, Account Executive"
+                  value={yourRole}
+                  onChange={(e) => setYourRole(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="input-group" style={{ margin: 0 }}>
+                <label className="input-label">
                   What service or product are you offering?
                 </label>
                 <textarea
@@ -464,7 +494,6 @@ function CreateAgentModal({ onClose, onCreated, toast }) {
                   placeholder="e.g. LinkedIn outreach automation for B2B SaaS companies"
                   value={serviceOffer}
                   onChange={(e) => setServiceOffer(e.target.value)}
-                  autoFocus
                   style={{ resize: "none" }}
                 />
               </div>
@@ -571,12 +600,16 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
   const [icpFilters, setIcpFilters] = useState(agent.icpFilters?.notes || "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
   // AI generation state
+  const [yourRole, setYourRole] = useState("");
   const [serviceOffer, setServiceOffer] = useState("");
   const [targetingBrief, setTargetingBrief] = useState("");
   const [genTone, setGenTone] = useState("professional");
   const [generating, setGenerating] = useState(false);
+  const [refinementNote, setRefinementNote] = useState("");
+
+  const hasPersona = Object.values(agent.persona || {}).some((v) => v?.trim?.());
+  const [genOpen, setGenOpen] = useState(!hasPersona);
 
   // Signal events — load immediately when modal opens
   const [signalEvents, setSignalEvents] = useState([]);
@@ -623,9 +656,11 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
     setGenerating(true);
     try {
       const result = await agentsApi.generatePersona(agent.id, {
+        yourRole,
         serviceOffer,
         targetingBrief,
         tone: genTone,
+        refinementNote: refinementNote.trim() || undefined,
       });
       setPersona(result.persona);
       onUpdated(result.agent);
@@ -682,6 +717,7 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
           flexDirection: "column",
         }}
       >
+        {/* Header */}
         <div className="modal-header">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="badge badge-signal">◆◎ AI Agent</span>
@@ -704,6 +740,7 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
           </button>
         </div>
 
+        {/* Body */}
         <div
           className="modal-body"
           style={{
@@ -711,431 +748,477 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
             overflowY: "auto",
             display: "flex",
             flexDirection: "column",
-            gap: 0,
+            gap: 16,
+            padding: "20px 24px",
           }}
         >
           {/* ══ AI PERSONA ══ */}
           <SectionHeader icon="◆" title="AI Persona" noBorder />
 
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 20,
-              padding: "20px 0",
-            }}
-          >
-            {/* Generate with AI */}
-            <div
-              style={{
-                background: "var(--surface-2, var(--surface))",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius)",
-                padding: 16,
-              }}
-            >
+          {/* Collapsible Generate with AI */}
               <div
                 style={{
-                  fontWeight: 700,
-                  fontSize: 13,
-                  marginBottom: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
+                  background: "var(--surface-2, var(--surface))",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  overflow: "hidden",
                 }}
               >
-                ◆ Generate Persona with AI
-                <span
+                <button
+                  onClick={() => setGenOpen((o) => !o)}
                   style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    fontWeight: 400,
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 16px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                    textAlign: "left",
                   }}
                 >
-                  — fills all fields automatically
-                </span>
-              </div>
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
-              >
-                <div className="input-group" style={{ margin: 0 }}>
-                  <label className="input-label">Service / Offer</label>
-                  <input
-                    className="input"
-                    placeholder="e.g. LinkedIn outreach automation for UK accountants"
-                    value={serviceOffer}
-                    onChange={(e) => setServiceOffer(e.target.value)}
-                  />
-                </div>
-                <div className="input-group" style={{ margin: 0 }}>
-                  <label className="input-label">Target Audience</label>
-                  <input
-                    className="input"
-                    placeholder="e.g. Managing Directors at UK accounting firms with 5–50 staff"
-                    value={targetingBrief}
-                    onChange={(e) => setTargetingBrief(e.target.value)}
-                  />
-                </div>
-                <div className="input-group" style={{ margin: 0 }}>
-                  <label className="input-label">Tone</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {TONE_OPTIONS.map((opt) => (
-                      <label
-                        key={opt.value}
-                        style={{
-                          flex: 1,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "7px 10px",
-                          borderRadius: "var(--radius)",
-                          border: `1px solid ${genTone === opt.value ? "var(--signal)" : "var(--border)"}`,
-                          background:
-                            genTone === opt.value
-                              ? "var(--signal-subtle)"
-                              : "transparent",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          fontWeight: genTone === opt.value ? 600 : 400,
-                          color:
-                            genTone === opt.value
-                              ? "var(--signal)"
-                              : "var(--text-secondary)",
-                          transition: "all var(--transition-base)",
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="genTone"
-                          value={opt.value}
-                          checked={genTone === opt.value}
-                          onChange={() => setGenTone(opt.value)}
-                          style={{ display: "none" }}
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ alignSelf: "flex-start" }}
-                  disabled={generating}
-                  onClick={handleGeneratePersona}
-                >
-                  {generating ? "◆ Generating…" : "◆ Generate Persona"}
+                  <span>
+                    ◆ Generate Persona with AI
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        fontWeight: 400,
+                        marginLeft: 8,
+                      }}
+                    >
+                      — fills all fields automatically
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {genOpen ? "▲" : "▼"}
+                  </span>
                 </button>
-              </div>
-            </div>
 
-            {/* Persona fields */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {PERSONA_FIELDS.map((f) => (
-                <div key={f.key} className="input-group" style={{ margin: 0 }}>
-                  <label
-                    className="input-label"
-                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                {genOpen && (
+                  <div
+                    style={{
+                      padding: "0 16px 16px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
                   >
-                    {f.label}
-                    {f.aiGenerated && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: "var(--signal)",
-                          background: "var(--signal-subtle)",
-                          padding: "1px 6px",
-                          borderRadius: 4,
-                        }}
-                      >
-                        ◆ AI generated
-                      </span>
+                    <div className="input-group" style={{ margin: 0 }}>
+                      <label className="input-label">Your Role</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Head of Sales, Founder, Account Executive"
+                        value={yourRole}
+                        onChange={(e) => setYourRole(e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group" style={{ margin: 0 }}>
+                      <label className="input-label">Service / Offer</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. LinkedIn outreach automation for UK accountants"
+                        value={serviceOffer}
+                        onChange={(e) => setServiceOffer(e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group" style={{ margin: 0 }}>
+                      <label className="input-label">Target Audience</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Managing Directors at UK accounting firms with 5–50 staff"
+                        value={targetingBrief}
+                        onChange={(e) => setTargetingBrief(e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group" style={{ margin: 0 }}>
+                      <label className="input-label">Tone</label>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {TONE_OPTIONS.map((opt) => (
+                          <label
+                            key={opt.value}
+                            style={{
+                              flex: 1,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "7px 10px",
+                              borderRadius: "var(--radius)",
+                              border: `1px solid ${genTone === opt.value ? "var(--signal)" : "var(--border)"}`,
+                              background:
+                                genTone === opt.value
+                                  ? "var(--signal-subtle)"
+                                  : "transparent",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              fontWeight: genTone === opt.value ? 600 : 400,
+                              color:
+                                genTone === opt.value
+                                  ? "var(--signal)"
+                                  : "var(--text-secondary)",
+                              transition: "all var(--transition-base)",
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="genTone"
+                              value={opt.value}
+                              checked={genTone === opt.value}
+                              onChange={() => setGenTone(opt.value)}
+                              style={{ display: "none" }}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    {hasPersona && (
+                      <div className="input-group" style={{ margin: 0 }}>
+                        <label className="input-label">
+                          Refinement Feedback{" "}
+                          <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional — leave blank to regenerate from scratch)</span>
+                        </label>
+                        <input
+                          className="input"
+                          placeholder="e.g. Make objection handling more concise, focus more on SaaS companies"
+                          value={refinementNote}
+                          onChange={(e) => setRefinementNote(e.target.value)}
+                        />
+                      </div>
                     )}
-                  </label>
-                  <textarea
-                    className="input"
-                    rows={f.rows}
-                    placeholder={f.placeholder}
-                    value={persona[f.key] || ""}
-                    onChange={(e) =>
-                      setPersona((p) => ({ ...p, [f.key]: e.target.value }))
-                    }
-                    style={{ resize: "vertical" }}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ alignSelf: "flex-start" }}
+                      disabled={generating}
+                      onClick={handleGeneratePersona}
+                    >
+                      {generating
+                        ? "◆ Generating…"
+                        : hasPersona && refinementNote.trim()
+                          ? "◆ Refine Persona"
+                          : "◆ Generate Persona"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Persona fields */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 14 }}
+              >
+                {PERSONA_FIELDS.map((f) => (
+                  <div
+                    key={f.key}
+                    className="input-group"
+                    style={{ margin: 0 }}
+                  >
+                    <label
+                      className="input-label"
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      {f.label}
+                      {f.aiGenerated && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: "var(--signal)",
+                            background: "var(--signal-subtle)",
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                          }}
+                        >
+                          ◆ AI generated
+                        </span>
+                      )}
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={f.rows}
+                      placeholder={f.placeholder}
+                      value={persona[f.key] || ""}
+                      onChange={(e) =>
+                        setPersona((p) => ({ ...p, [f.key]: e.target.value }))
+                      }
+                      style={{ resize: "vertical" }}
+                    />
+                  </div>
+                ))}
+              </div>
 
           {/* ══ INTENT SIGNALS ══ */}
           <SectionHeader icon="◎" title="Intent Signals" />
 
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 20,
-              padding: "20px 0",
-            }}
-          >
-            {/* Stats */}
-            <div style={{ display: "flex", gap: 16 }}>
-              {[
-                {
-                  label: "Signals Detected",
-                  value: agent.signalsDetected || 0,
-                },
-                { label: "Leads Found", value: agent.leadsFound || 0 },
-              ].map((s) => (
-                <div
-                  key={s.label}
-                  style={{
-                    flex: 1,
-                    background: "var(--surface-2, var(--surface))",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius)",
-                    padding: "14px 16px",
-                  }}
-                >
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {s.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Keywords */}
-            <div className="input-group" style={{ margin: 0 }}>
-              <label className="input-label">Keywords to Monitor</label>
-              <input
-                className="input"
-                placeholder="e.g. outreach automation, sales tool, CRM replacement (comma-separated)"
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-              />
-              <p
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  marginTop: 4,
-                }}
-              >
-                Comma-separated. The agent will surface leads who post or engage
-                with these topics.
-              </p>
-            </div>
-
-            {/* Signal Types */}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-                Signal Types
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {SIGNAL_TYPE_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.value}
+              {/* Stats */}
+              <div style={{ display: "flex", gap: 16 }}>
+                {[
+                  { label: "Signals Detected", value: agent.signalsDetected || 0 },
+                  { label: "Leads Found", value: agent.leadsFound || 0 },
+                ].map((s) => (
+                  <div
+                    key={s.label}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      cursor: "pointer",
-                      padding: "6px 12px",
-                      borderRadius: "var(--radius)",
+                      flex: 1,
+                      background: "var(--surface-2, var(--surface))",
                       border: "1px solid var(--border)",
-                      background: signalTypes.includes(opt.value)
-                        ? "var(--signal-subtle)"
-                        : "var(--surface)",
-                      fontSize: 13,
-                      fontWeight: signalTypes.includes(opt.value) ? 600 : 400,
-                      color: signalTypes.includes(opt.value)
-                        ? "var(--signal)"
-                        : "var(--text-secondary)",
-                      transition: "all var(--transition-base)",
+                      borderRadius: "var(--radius)",
+                      padding: "14px 16px",
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      style={{ display: "none" }}
-                      checked={signalTypes.includes(opt.value)}
-                      onChange={() => toggleSignalType(opt.value)}
-                    />
-                    {signalTypes.includes(opt.value) ? "◎ " : "○ "}
-                    {opt.label}
-                  </label>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>
+                      {s.value}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      {s.label}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
 
-            {/* ICP Filters */}
-            <div className="input-group" style={{ margin: 0 }}>
-              <label className="input-label">ICP Filters</label>
-              <textarea
-                className="input"
-                rows={3}
-                placeholder="e.g. Only surface leads at companies with 10–200 employees in the UK, in SaaS or fintech…"
-                value={icpFilters}
-                onChange={(e) => setIcpFilters(e.target.value)}
-                style={{ resize: "vertical" }}
-              />
-            </div>
-
-            {/* Signal Events */}
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
-                Recent Signal Events
-              </div>
-              {eventsLoading ? (
-                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  Loading events…
-                </div>
-              ) : signalEvents.length === 0 ? (
-                <div
+              {/* Keywords */}
+              <div className="input-group" style={{ margin: 0 }}>
+                <label className="input-label">Keywords to Monitor</label>
+                <input
+                  className="input"
+                  placeholder="e.g. outreach automation, sales tool, CRM replacement (comma-separated)"
+                  value={keywords}
+                  onChange={(e) => setKeywords(e.target.value)}
+                />
+                <p
                   style={{
-                    fontSize: 13,
+                    fontSize: 11,
                     color: "var(--text-muted)",
-                    padding: "20px 0",
-                    textAlign: "center",
+                    marginTop: 4,
                   }}
                 >
-                  No signal events yet. Once the agent detects buying signals,
-                  they'll appear here.
-                </div>
-              ) : (
+                  Comma-separated. The agent will surface leads who post or
+                  engage with these topics.
+                </p>
+              </div>
+
+              {/* Signal Types */}
+              <div>
                 <div
-                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                  style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}
                 >
-                  {signalEvents.map((ev) => (
-                    <div
-                      key={ev.id}
+                  Signal Types
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {SIGNAL_TYPE_OPTIONS.map((opt) => (
+                    <label
+                      key={opt.value}
                       style={{
                         display: "flex",
-                        alignItems: "flex-start",
-                        gap: 12,
-                        padding: "12px 14px",
-                        background: "var(--surface-2, var(--surface))",
-                        border: "1px solid var(--border)",
+                        alignItems: "center",
+                        gap: 6,
+                        cursor: "pointer",
+                        padding: "6px 12px",
                         borderRadius: "var(--radius)",
-                        opacity: ev.actioned ? 0.55 : 1,
+                        border: "1px solid var(--border)",
+                        background: signalTypes.includes(opt.value)
+                          ? "var(--signal-subtle)"
+                          : "var(--surface)",
+                        fontSize: 13,
+                        fontWeight: signalTypes.includes(opt.value) ? 600 : 400,
+                        color: signalTypes.includes(opt.value)
+                          ? "var(--signal)"
+                          : "var(--text-secondary)",
+                        transition: "all var(--transition-base)",
                       }}
                     >
-                      <div style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>
-                            {ev.leadName}
-                          </span>
-                          {ev.company && (
-                            <span
-                              style={{
-                                fontSize: 12,
-                                color: "var(--text-muted)",
-                              }}
-                            >
-                              · {ev.company}
-                            </span>
-                          )}
-                          <span
-                            className="badge badge-info"
-                            style={{ fontSize: 10 }}
-                          >
-                            {SIGNAL_TYPE_LABELS[ev.type] || ev.type}
-                          </span>
-                          {ev.intentScore > 0 && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color:
-                                  ev.intentScore >= 70
-                                    ? "var(--signal)"
-                                    : "var(--text-muted)",
-                              }}
-                            >
-                              {ev.intentScore}% intent
-                            </span>
-                          )}
-                        </div>
-                        {ev.signal && (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "var(--text-secondary)",
-                              marginTop: 3,
-                            }}
-                          >
-                            {ev.signal}
-                          </div>
-                        )}
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "var(--text-disabled)",
-                            marginTop: 4,
-                          }}
-                        >
-                          {new Date(ev.createdAt).toLocaleDateString("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </div>
-                      </div>
-                      {!ev.actioned && (
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={() => handleActionEvent(ev.id)}
-                          style={{ whiteSpace: "nowrap", fontSize: 11 }}
-                        >
-                          Mark actioned
-                        </button>
-                      )}
-                      {ev.actioned && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color: "var(--text-disabled)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          ✓ Actioned
-                        </span>
-                      )}
-                    </div>
+                      <input
+                        type="checkbox"
+                        style={{ display: "none" }}
+                        checked={signalTypes.includes(opt.value)}
+                        onChange={() => toggleSignalType(opt.value)}
+                      />
+                      {signalTypes.includes(opt.value) ? "◎ " : "○ "}
+                      {opt.label}
+                    </label>
                   ))}
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+              </div>
 
-      <div className="modal-footer" style={{ justifyContent: "space-between" }}>
-        <button
-          className="btn btn-ghost btn-sm"
-          style={{ color: "var(--danger)" }}
-          disabled={deleting}
-          onClick={handleDelete}
+              {/* ICP Filters */}
+              <div className="input-group" style={{ margin: 0 }}>
+                <label className="input-label">ICP Filters</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  placeholder="e.g. Only surface leads at companies with 10–200 employees in the UK, in SaaS or fintech…"
+                  value={icpFilters}
+                  onChange={(e) => setIcpFilters(e.target.value)}
+                  style={{ resize: "vertical" }}
+                />
+              </div>
+
+              {/* Signal Events */}
+              <div>
+                <div
+                  style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}
+                >
+                  Recent Signal Events
+                </div>
+                {eventsLoading ? (
+                  <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                    Loading events…
+                  </div>
+                ) : signalEvents.length === 0 ? (
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-muted)",
+                      padding: "20px 0",
+                      textAlign: "center",
+                    }}
+                  >
+                    No signal events yet. Once the agent detects buying signals,
+                    they'll appear here.
+                  </div>
+                ) : (
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                  >
+                    {signalEvents.map((ev) => (
+                      <div
+                        key={ev.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          padding: "12px 14px",
+                          background: "var(--surface-2, var(--surface))",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius)",
+                          opacity: ev.actioned ? 0.55 : 1,
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>
+                              {ev.leadName}
+                            </span>
+                            {ev.company && (
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                · {ev.company}
+                              </span>
+                            )}
+                            <span
+                              className="badge badge-info"
+                              style={{ fontSize: 10 }}
+                            >
+                              {SIGNAL_TYPE_LABELS[ev.type] || ev.type}
+                            </span>
+                            {ev.intentScore > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color:
+                                    ev.intentScore >= 70
+                                      ? "var(--signal)"
+                                      : "var(--text-muted)",
+                                }}
+                              >
+                                {ev.intentScore}% intent
+                              </span>
+                            )}
+                          </div>
+                          {ev.signal && (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "var(--text-secondary)",
+                                marginTop: 3,
+                              }}
+                            >
+                              {ev.signal}
+                            </div>
+                          )}
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-disabled)",
+                              marginTop: 4,
+                            }}
+                          >
+                            {new Date(ev.createdAt).toLocaleDateString(
+                              "en-GB",
+                              {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
+                          </div>
+                        </div>
+                        {!ev.actioned && (
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => handleActionEvent(ev.id)}
+                            style={{ whiteSpace: "nowrap", fontSize: 11 }}
+                          >
+                            Mark actioned
+                          </button>
+                        )}
+                        {ev.actioned && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-disabled)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ✓ Actioned
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+        </div>
+
+        <div
+          className="modal-footer"
+          style={{ justifyContent: "space-between" }}
         >
-          {deleting ? "Deleting…" : "Delete Agent"}
-        </button>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
           <button
-            className="btn btn-primary"
-            disabled={saving}
-            onClick={handleSave}
+            className="btn btn-ghost btn-sm"
+            style={{ color: "var(--danger)" }}
+            disabled={deleting}
+            onClick={handleDelete}
           >
-            {saving ? "Saving…" : "Save Agent →"}
+            {deleting ? "Deleting…" : "Delete Agent"}
           </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-ghost" onClick={onClose}>
+              Close
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={saving}
+              onClick={handleSave}
+            >
+              {saving ? "Saving…" : "Save Agent →"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

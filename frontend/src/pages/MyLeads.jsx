@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { leads as leadsApi } from '../lib/api'
+import { SkeletonTableRows } from '../components/Skeleton'
 
 export default function MyLeads() {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState([])
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [sortBy, setSortBy] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
 
   async function load() {
     setLoading(true)
@@ -22,6 +27,33 @@ export default function MyLeads() {
 
   useEffect(() => { load() }, [])
 
+  const uniqueStatuses = useMemo(() => [...new Set(list.map(l => l.status || 'Not contacted'))], [list])
+
+  function handleSort(col) {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortBy(col); setSortDir('asc') }
+  }
+
+  const visibleList = useMemo(() => {
+    let filtered = list
+    if (search) {
+      const q = search.toLowerCase()
+      filtered = filtered.filter(l =>
+        (l.name || '').toLowerCase().includes(q) ||
+        (l.company || '').toLowerCase().includes(q) ||
+        (l.title || '').toLowerCase().includes(q)
+      )
+    }
+    if (statusFilter) {
+      filtered = filtered.filter(l => (l.status || 'Not contacted') === statusFilter)
+    }
+    return [...filtered].sort((a, b) => {
+      const av = (a[sortBy] || '').toLowerCase()
+      const bv = (b[sortBy] || '').toLowerCase()
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+    })
+  }, [list, search, statusFilter, sortBy, sortDir])
+
   async function handleDelete(id) {
     setDeletingId(id)
     try {
@@ -36,18 +68,43 @@ export default function MyLeads() {
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h1 className="page-title">My Leads</h1>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {!loading && `${list.length} saved`}
+          {!loading && (visibleList.length !== list.length ? `${visibleList.length} of ${list.length}` : `${list.length} saved`)}
         </span>
       </div>
+
+      {list.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            style={{ fontSize: 12, padding: '6px 10px', height: 'auto', flex: '1 1 200px', maxWidth: 280 }}
+            placeholder="Search by name, company, title…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="input"
+            style={{ fontSize: 12, padding: '6px 10px', height: 'auto', flex: '0 0 auto' }}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All statuses</option>
+            {uniqueStatuses.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && (
         <div className="badge badge-danger" style={{ marginBottom: 12 }}>{error}</div>
       )}
 
       {loading ? (
-        <div className="empty-state">
-          <div style={{ fontSize: 32 }}>↻</div>
-          <p style={{ color: 'var(--text-muted)' }}>Loading leads…</p>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th/><th>Name</th><th>Job Title</th><th>Company</th><th>Location</th><th>Status</th><th>LinkedIn</th><th/></tr></thead>
+            <tbody><SkeletonTableRows rows={6} cols={8} /></tbody>
+          </table>
         </div>
       ) : list.length === 0 ? (
         <div className="empty-state">
@@ -56,22 +113,35 @@ export default function MyLeads() {
           <p>Use the Lead Finder to search LinkedIn and save leads here.</p>
         </div>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap data-loaded">
           <table>
             <thead>
               <tr>
                 <th></th>
-                <th>Name</th>
-                <th>Job Title</th>
-                <th>Company</th>
-                <th>Location</th>
+                {[
+                  { key: 'name', label: 'Name' },
+                  { key: 'title', label: 'Job Title' },
+                  { key: 'company', label: 'Company' },
+                  { key: 'location', label: 'Location' },
+                ].map(({ key, label }) => (
+                  <th
+                    key={key}
+                    style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                    onClick={() => handleSort(key)}
+                  >
+                    {label}{' '}
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                      {sortBy === key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </th>
+                ))}
                 <th>Status</th>
                 <th>LinkedIn</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {list.map(lead => (
+              {visibleList.map(lead => (
                 <tr key={lead.id}>
                   <td style={{ width: 36 }}>
                     {lead.profilePictureUrl ? (

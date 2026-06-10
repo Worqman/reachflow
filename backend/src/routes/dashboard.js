@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
     if (campIds.length) {
       const { data } = await supabase
         .from('campaign_leads')
-        .select('campaign_id, status, name, company, updated_at')
+        .select('campaign_id, status, name, company, updated_at, created_at')
         .in('campaign_id', campIds)
       leadRows = data || []
     }
@@ -55,30 +55,40 @@ router.get('/', async (req, res) => {
     }))
 
     // ── Stats ──────────────────────────────────────────────────
-    const thisWeekLeads = leadRows.filter(l => l.updated_at >= weekAgo)
-    const invitesSentThisWeek = thisWeekLeads.filter(l =>
+    // Invites sent this week: leads created (added to campaign) this week that got an invite sent
+    const invitesSentThisWeek = leadRows.filter(l =>
+      ['invited', 'connected', 'replied', 'booked', 'rejected'].includes(l.status) &&
+      l.created_at >= weekAgo
+    ).length
+
+    // Acceptance rate: all-time (total connected / total invited)
+    const totalSent = leadRows.filter(l =>
       ['invited', 'connected', 'replied', 'booked', 'rejected'].includes(l.status)
     ).length
-    const connectedThisWeek = thisWeekLeads.filter(l =>
+    const totalConnected = leadRows.filter(l =>
       ['connected', 'replied', 'booked'].includes(l.status)
     ).length
-    const acceptanceRate = invitesSentThisWeek > 0
-      ? Math.round((connectedThisWeek / invitesSentThisWeek) * 100)
+    const acceptanceRate = totalSent > 0
+      ? Math.round((totalConnected / totalSent) * 100)
       : 0
 
     const activeCampaigns = (campaigns || []).filter(c => c.status === 'active').length
 
-    // ── Meetings this month ────────────────────────────────────
-    const { data: meetings } = await supabase
-      .from('meetings')
-      .select('*')
-      .eq('workspace_id', ws)
-      .gte('booked_at', monthStart)
-      .order('booked_at', { ascending: false })
+    // ── Meetings: use booked leads from campaigns ──────────────
+    const bookedLeads = leadRows.filter(l => l.status === 'booked')
+    const meetingsThisMonth = bookedLeads.filter(l => l.updated_at >= monthStart).length
 
-    const meetingsThisMonth = (meetings || []).length
+    const meetingRows = bookedLeads
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      .slice(0, 10)
+      .map(l => ({
+        id:            l.name + l.updated_at,
+        prospect_name: l.name    || 'Unknown',
+        booked_at:     l.updated_at,
+        notes:         l.company || '',
+      }))
 
-    // ── Needs review: leads with status=replied, get names ─────
+    // ── Needs review: leads with status=replied ────────────────
     const needsReview = leadRows
       .filter(l => l.status === 'replied')
       .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
@@ -97,7 +107,7 @@ router.get('/', async (req, res) => {
         activeCampaigns,
       },
       campaigns: campaignsWithStats,
-      meetings:  meetings || [],
+      meetings:  meetingRows,
       needsReview,
     })
   } catch (err) {

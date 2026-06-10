@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js'
-import { syncCampaignStatuses } from '../routes/campaigns.js'
+import { syncCampaignStatuses, executePostConnectionSteps } from '../routes/campaigns.js'
 
 async function processActiveCampaigns() {
   if (!supabase) return
@@ -34,6 +34,36 @@ async function processActiveCampaigns() {
   }
 }
 
+// Recover any sequence wait nodes that were persisted but never resumed
+// (e.g. because the server restarted mid-wait).
+async function resumePendingWaits() {
+  if (!supabase) return
+  try {
+    const { data: leads } = await supabase
+      .from('campaign_leads')
+      .select('provider_id, campaign_id, workspace_id, sequence_step')
+      .not('sequence_resume_at', 'is', null)
+      .lte('sequence_resume_at', new Date().toISOString())
+
+    if (!leads?.length) return
+    console.log(`[scheduler] Recovering ${leads.length} pending wait node(s)`)
+
+    for (const lead of leads) {
+      const { data: campaign } = await supabase
+        .from('campaigns').select('settings').eq('id', lead.campaign_id).maybeSingle()
+      const accountId = campaign?.settings?.linkedinAccountId || campaign?.settings?.accountId
+      if (!accountId) continue
+
+      console.log(`[scheduler] Resuming sequence at step ${lead.sequence_step} for ${lead.provider_id}`)
+      executePostConnectionSteps(
+        lead.provider_id, accountId, lead.campaign_id, lead.workspace_id, lead.sequence_step
+      ).catch(err => console.error(`[scheduler] wait resume error:`, err.message))
+    }
+  } catch (err) {
+    console.error('[scheduler] resumePendingWaits error:', err.message)
+  }
+}
+
 // Run every hour by default; override with SCHEDULER_INTERVAL_MS env var
 export function startScheduler() {
   const intervalMs = parseInt(process.env.SCHEDULER_INTERVAL_MS || '') || 60 * 60 * 1000
@@ -42,5 +72,7 @@ export function startScheduler() {
 
   // Run once shortly after startup, then on interval
   setTimeout(processActiveCampaigns, 30 * 1000)
+  setTimeout(resumePendingWaits, 35 * 1000) // recover any wait nodes that survived restart
   setInterval(processActiveCampaigns, intervalMs)
+  setInterval(resumePendingWaits, intervalMs) // also check on each scheduler tick
 }

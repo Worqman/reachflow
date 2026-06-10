@@ -8,8 +8,7 @@ const router = Router()
 router.get('/', async (req, res) => {
   const ws = req.workspaceId
   if (supabase) {
-    let query = supabase.from('meetings').select('*').order('booked_at', { ascending: false })
-    if (ws && ws !== 'ws_default') query = query.eq('workspace_id', ws)
+    const query = supabase.from('meetings').select('*').order('booked_at', { ascending: false })
     const { data, error } = await query
     if (error) return res.status(500).json({ message: error.message })
     return res.json(data || [])

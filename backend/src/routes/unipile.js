@@ -25,26 +25,130 @@ function extractName(obj) {
   )
 }
 
-// Enrich a list of chats: look up names from campaign_leads by provider_id.
+// Extract a display name from a Unipile attendee object (handles all known field shapes).
+function extractAttendeeName(attendee) {
+  if (!attendee) return null
+  return (
+    attendee.name ||
+    attendee.display_name ||
+    attendee.displayName ||
+    attendee.full_name ||
+    attendee.fullName ||
+    [attendee.first_name || attendee.firstName, attendee.last_name || attendee.lastName]
+      .filter(Boolean).join(' ') ||
+    attendee.username ||
+    attendee.public_identifier ||
+    null
+  )
+}
+
+// Extract names from the attendees[] array already present in the Unipile chat response.
+// This costs zero extra API calls — the data is already in the chat list payload.
+function extractNamesFromAttendees(chatList) {
+  return chatList.map(chat => {
+    if (chat._enrichedName) return chat
+    if (!chat.attendees?.length) return chat
+
+    // For 1:1 chats find the attendee matching the known provider_id, else take first
+    const attendee =
+      chat.attendees.find(
+        a => a.provider_id === chat.attendee_provider_id || a.id === chat.attendee_provider_id,
+      ) || chat.attendees[0]
+
+    const name = extractAttendeeName(attendee)
+    if (!name) return chat
+
+    return {
+      ...chat,
+      _enrichedName: name,
+      _enrichedHeadline: attendee.headline || attendee.occupation || attendee.job_title || '',
+    }
+  })
+}
+
+// In-memory profile name cache: provider_id → { name, headline, expiresAt }
+const _profileCache = new Map()
+const PROFILE_CACHE_TTL = 6 * 60 * 60 * 1000 // 6 hours
+
+// Layer 3: fetch names from Unipile's GET /users/{provider_id} for any still-unenriched chats.
+// Results are cached for 6 hours so polls never re-fetch.
+async function enrichWithProfileApi(chatList) {
+  const unenriched = chatList.filter(c => c.attendee_provider_id && !c._enrichedName)
+  if (!unenriched.length) return chatList
+
+  const FAILURE_TTL = 60 * 60 * 1000 // cache failures for 1 hour to avoid repeated calls
+  const now = Date.now()
+
+  // Skip bogus placeholder IDs that will never resolve
+  const isInvalidId = id =>
+    !id || id === 'UNKNOWN' || id.startsWith('MEMBER_NOT_FOUND_')
+
+  // Deduplicate by provider_id and skip already-cached / invalid IDs
+  const seen = new Set()
+  const toFetch = []
+  for (const c of unenriched) {
+    const pid = c.attendee_provider_id
+    if (isInvalidId(pid) || seen.has(pid)) continue
+    const hit = _profileCache.get(pid)
+    if (hit && hit.expiresAt > now) continue
+    seen.add(pid)
+    toFetch.push(c)
+  }
+
+  // Batch fetch — cap at 20 concurrent to avoid rate-limiting
+  const batch = toFetch.slice(0, 20)
+  await Promise.allSettled(
+    batch.map(async chat => {
+      try {
+        const profile = await linkedin.visitProfile(chat.account_id, chat.attendee_provider_id)
+        const name = extractName(profile)
+        _profileCache.set(chat.attendee_provider_id, {
+          name: name || null,
+          headline: profile.headline || profile.occupation || profile.job_title || '',
+          picture: profile.profile_picture_url || profile.profile_picture_url_large || null,
+          expiresAt: Date.now() + (name ? PROFILE_CACHE_TTL : FAILURE_TTL),
+        })
+      } catch {
+        // Cache the failure so we don't retry until TTL expires
+        _profileCache.set(chat.attendee_provider_id, { name: null, headline: '', expiresAt: Date.now() + FAILURE_TTL })
+      }
+    })
+  )
+
+  return chatList.map(chat => {
+    if (chat._enrichedName) return chat
+    const hit = _profileCache.get(chat.attendee_provider_id)
+    if (!hit || hit.expiresAt < Date.now()) return chat
+    return {
+      ...chat,
+      ...(hit.name    && { _enrichedName: hit.name }),
+      ...(hit.headline && { _enrichedHeadline: hit.headline }),
+      ...(hit.picture  && { _enrichedPicture: hit.picture }),
+    }
+  })
+}
+
+// Enrich a list of chats: look up names from campaign_leads AND leads tables by provider_id.
 async function enrichChats(chatList) {
   if (!supabase) return chatList
 
-  // Collect all attendee provider IDs that need a name
+  // Collect all attendee provider IDs that still need a name
   const pids = chatList
     .filter(c => c.attendee_provider_id && !c._enrichedName)
     .map(c => c.attendee_provider_id)
 
   if (!pids.length) return chatList
 
-  // Single DB query to get names for all provider IDs
-  const { data: leads } = await supabase
-    .from('campaign_leads')
-    .select('provider_id, name, title')
-    .in('provider_id', pids)
-
   const nameMap = {}
-  for (const lead of leads || []) {
-    if (lead.provider_id && lead.name) {
+
+  // Query both tables in parallel
+  const [campaignLeadsRes, leadsRes] = await Promise.all([
+    supabase.from('campaign_leads').select('provider_id, name, title').in('provider_id', pids),
+    supabase.from('leads').select('provider_id, name, title').in('provider_id', pids),
+  ])
+
+  for (const lead of [...(campaignLeadsRes.data || []), ...(leadsRes.data || [])]) {
+    if (lead.provider_id && lead.name && !nameMap[lead.provider_id]) {
       nameMap[lead.provider_id] = { name: lead.name, headline: lead.title || '' }
     }
   }
@@ -80,8 +184,6 @@ router.get('/accounts', async (req, res) => {
 
     // Fetch all Unipile accounts first
     const data = await accounts.list()
-    console.log('[unipile/accounts] raw response keys:', Object.keys(data || {}))
-    console.log('[unipile/accounts] raw response:', JSON.stringify(data).slice(0, 500))
     const all = data?.items || data?.accounts || data?.objects || data?.data || (Array.isArray(data) ? data : [])
 
     // No DB / dev mode — return everything
@@ -102,8 +204,6 @@ router.get('/accounts', async (req, res) => {
     }
 
     const knownIds = (rows || []).map(r => r.unipile_account_id)
-    console.log('[unipile/accounts] ws:', ws, '| all accounts:', all.length, '| db knownIds:', knownIds)
-
     const filtered = all.filter(a => knownIds.includes(a.id))
     res.json({ items: filtered, object: 'AccountList' })
   } catch (err) {
@@ -251,12 +351,16 @@ router.get('/chats', async (req, res) => {
 
     const items = data?.items || data?.objects || []
 
-    // Enrich all chats that have an attendee_provider_id but no cached name yet
-    const needsEnrich = items.filter(chat => chat.attendee_provider_id && !chat._enrichedName)
-    let enrichedItems = items
-    if (needsEnrich.length > 0) {
-      enrichedItems = await enrichChats(items)
-    }
+    // Layer 1: extract names from attendees[] if present (free — data already in response)
+    const withAttendeeNames = extractNamesFromAttendees(items)
+
+    // Layer 2: fill remaining gaps from campaign_leads + leads DB tables
+    const afterDb = withAttendeeNames.filter(c => c.attendee_provider_id && !c._enrichedName).length > 0
+      ? await enrichChats(withAttendeeNames)
+      : withAttendeeNames
+
+    // Layer 3: for any still-unenriched chats, fetch profile from Unipile API (cached 6h)
+    const enrichedItems = await enrichWithProfileApi(afterDb)
 
     res.json({ ...data, items: enrichedItems })
   } catch (err) {
@@ -416,13 +520,13 @@ const LINKEDIN_SENIORITY_CODES = {
 }
 
 // POST /api/unipile/linkedin/search
-// Body: { account_id, url?, keywords?, title?, location_text?, industry?, seniority?, company_sizes?, cursor? }
+// Body: { account_id, url?, keywords?, title?, location_text?, industry?, industry_id?, seniority?, company_sizes?, cursor? }
 router.post('/linkedin/search', async (req, res) => {
   const {
     account_id, url,
     keywords, title,
     location_text, location: locationAlt,
-    industry, seniority, company_sizes,
+    industry, industry_id, seniority, company_sizes,
     cursor,
   } = req.body
   if (!account_id) return res.status(400).json({ message: 'account_id required' })
@@ -450,8 +554,8 @@ router.post('/linkedin/search', async (req, res) => {
       }
     }
 
-    // Keywords: combine job title + industry as text (industry has no simple numeric mapping)
-    const keywordParts = [title || keywords, industry].filter(Boolean)
+    // Keywords: job title + any free-text keywords (industry now handled via facetIndustry)
+    const keywordParts = [title || keywords].filter(Boolean)
     const allKeywords = keywordParts.join(' ').trim()
 
     const urlParams = new URLSearchParams()
@@ -461,6 +565,15 @@ router.post('/linkedin/search', async (req, res) => {
     // geoUrn: JSON array of LinkedIn location IDs as strings
     if (locationIds.length) {
       urlParams.set('geoUrn', JSON.stringify(locationIds.map(String)))
+    }
+
+    // Industry — use numeric ID if available (more accurate), else fall back to text keyword
+    if (industry_id) {
+      urlParams.set('facetIndustry', JSON.stringify([String(industry_id)]))
+    } else if (industry) {
+      // Legacy text fallback: append to keywords
+      const withIndustry = [allKeywords, industry].filter(Boolean).join(' ')
+      if (withIndustry) urlParams.set('keywords', withIndustry)
     }
 
     // Company sizes

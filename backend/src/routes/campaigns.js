@@ -38,6 +38,69 @@ async function getWorkspaceProfile(workspaceId) {
   }
 }
 
+// Fetch a prospect's LinkedIn profile via Unipile and use Claude to generate a
+// concise "prospect brief" — stored in campaign_leads.profile_summary for reuse.
+export async function fetchAndSummarizeProfile(providerUserId, accountId, campaignId, workspaceId) {
+  try {
+    // Return cached summary if already fetched for this lead
+    if (supabase) {
+      const { data: existing } = await supabase
+        .from('campaign_leads')
+        .select('profile_summary')
+        .eq('provider_id', providerUserId)
+        .eq('campaign_id', campaignId)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle()
+      if (existing?.profile_summary) return existing.profile_summary
+    }
+
+    // Fetch full profile (visitProfile includes account_id for authenticated request)
+    const profileData = await linkedin.visitProfile(accountId, providerUserId)
+
+    // Extract key fields — handle both Unipile naming conventions
+    const headline = profileData?.headline || ''
+    const about = profileData?.summary || profileData?.description || ''
+    const experience = (profileData?.experience || profileData?.work_experience || [])
+      .slice(0, 3)
+      .map(e => [e.title || e.job_title, e.company_name || e.company].filter(Boolean).join(' at '))
+      .filter(Boolean)
+      .join('; ')
+
+    const rawText = [headline, about, experience].filter(Boolean).join('\n')
+    if (!rawText.trim()) return null
+
+    // Ask Claude to generate a concise prospect brief
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: `Summarize this LinkedIn profile in 3-4 sentences to help a salesperson personalise their outreach. Focus on the person's current role, what their company does, their background, and any context that could make outreach feel relevant.\n\n${rawText}\n\nReturn only the summary. No labels, no preamble.`,
+      }],
+    })
+
+    const summary = msg.content[0].text.trim()
+    if (!summary) return null
+
+    console.log(`[profile] Summarised profile for ${providerUserId}: "${summary.slice(0, 80)}…"`)
+
+    // Cache on the campaign lead so we don't re-fetch on every message
+    if (supabase) {
+      await supabase
+        .from('campaign_leads')
+        .update({ profile_summary: summary })
+        .eq('provider_id', providerUserId)
+        .eq('campaign_id', campaignId)
+        .catch(() => {}) // ignore if column not yet migrated
+    }
+
+    return summary
+  } catch (err) {
+    console.error('[profile] Failed to fetch/summarise:', err.message)
+    return null // graceful degradation — AI still works without profile context
+  }
+}
+
 // Interpolate message variables with lead + workspace profile data
 function interpolateVars(text, lead, profile = {}) {
   if (!text) return text
@@ -85,9 +148,10 @@ function leadDbToApi(row) {
     location:    row.location,
     linkedinUrl: row.linkedin_url,
     providerId:  row.provider_id,
-    status:      row.status,
-    source:      row.source,
-    addedAt:     row.added_at,
+    status:         row.status,
+    source:         row.source,
+    addedAt:        row.added_at,
+    profileSummary: row.profile_summary || null,
   }
 }
 
@@ -434,7 +498,7 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId,
       }
       case 'cond_1st_level': {
         try {
-          const data = await unipileRelations.list({ accountId, limit: 250 })
+          const data = await unipileRelations.list({ accountId, limit: 1000 })
           const relations = data?.items || data?.objects || data?.relations || []
           const isConnected = relations.some(r => r.provider_id === providerUserId || r.id === providerUserId)
           if (!isConnected) {
@@ -512,12 +576,21 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
       return
     }
 
+    // Clear persisted wait state now that we're resuming
+    if (startFromIndex > 0) {
+      await supabase.from('campaign_leads')
+        .update({ sequence_step: null, sequence_resume_at: null })
+        .eq('provider_id', providerUserId)
+        .eq('campaign_id', campaignId)
+        .catch(() => {})
+    }
+
     const { data: lead } = await supabase
       .from('campaign_leads')
       .select('*')
       .eq('campaign_id', campaignId)
       .eq('provider_id', providerUserId)
-      .single()
+      .maybeSingle()
     const effectiveWsId = workspaceId || campaign?.workspace_id
     const profile = await getWorkspaceProfile(effectiveWsId)
 
@@ -650,7 +723,16 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
           const unit = node.config?.unit || 'days'
           const msPerUnit = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
           const delayMs = n * msPerUnit
-          console.log(`[sequence] wait ${n} ${unit} — scheduling resume at node ${i + 1} for ${providerUserId}`)
+          const resumeAt = new Date(Date.now() + delayMs).toISOString()
+          console.log(`[sequence] wait ${n} ${unit} — scheduling resume at node ${i + 1} for ${providerUserId} (resume at ${resumeAt})`)
+          // Persist so the resume survives a server restart
+          if (supabase) {
+            await supabase.from('campaign_leads')
+              .update({ sequence_step: i + 1, sequence_resume_at: resumeAt })
+              .eq('provider_id', providerUserId)
+              .eq('campaign_id', campaignId)
+              .catch(() => {}) // ignore if columns not yet migrated
+          }
           setTimeout(
             () => executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, i + 1),
             delayMs
@@ -745,7 +827,7 @@ export async function syncCampaignStatuses(campaignId, workspaceId) {
 
   let allRelations = []
   try {
-    const data = await unipileRelations.list({ accountId, limit: 250 })
+    const data = await unipileRelations.list({ accountId, limit: 1000 })
     allRelations = data?.items || data?.objects || data?.relations || []
   } catch (err) {
     throw new Error(`Unipile relations fetch failed: ${err.message}`)
@@ -782,9 +864,15 @@ router.post('/:id/sync-statuses', async (req, res) => {
   }
 })
 
+// Tracks campaigns currently running invite loops — prevents concurrent duplicate sends.
+const _runningCampaigns = new Set()
+
 // ── Shared: run send-invites logic for a campaign ──────────────
 // Returns { queued, message } or throws. Used by both the route and the scheduler.
 export async function runCampaignInvites(campaignId, workspaceId) {
+  if (_runningCampaigns.has(campaignId)) {
+    return { queued: 0, message: 'Invite sending already in progress for this campaign' }
+  }
   const query = supabase.from('campaigns').select('*').eq('id', campaignId)
   if (workspaceId && workspaceId !== 'ws_default') query.eq('workspace_id', workspaceId)
   const { data: campaign } = await query.single()
@@ -806,16 +894,8 @@ export async function runCampaignInvites(campaignId, workspaceId) {
 
   const dailyLimit = campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? 20
 
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const { count: sentToday } = await supabase
-    .from('campaign_leads')
-    .select('id', { count: 'exact', head: true })
-    .eq('campaign_id', campaignId)
-    .eq('status', 'invited')
-    .gte('updated_at', todayStart.toISOString())
-
-  const remaining = dailyLimit - (sentToday || 0)
+  const sentToday = getDailyCount(campaignId, 'connectionRequests')
+  const remaining = dailyLimit - sentToday
   if (remaining <= 0) {
     return { queued: 0, message: `Daily limit of ${dailyLimit} already reached` }
   }
@@ -834,13 +914,16 @@ export async function runCampaignInvites(campaignId, workspaceId) {
   console.log(`[send-invites] campaign=${campaignId} accountId=${accountId} leads=${pendingLeads.length} dailyLimit=${dailyLimit} sentToday=${sentToday || 0}`)
 
   // Process leads in the background — do not await this loop
+  _runningCampaigns.add(campaignId)
   ;(async () => {
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+    try {
     for (let i = 0; i < pendingLeads.length; i++) {
       const lead = pendingLeads[i]
       try {
         await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
         await supabase.from('campaign_leads').update({ status: 'invited' }).eq('id', lead.id)
+        consumeDailyLimit(campaignId, 'connectionRequests', 0) // track without enforcing (limit enforced above)
         console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
       } catch (err) {
         const status = err.message?.startsWith('CONDITION_FAILED') ? 'skipped' : 'failed'
@@ -855,6 +938,9 @@ export async function runCampaignInvites(campaignId, workspaceId) {
       }
     }
     console.log(`[send-invites] done — processed ${pendingLeads.length} lead(s) for campaign ${campaignId}`)
+    } finally {
+      _runningCampaigns.delete(campaignId)
+    }
   })()
 
   return { queued: pendingLeads.length, message: `Sending ${pendingLeads.length} connection request(s) with 15–20 min delays` }

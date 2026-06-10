@@ -137,14 +137,30 @@ router.post('/:id/generate-persona', async (req, res) => {
     if (!agentRow) return res.status(404).json({ message: 'Agent not found' })
 
     const profile = await getWorkspaceProfile(wsId(req))
-    const { serviceOffer, targetingBrief, tone } = req.body
+    const { yourRole, serviceOffer, targetingBrief, tone, refinementNote } = req.body
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 3000,
-      messages: [{
-        role: 'user',
-        content: `You are an expert B2B sales coach. Create a LinkedIn AI Assistant persona for an outreach campaign.
+    const isRefinement = !!refinementNote?.trim() && agentRow.persona && Object.values(agentRow.persona).some(v => v?.trim?.())
+
+    const promptContent = isRefinement
+      ? `You are an expert B2B sales coach. Refine the following LinkedIn AI Assistant persona based on the feedback provided.
+
+Current Persona:
+${JSON.stringify(agentRow.persona, null, 2)}
+
+Refinement Feedback: ${refinementNote.trim()}
+
+Keep everything that was not criticised. Only change what the feedback asks for.
+
+Return ONLY valid JSON with this exact structure (no markdown, no explanation):
+{
+  "roleAndObjective": "...",
+  "toneAndStyle": "...",
+  "movingToCall": "...",
+  "objectionHandling": "...",
+  "exampleConversation": "...",
+  "finalRules": "..."
+}`
+      : `You are an expert B2B sales coach. Create a LinkedIn AI Assistant persona for an outreach campaign.
 
 Company Profile:
 - Company: ${profile.companyName}
@@ -154,6 +170,7 @@ Company Profile:
 - Preferred Tone: ${tone || profile.tone || 'professional'}
 - Calendar Link: ${profile.calendarLink || 'TBC'}
 
+Agent's Role: ${yourRole || 'Sales representative'}
 Service/Offer for this campaign: ${serviceOffer || 'General outreach'}
 Target Audience: ${targetingBrief || 'B2B professionals'}
 
@@ -166,6 +183,13 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
   "exampleConversation": "A realistic example LinkedIn message exchange (3–5 turns) showing the ideal tone, objection handling, and how the agent moves toward booking a call. Format as:\\nAgent: ...\\nProspect: ...\\nAgent: ...",
   "finalRules": "Word limits, dos and don'ts, must-follow rules for every single message..."
 }`
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [{
+        role: 'user',
+        content: promptContent,
       }]
     })
 

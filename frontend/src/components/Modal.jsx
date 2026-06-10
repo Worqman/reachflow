@@ -19,7 +19,7 @@ export default function Modal({ open, onClose, title, children, width = 480 }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="modal-box animate-fade-in"
+        className="modal-box"
         style={{ width: `min(100%, ${width}px)` }}
       >
         {title && (

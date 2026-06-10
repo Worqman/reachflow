@@ -5,6 +5,7 @@ import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
 import LinkedInProfileModal from "../components/LinkedInProfileModal";
 import Modal from "../components/Modal";
+import { Sk, SkeletonTableRows } from "../components/Skeleton";
 import {
   campaigns as campaignsApi,
   agents as agentsApi,
@@ -17,47 +18,591 @@ import "./CampaignDetail.css";
 // ── Step type definitions ─────────────────────────────────────
 const STEP_TYPES = [
   // Actions
-  { type: "visit_profile",     icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>, label: "Visit profile",                hasConfig: false },
-  { type: "like_post",         icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>, label: "Like last post",                hasConfig: false },
-  { type: "follow",            icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Follow Lead",                   hasConfig: false },
-  { type: "wait",              icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Wait x days",                   hasConfig: true  },
-  { type: "connection_request",icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>, label: "Send connection request",        hasConfig: true  },
-  { type: "message",           icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>, label: "Send message",                  hasConfig: true  },
-  { type: "voice_note",        icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>, label: "Send voice note",               hasConfig: true  },
-  { type: "comment_post",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Comment last post",              hasConfig: true  },
-  { type: "inmail",            icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>, label: "LinkedIn InMail",               hasConfig: true  },
-  { type: "add_tag",           icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>, label: "Add tag",                        hasConfig: true  },
-  { type: "reply_comment",     icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>, label: "Reply Comment",                 hasConfig: true  },
-  { type: "message_open",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>, label: "Send message to open profile", hasConfig: true  },
+  {
+    type: "visit_profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+    label: "Visit profile",
+    hasConfig: false,
+  },
+  {
+    type: "like_post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+    label: "Like last post",
+    hasConfig: false,
+  },
+  {
+    type: "follow",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <polyline points="16 11 18 13 22 9" />
+      </svg>
+    ),
+    label: "Follow Lead",
+    hasConfig: false,
+  },
+  {
+    type: "wait",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    ),
+    label: "Wait x days",
+    hasConfig: true,
+  },
+  {
+    type: "connection_request",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <line x1="19" y1="8" x2="19" y2="14" />
+        <line x1="16" y1="11" x2="22" y2="11" />
+      </svg>
+    ),
+    label: "Send connection request",
+    hasConfig: true,
+  },
+  {
+    type: "message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+    ),
+    label: "Send message",
+    hasConfig: true,
+  },
+  {
+    type: "voice_note",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" y1="19" x2="12" y2="22" />
+      </svg>
+    ),
+    label: "Send voice note",
+    hasConfig: true,
+  },
+  {
+    type: "comment_post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+    label: "Comment last post",
+    hasConfig: true,
+  },
+  {
+    type: "inmail",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </svg>
+    ),
+    label: "LinkedIn InMail",
+    hasConfig: true,
+  },
+  {
+    type: "add_tag",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+      </svg>
+    ),
+    label: "Add tag",
+    hasConfig: true,
+  },
+  {
+    type: "reply_comment",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="9 14 4 9 9 4" />
+        <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+      </svg>
+    ),
+    label: "Reply Comment",
+    hasConfig: true,
+  },
+  {
+    type: "message_open",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="22" y1="2" x2="11" y2="13" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      </svg>
+    ),
+    label: "Send message to open profile",
+    hasConfig: true,
+  },
   // Conditions
-  { type: "cond_has_linkedin",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>, label: "Has LinkedIn URL",        hasConfig: false, isCondition: true },
-  { type: "cond_1st_level",      icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Lead is 1st level",       hasConfig: false, isCondition: true },
-  { type: "cond_opened_message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>, label: "Opened LinkedIn Message", hasConfig: false, isCondition: true },
-  { type: "cond_check_column",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>, label: "Check data in column",   hasConfig: true,  isCondition: true },
-  { type: "cond_open_profile",   icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label: "Lead is Open Profile",    hasConfig: false, isCondition: true },
+  {
+    type: "cond_has_linkedin",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+    label: "Has LinkedIn URL",
+    hasConfig: false,
+    isCondition: true,
+  },
+  {
+    type: "cond_1st_level",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+    label: "Lead is 1st level",
+    hasConfig: false,
+    isCondition: true,
+  },
+  {
+    type: "cond_opened_message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="9 11 12 14 22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    ),
+    label: "Opened LinkedIn Message",
+    hasConfig: false,
+    isCondition: true,
+  },
+  {
+    type: "cond_check_column",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <line x1="3" y1="9" x2="21" y2="9" />
+        <line x1="3" y1="15" x2="21" y2="15" />
+        <line x1="9" y1="3" x2="9" y2="21" />
+      </svg>
+    ),
+    label: "Check data in column",
+    hasConfig: true,
+    isCondition: true,
+  },
+  {
+    type: "cond_open_profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
+    label: "Lead is Open Profile",
+    hasConfig: false,
+    isCondition: true,
+  },
 ];
 
 const ACTION_STEPS = [
-  { type: "connection_request", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>, label: "Send connection request" },
-  { type: "message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>, label: "Send message" },
-  { type: "voice_note", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>, label: "Send voice note" },
-  { type: "comment_post", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Comment last post" },
-  { type: "like_post", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>, label: "Like last post" },
-  { type: "visit_profile", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>, label: "Visit profile" },
-  { type: "inmail", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>, label: "LinkedIn InMail" },
-  { type: "add_tag", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>, label: "Add tag" },
-  { type: "reply_comment", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>, label: "Reply Comment" },
-  { type: "message_open", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>, label: "Send message to open profile" },
-  { type: "follow", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Follow Lead" },
-  { type: "wait", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Wait x days" },
+  {
+    type: "connection_request",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <line x1="19" y1="8" x2="19" y2="14" />
+        <line x1="16" y1="11" x2="22" y2="11" />
+      </svg>
+    ),
+    label: "Send connection request",
+  },
+  {
+    type: "message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+    ),
+    label: "Send message",
+  },
+  {
+    type: "voice_note",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" y1="19" x2="12" y2="22" />
+      </svg>
+    ),
+    label: "Send voice note",
+  },
+  {
+    type: "comment_post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+    label: "Comment last post",
+  },
+  {
+    type: "like_post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+    label: "Like last post",
+  },
+  {
+    type: "visit_profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+    label: "Visit profile",
+  },
+  {
+    type: "inmail",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </svg>
+    ),
+    label: "LinkedIn InMail",
+  },
+  {
+    type: "add_tag",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+      </svg>
+    ),
+    label: "Add tag",
+  },
+  {
+    type: "reply_comment",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="9 14 4 9 9 4" />
+        <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+      </svg>
+    ),
+    label: "Reply Comment",
+  },
+  {
+    type: "message_open",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="22" y1="2" x2="11" y2="13" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      </svg>
+    ),
+    label: "Send message to open profile",
+  },
+  {
+    type: "follow",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <polyline points="16 11 18 13 22 9" />
+      </svg>
+    ),
+    label: "Follow Lead",
+  },
+  {
+    type: "wait",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    ),
+    label: "Wait x days",
+  },
 ];
 
 const CONDITION_STEPS = [
-  { type: "cond_has_linkedin", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>, label: "Has LinkedIn URL" },
-  { type: "cond_1st_level", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Lead is 1st level" },
-  { type: "cond_opened_message", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>, label: "Opened LinkedIn Message" },
-  { type: "cond_check_column", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>, label: "Check data in column" },
-  { type: "cond_open_profile", icon: <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label: "Lead is Open Profile" },
+  {
+    type: "cond_has_linkedin",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+    label: "Has LinkedIn URL",
+  },
+  {
+    type: "cond_1st_level",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+    label: "Lead is 1st level",
+  },
+  {
+    type: "cond_opened_message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="9 11 12 14 22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    ),
+    label: "Opened LinkedIn Message",
+  },
+  {
+    type: "cond_check_column",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <line x1="3" y1="9" x2="21" y2="9" />
+        <line x1="3" y1="15" x2="21" y2="15" />
+        <line x1="9" y1="3" x2="9" y2="21" />
+      </svg>
+    ),
+    label: "Check data in column",
+  },
+  {
+    type: "cond_open_profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
+    label: "Lead is Open Profile",
+  },
 ];
 
 function stepMeta(type) {
@@ -73,7 +618,18 @@ function stepMeta(type) {
 function waitLabel(config) {
   const n = config?.days || 1;
   const unit = config?.unit || "days";
-  const unitLabel = unit === "minutes" ? (n !== 1 ? "mins" : "min") : unit === "hours" ? (n !== 1 ? "hours" : "hour") : (n !== 1 ? "days" : "day");
+  const unitLabel =
+    unit === "minutes"
+      ? n !== 1
+        ? "mins"
+        : "min"
+      : unit === "hours"
+        ? n !== 1
+          ? "hours"
+          : "hour"
+        : n !== 1
+          ? "days"
+          : "day";
   return `Wait ${n} ${unitLabel}`;
 }
 
@@ -87,7 +643,15 @@ function nodeConfigured(node) {
   if (!meta.hasConfig) return true;
   if (node.type === "wait") return (node.config?.days || 0) > 0;
   if (node.type === "connection_request") return true;
-  if (["message", "message_open", "voice_note", "comment_post", "reply_comment"].includes(node.type))
+  if (
+    [
+      "message",
+      "message_open",
+      "voice_note",
+      "comment_post",
+      "reply_comment",
+    ].includes(node.type)
+  )
     return !!node.config?.text?.trim();
   if (node.type === "inmail")
     return !!node.config?.subject?.trim() && !!node.config?.body?.trim();
@@ -99,49 +663,157 @@ function nodeConfigured(node) {
 const IMPORT_SOURCES = [
   {
     id: "finder",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+    ),
     label: "Lead Finder",
     desc: "Search Apollo's 300M+ contact database",
   },
   {
     id: "csv",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+      </svg>
+    ),
     label: "Import from CSV",
     desc: "Upload a CSV of LinkedIn profile URLs",
   },
   {
     id: "url",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
     label: "LinkedIn Search URL",
     desc: "Paste a LinkedIn search results URL",
   },
   {
     id: "profile",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
     label: "LinkedIn Profile URL",
     desc: "Paste a single LinkedIn profile URL to import one person",
   },
   {
     id: "event",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
     label: "LinkedIn Event",
     desc: "Import attendees from a LinkedIn event",
   },
   {
     id: "post",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </svg>
+    ),
     label: "LinkedIn Post",
     desc: "Import people who liked or commented",
   },
   {
     id: "group",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
     label: "LinkedIn Group",
     desc: "Import members from a LinkedIn group",
   },
   {
     id: "list",
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="8" y1="6" x2="21" y2="6" />
+        <line x1="8" y1="12" x2="21" y2="12" />
+        <line x1="8" y1="18" x2="21" y2="18" />
+        <line x1="3" y1="6" x2="3.01" y2="6" />
+        <line x1="3" y1="12" x2="3.01" y2="12" />
+        <line x1="3" y1="18" x2="3.01" y2="18" />
+      </svg>
+    ),
     label: "Add from my list",
     desc: "Choose from your saved lead lists",
   },
@@ -218,7 +890,10 @@ export default function CampaignDetail() {
       const result = await campaignsApi.sendInvites(id);
       const count = result.queued ?? result.sent ?? 0;
       if (count === 0) {
-        toast?.(result.message || "No pending leads to send invites to", "danger");
+        toast?.(
+          result.message || "No pending leads to send invites to",
+          "danger",
+        );
       } else {
         toast?.(
           `Queued ${count} connection request${count !== 1 ? "s" : ""} — sending with delays`,
@@ -360,8 +1035,17 @@ export default function CampaignDetail() {
   if (loading) {
     return (
       <div className="campaign-detail animate-fade-in">
-        <div style={{ padding: 32, color: "var(--text-muted)", fontSize: 13 }}>
-          Loading campaign…
+        <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Sk w="40%" h={28} r={6} />
+          <Sk w="25%" h={14} r={4} />
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Sk key={i} w={80} h={32} r={6} />
+            ))}
+          </div>
+          <div className="table-wrap" style={{ marginTop: 8 }}>
+            <table><tbody><SkeletonTableRows rows={6} cols={6} /></tbody></table>
+          </div>
         </div>
       </div>
     );
@@ -467,7 +1151,10 @@ export default function CampaignDetail() {
       />
 
       {/* Tab content */}
-      <div className={`detail-content${tab !== "builder" ? " detail-content-padded" : ""}`}>
+      <div
+        key={tab}
+        className={`detail-content animate-tab-in${tab !== "builder" ? " detail-content-padded" : ""}`}
+      >
         {tab === "leads" && (
           <LeadsTab
             campaignId={id}
@@ -593,15 +1280,16 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
         </div>
         <div className="modal-body" style={{ flex: 1, overflowY: "auto" }}>
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                color: "var(--text-muted)",
-                fontSize: 13,
-                padding: "24px 0",
-              }}
-            >
-              Loading saved leads…
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 1 - i * 0.15 }}>
+                  <Sk w={32} h={32} r={999} />
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <Sk w="50%" h={13} />
+                    <Sk w="70%" h={11} />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : list.length === 0 ? (
             <div
@@ -1078,6 +1766,19 @@ function LeadsTab({
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [myLeadsOpen, setMyLeadsOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const [leadsSearch, setLeadsSearch] = useState("");
+
+  const visibleLeads = leadsSearch
+    ? leads.filter((l) => {
+        const q = leadsSearch.toLowerCase();
+        return (
+          (l.name || "").toLowerCase().includes(q) ||
+          (l.title || l.jobTitle || "").toLowerCase().includes(q) ||
+          (l.company || "").toLowerCase().includes(q)
+        );
+      })
+    : leads;
+
   return (
     <div>
       <div
@@ -1088,9 +1789,22 @@ function LeadsTab({
           marginBottom: 16,
         }}
       >
-        <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          {leads.length} leads in campaign
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 13, flexShrink: 0 }}>
+            {leadsSearch
+              ? `${visibleLeads.length} of ${leads.length} leads`
+              : `${leads.length} leads in campaign`}
+          </span>
+          {leads.length > 0 && (
+            <input
+              className="input"
+              style={{ fontSize: 12, padding: "5px 10px", height: "auto", width: 200 }}
+              placeholder="Search leads…"
+              value={leadsSearch}
+              onChange={(e) => setLeadsSearch(e.target.value)}
+            />
+          )}
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           {invitedCount > 0 && (
             <button
@@ -1111,9 +1825,9 @@ function LeadsTab({
               {sendingInvites ? "Sending…" : `▶ Send Invites (${pendingCount})`}
             </button>
           )}
-          <button className="btn btn-secondary btn-sm" onClick={onImport}>
+          {/* <button className="btn btn-secondary btn-sm" onClick={onImport}>
             + Import Contacts
-          </button>
+          </button> */}
         </div>
       </div>
 
@@ -1130,7 +1844,11 @@ function LeadsTab({
           <div style={{ fontSize: 13, marginBottom: 20 }}>
             Import contacts to start your outreach.
           </div>
-          <button className="btn btn-primary" style={{ fontSize: 15, padding: "10px 24px" }} onClick={onImport}>
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: 15, padding: "10px 24px" }}
+            onClick={onImport}
+          >
             + Import Contacts
           </button>
         </div>
@@ -1148,10 +1866,25 @@ function LeadsTab({
               </tr>
             </thead>
             <tbody>
-              {leads.map((l) => (
+              {visibleLeads.map((l) => (
                 <tr key={l.id || l.name}>
                   <td style={{ fontWeight: 600 }}>
-                    {l.name || l.firstName + " " + l.lastName || "—"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {l.name || l.firstName + " " + l.lastName || "—"}
+                      {l.profileSummary && (
+                        <span
+                          title={l.profileSummary}
+                          style={{
+                            fontSize: 10,
+                            color: "var(--signal)",
+                            cursor: "help",
+                            flexShrink: 0,
+                          }}
+                        >
+                          ◆
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ color: "var(--text-secondary)" }}>
                     {l.title || l.jobTitle || "—"}
@@ -1339,8 +2072,44 @@ function BuilderTab({
   const [addingAt, setAddingAt] = useState(null); // index to insert after (-1 = beginning)
   const [pickerTab, setPickerTab] = useState("action");
   const [saving, setSaving] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const isDraggingRef = React.useRef(false);
 
   const selectedNode = nodes.find((n) => n._id === selectedId) || null;
+
+  function handleDragStart(e, index) {
+    isDraggingRef.current = true;
+    e.dataTransfer.effectAllowed = 'move';
+    // Delay so browser screenshots node before opacity change
+    setTimeout(() => setDragIndex(index), 0);
+  }
+
+  function handleDragOver(e, index) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) setDragOverIndex(index);
+  }
+
+  function handleDrop(e, index) {
+    e.preventDefault();
+    const from = dragIndex;
+    setDragIndex(null);
+    setDragOverIndex(null);
+    if (from === null || from === index) return;
+    setNodes(prev => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(index > from ? index - 1 : index, 0, item);
+      return next;
+    });
+  }
+
+  function handleDragEnd() {
+    setDragIndex(null);
+    setDragOverIndex(null);
+    setTimeout(() => { isDraggingRef.current = false; }, 0);
+  }
 
   async function saveSequence(updatedNodes) {
     setSaving(true);
@@ -1361,6 +2130,7 @@ function BuilderTab({
       _id: `n_${Date.now()}`,
       type,
       config: type === "wait" ? { days: 1, unit: "days" } : {},
+      _new: true,
     };
     setNodes((prev) => {
       const next = [...prev];
@@ -1384,17 +2154,6 @@ function BuilderTab({
     if (selectedId === id) setSelectedId(null);
   }
 
-  function moveNode(id, dir) {
-    setNodes((prev) => {
-      const idx = prev.findIndex((n) => n._id === id);
-      const next = [...prev];
-      const target = idx + dir;
-      if (target < 0 || target >= next.length) return prev;
-      [next[idx], next[target]] = [next[target], next[idx]];
-      return next;
-    });
-  }
-
   return (
     <div className="builder-wrap">
       {/* Canvas */}
@@ -1402,14 +2161,23 @@ function BuilderTab({
         {/* Start node */}
         <div
           className={`builder-entry-node ${campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
-          onClick={(e) => { e.stopPropagation(); onToggleStatus?.(); }}
-          title={campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleStatus?.();
+          }}
+          title={
+            campaignStatus === "active" ? "Pause campaign" : "Start campaign"
+          }
           style={{ cursor: "pointer" }}
         >
           {campaignStatus === "active" ? (
-            <><span>⏸</span> Running</>
+            <>
+              <span>⏸</span> Running
+            </>
           ) : (
-            <><span>▶</span> Start</>
+            <>
+              <span>▶</span> Start
+            </>
           )}
         </div>
 
@@ -1432,48 +2200,68 @@ function BuilderTab({
         {nodes.map((node, i) => {
           const meta = stepMeta(node.type);
           const ok = nodeConfigured(node);
-          const sub = node.type === "wait"
-            ? waitLabel(node.config)
-            : node.config?.text
-              ? node.config.text.slice(0, 42) + (node.config.text.length > 42 ? "…" : "")
-              : node.config?.note
-                ? node.config.note.slice(0, 42) + (node.config.note.length > 42 ? "…" : "")
-                : null;
+          const sub =
+            node.type === "wait"
+              ? waitLabel(node.config)
+              : node.config?.text
+                ? node.config.text.slice(0, 42) +
+                  (node.config.text.length > 42 ? "…" : "")
+                : node.config?.note
+                  ? node.config.note.slice(0, 42) +
+                    (node.config.note.length > 42 ? "…" : "")
+                  : null;
           return (
-            <div key={node._id}>
+            <div
+              key={node._id}
+              className={dragOverIndex === i && dragIndex !== i ? 'builder-drop-target' : ''}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={(e) => handleDrop(e, i)}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setDragOverIndex(null);
+              }}
+            >
               <div
-                className={`builder-node${meta.isCondition ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node._id ? " selected" : ""}`}
-                onClick={(e) => { e.stopPropagation(); setSelectedId(node._id); }}
+                draggable
+                className={`builder-node${node._new ? " builder-node--new" : ""}${meta.isCondition ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node._id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
+                style={{ animationDelay: node._new ? '0ms' : `${i * 45}ms` }}
+                onDragStart={(e) => handleDragStart(e, i)}
+                onDragEnd={handleDragEnd}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isDraggingRef.current) setSelectedId(node._id);
+                }}
               >
                 <div className="node-icon">{meta.icon}</div>
                 <div className="node-content">
                   <div className="node-label">{meta.label}</div>
-                  {!ok
-                    ? <div className="node-error">Configure required</div>
-                    : sub && <div className="node-sub">{sub}</div>
-                  }
+                  {!ok ? (
+                    <div className="node-error">Configure required</div>
+                  ) : (
+                    sub && <div className="node-sub">{sub}</div>
+                  )}
                 </div>
-                <div className="node-actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="btn btn-icon btn-ghost"
-                    style={{ fontSize: 10, opacity: i === 0 ? 0.3 : 1 }}
-                    disabled={i === 0}
-                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, -1); }}
-                    title="Move up"
-                  >▲</button>
-                  <button
-                    className="btn btn-icon btn-ghost"
-                    style={{ fontSize: 10, opacity: i === nodes.length - 1 ? 0.3 : 1 }}
-                    disabled={i === nodes.length - 1}
-                    onClick={(e) => { e.stopPropagation(); moveNode(node._id, 1); }}
-                    title="Move down"
-                  >▼</button>
+                <div
+                  className="node-actions"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span
+                    style={{ fontSize: 13, color: 'var(--text-disabled)', cursor: 'grab', padding: '0 4px', lineHeight: 1 }}
+                    title="Drag to reorder"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    ⠿
+                  </span>
                   <button
                     className="btn btn-icon btn-ghost"
                     style={{ fontSize: 11, color: "var(--danger)" }}
-                    onClick={(e) => { e.stopPropagation(); deleteNode(node._id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteNode(node._id);
+                    }}
                     title="Remove"
-                  >✕</button>
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
 
@@ -1500,7 +2288,10 @@ function BuilderTab({
         <button
           className="btn btn-primary btn-sm"
           style={{ marginTop: 20, fontSize: 12 }}
-          onClick={(e) => { e.stopPropagation(); saveSequence(nodes); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            saveSequence(nodes);
+          }}
           disabled={saving}
         >
           {saving ? "Saving…" : "Save Sequence"}
@@ -1515,12 +2306,23 @@ function BuilderTab({
         >
           <div className="node-config-header">
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {["message", "message_open", "inmail"].includes(selectedNode.type) ? (
+              {["message", "message_open", "inmail"].includes(
+                selectedNode.type,
+              ) ? (
                 <div className="msg-step-icon">
                   <span style={{ fontSize: 11 }}>in</span>
                 </div>
               ) : (
-                <span style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+                <span
+                  style={{
+                    width: 18,
+                    height: 18,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--text-muted)",
+                  }}
+                >
                   {stepMeta(selectedNode.type).icon}
                 </span>
               )}
@@ -1529,10 +2331,17 @@ function BuilderTab({
               </h3>
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {["message", "message_open", "inmail"].includes(selectedNode.type) && (
+              {["message", "message_open", "inmail"].includes(
+                selectedNode.type,
+              ) && (
                 <button
                   className="btn btn-sm btn-ghost"
-                  style={{ fontSize: 12, color: "var(--signal)", border: "1px solid var(--signal)", padding: "3px 10px" }}
+                  style={{
+                    fontSize: 12,
+                    color: "var(--signal)",
+                    border: "1px solid var(--signal)",
+                    padding: "3px 10px",
+                  }}
                   onClick={() => {
                     deleteNode(selectedNode._id);
                     setAddingAt(nodes.indexOf(selectedNode) - 1);
@@ -1621,7 +2430,9 @@ function BuilderTab({
                 <div className="input-group">
                   <label className="input-label">
                     Connection Note{" "}
-                    <span style={{ color: "var(--text-muted)" }}>(optional)</span>
+                    <span style={{ color: "var(--text-muted)" }}>
+                      (optional)
+                    </span>
                   </label>
                   <ConnectionNoteEditor
                     node={selectedNode}
@@ -1642,7 +2453,9 @@ function BuilderTab({
             )}
 
             {/* voice_note / comment_post / reply_comment — simple text */}
-            {["voice_note", "comment_post", "reply_comment"].includes(selectedNode.type) && (
+            {["voice_note", "comment_post", "reply_comment"].includes(
+              selectedNode.type,
+            ) && (
               <div className="input-group">
                 <label className="input-label">
                   {selectedNode.type === "voice_note" && "Voice Note Script"}
@@ -1656,14 +2469,23 @@ function BuilderTab({
                     selectedNode.type === "voice_note"
                       ? "Hi {firstName}, I wanted to reach out because…"
                       : selectedNode.type === "comment_post"
-                      ? "Great post! {firstName}, I completely agree with…"
-                      : "Thanks for your comment, {firstName}!"
+                        ? "Great post! {firstName}, I completely agree with…"
+                        : "Thanks for your comment, {firstName}!"
                   }
                   value={selectedNode.config?.text || ""}
-                  onChange={(e) => updateNode(selectedNode._id, { text: e.target.value })}
+                  onChange={(e) =>
+                    updateNode(selectedNode._id, { text: e.target.value })
+                  }
                 />
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  Variables: {"{firstName}"} {"{lastName}"} {"{company}"} {"{jobTitle}"}
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  Variables: {"{firstName}"} {"{lastName}"} {"{company}"}{" "}
+                  {"{jobTitle}"}
                 </div>
               </div>
             )}
@@ -1688,7 +2510,9 @@ function BuilderTab({
                     type="text"
                     placeholder="Quick question, {firstName}"
                     value={selectedNode.config?.subject || ""}
-                    onChange={(e) => updateNode(selectedNode._id, { subject: e.target.value })}
+                    onChange={(e) =>
+                      updateNode(selectedNode._id, { subject: e.target.value })
+                    }
                   />
                 </div>
                 <div className="input-group">
@@ -1698,10 +2522,19 @@ function BuilderTab({
                     rows={6}
                     placeholder="Hi {firstName}, I noticed you work at {company}…"
                     value={selectedNode.config?.body || ""}
-                    onChange={(e) => updateNode(selectedNode._id, { body: e.target.value })}
+                    onChange={(e) =>
+                      updateNode(selectedNode._id, { body: e.target.value })
+                    }
                   />
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                    Variables: {"{firstName}"} {"{lastName}"} {"{company}"} {"{jobTitle}"} {"{location}"}
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      marginTop: 4,
+                    }}
+                  >
+                    Variables: {"{firstName}"} {"{lastName}"} {"{company}"}{" "}
+                    {"{jobTitle}"} {"{location}"}
                   </div>
                 </div>
               </>
@@ -1716,9 +2549,17 @@ function BuilderTab({
                   type="text"
                   placeholder="e.g. hot-lead, follow-up, interested"
                   value={selectedNode.config?.tag || ""}
-                  onChange={(e) => updateNode(selectedNode._id, { tag: e.target.value })}
+                  onChange={(e) =>
+                    updateNode(selectedNode._id, { tag: e.target.value })
+                  }
                 />
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
                   This tag will be saved to the lead's profile in the campaign.
                 </div>
               </div>
@@ -1762,7 +2603,8 @@ function BuilderTab({
                     marginBottom: 4,
                   }}
                 >
-                  Checks a field on the lead record. Leads that don't match the expected value are skipped.
+                  Checks a field on the lead record. Leads that don't match the
+                  expected value are skipped.
                 </div>
                 <div className="input-group">
                   <label className="input-label">Field Name</label>
@@ -1771,34 +2613,41 @@ function BuilderTab({
                     type="text"
                     placeholder="e.g. company, jobTitle, location"
                     value={selectedNode.config?.field || ""}
-                    onChange={(e) => updateNode(selectedNode._id, { field: e.target.value })}
+                    onChange={(e) =>
+                      updateNode(selectedNode._id, { field: e.target.value })
+                    }
                   />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Expected Value (contains)</label>
+                  <label className="input-label">
+                    Expected Value (contains)
+                  </label>
                   <input
                     className="input"
                     type="text"
                     placeholder="e.g. CEO, New York, SaaS"
                     value={selectedNode.config?.value || ""}
-                    onChange={(e) => updateNode(selectedNode._id, { value: e.target.value })}
+                    onChange={(e) =>
+                      updateNode(selectedNode._id, { value: e.target.value })
+                    }
                   />
                 </div>
               </>
             )}
 
-            {!stepMeta(selectedNode.type).hasConfig && !(selectedNode.type?.startsWith("cond_")) && (
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  textAlign: "center",
-                  padding: "16px 0",
-                }}
-              >
-                This step has no configuration.
-              </div>
-            )}
+            {!stepMeta(selectedNode.type).hasConfig &&
+              !selectedNode.type?.startsWith("cond_") && (
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    textAlign: "center",
+                    padding: "16px 0",
+                  }}
+                >
+                  This step has no configuration.
+                </div>
+              )}
 
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <button
@@ -2151,15 +3000,13 @@ function AnalyticsTab({ campaignId }) {
         </div>
 
         {loading ? (
-          <div
-            style={{
-              padding: "40px 0",
-              textAlign: "center",
-              color: "var(--text-muted)",
-              fontSize: 13,
-            }}
-          >
-            Loading…
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 0' }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: 1 - i * 0.15 }}>
+                <Sk w="18%" h={14} r={4} />
+                <Sk w={`${55 - i * 6}%`} h={22} r={4} />
+              </div>
+            ))}
           </div>
         ) : values.every((v) => v === 0) ? (
           <div
@@ -2298,61 +3145,180 @@ function AnalyticsTab({ campaignId }) {
 
 // ── Settings Tab ──────────────────────────────────────────────
 const DEFAULT_SCHEDULE = [
-  { day: "Monday",    enabled: true,  start: "08:00", end: "18:00" },
-  { day: "Tuesday",   enabled: true,  start: "08:00", end: "18:00" },
-  { day: "Wednesday", enabled: true,  start: "08:00", end: "18:00" },
-  { day: "Thursday",  enabled: true,  start: "08:00", end: "18:00" },
-  { day: "Friday",    enabled: true,  start: "08:00", end: "18:00" },
-  { day: "Saturday",  enabled: false, start: "00:00", end: "00:00" },
-  { day: "Sunday",    enabled: false, start: "00:00", end: "00:00" },
+  { day: "Monday", enabled: true, start: "08:00", end: "18:00" },
+  { day: "Tuesday", enabled: true, start: "08:00", end: "18:00" },
+  { day: "Wednesday", enabled: true, start: "08:00", end: "18:00" },
+  { day: "Thursday", enabled: true, start: "08:00", end: "18:00" },
+  { day: "Friday", enabled: true, start: "08:00", end: "18:00" },
+  { day: "Saturday", enabled: false, start: "00:00", end: "00:00" },
+  { day: "Sunday", enabled: false, start: "00:00", end: "00:00" },
 ];
 
 const DEFAULT_FREQUENCY = {
-  messages:           20,
-  inmails:            5,
+  messages: 20,
+  inmails: 5,
   connectionRequests: 18,
-  aiComments:         30,
-  likesToPosts:       30,
-  profileVisits:      30,
-  followLead:         30,
+  aiComments: 30,
+  likesToPosts: 30,
+  profileVisits: 30,
+  followLead: 30,
 };
 
 const FREQUENCY_ITEMS = [
-  { key: "messages",           label: "Messages",            icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-  { key: "inmails",            label: "InMails",             icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg> },
-  { key: "connectionRequests", label: "Connection Requests", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg> },
-  { key: "aiComments",         label: "AI Comments",         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
-  { key: "likesToPosts",       label: "Likes to posts",      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> },
-  { key: "profileVisits",      label: "Profile visits",      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> },
-  { key: "followLead",         label: "Follow Lead",         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg> },
+  {
+    key: "messages",
+    label: "Messages",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
+  {
+    key: "inmails",
+    label: "InMails",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+    ),
+  },
+  {
+    key: "connectionRequests",
+    label: "Connection Requests",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <line x1="19" y1="8" x2="19" y2="14" />
+        <line x1="16" y1="11" x2="22" y2="11" />
+      </svg>
+    ),
+  },
+  {
+    key: "aiComments",
+    label: "AI Comments",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    ),
+  },
+  {
+    key: "likesToPosts",
+    label: "Likes to posts",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+  },
+  {
+    key: "profileVisits",
+    label: "Profile visits",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+  {
+    key: "followLead",
+    label: "Follow Lead",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <polyline points="16 11 18 13 22 9" />
+      </svg>
+    ),
+  },
 ];
 
 function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
   const [form, setForm] = useState({
-    linkedinAccountId:   campaign.settings?.linkedinAccountId || "",
+    linkedinAccountId: campaign.settings?.linkedinAccountId || "",
     linkedinAccountName: campaign.settings?.linkedinAccountName || "",
-    agentId:             campaign.settings?.agentId || "",
-    timezone:            campaign.settings?.timezone || "Europe/London",
+    agentId: campaign.settings?.agentId || "",
+    timezone: campaign.settings?.timezone || "Europe/London",
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [schedule, setSchedule] = useState(
-    campaign.settings?.schedule || DEFAULT_SCHEDULE
+    campaign.settings?.schedule || DEFAULT_SCHEDULE,
   );
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   const [frequency, setFrequency] = useState(
     campaign.settings?.frequency || {
       ...DEFAULT_FREQUENCY,
-      connectionRequests: campaign.settings?.dailyConnectionLimit ?? DEFAULT_FREQUENCY.connectionRequests,
-      messages:           campaign.settings?.dailyMessageLimit    ?? DEFAULT_FREQUENCY.messages,
-    }
+      connectionRequests:
+        campaign.settings?.dailyConnectionLimit ??
+        DEFAULT_FREQUENCY.connectionRequests,
+      messages:
+        campaign.settings?.dailyMessageLimit ?? DEFAULT_FREQUENCY.messages,
+    },
   );
   const [savingFrequency, setSavingFrequency] = useState(false);
 
   function updateScheduleDay(idx, patch) {
-    setSchedule((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
+    setSchedule((prev) =>
+      prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)),
+    );
   }
 
   function resetSchedule() {
@@ -2390,7 +3356,7 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           ...form,
           frequency,
           dailyConnectionLimit: frequency.connectionRequests,
-          dailyMessageLimit:    frequency.messages,
+          dailyMessageLimit: frequency.messages,
         },
       });
       onSaved(updated);
@@ -2419,7 +3385,12 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
 
   async function handleDelete() {
     // eslint-disable-next-line no-alert
-    if (!window.confirm(`Delete campaign "${campaign.name}"? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete campaign "${campaign.name}"? This cannot be undone.`,
+      )
+    )
+      return;
     setDeleting(true);
     try {
       await campaignsApi.delete(campaign.id);
@@ -2431,8 +3402,14 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 640 }}>
-
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+        maxWidth: 640,
+      }}
+    >
       {/* ── General ── */}
       <div className="card">
         <h3 style={{ fontWeight: 700, marginBottom: 16 }}>Campaign Settings</h3>
@@ -2444,12 +3421,18 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
             value={form.linkedinAccountId}
             onChange={(e) => {
               const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-              setForm((f) => ({ ...f, linkedinAccountId: e.target.value, linkedinAccountName: acc?.name || "" }));
+              setForm((f) => ({
+                ...f,
+                linkedinAccountId: e.target.value,
+                linkedinAccountName: acc?.name || "",
+              }));
             }}
           >
             <option value="">Select account…</option>
             {linkedinAccounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+              <option key={a.id} value={a.id}>
+                {a.name || a.id}
+              </option>
             ))}
             {linkedinAccounts.length === 0 && (
               <option disabled>No accounts connected — add in Settings</option>
@@ -2462,14 +3445,20 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           <select
             className="input"
             value={form.agentId}
-            onChange={(e) => setForm((f) => ({ ...f, agentId: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, agentId: e.target.value }))
+            }
           >
             <option value="">No agent</option>
             {agents.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
             ))}
           </select>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          <div
+            style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}
+          >
             Configure persona details in the Persona tab.
           </div>
         </div>
@@ -2479,17 +3468,27 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           <select
             className="input"
             value={form.timezone}
-            onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, timezone: e.target.value }))
+            }
           >
             <option value="Europe/London">Europe/London (UTC+0/+1)</option>
             <option value="Europe/Paris">Europe/Paris (UTC+1/+2)</option>
-            <option value="America/New_York">America/New_York (UTC-5/-4)</option>
-            <option value="America/Los_Angeles">America/Los_Angeles (UTC-8/-7)</option>
+            <option value="America/New_York">
+              America/New_York (UTC-5/-4)
+            </option>
+            <option value="America/Los_Angeles">
+              America/Los_Angeles (UTC-8/-7)
+            </option>
             <option value="Asia/Dubai">Asia/Dubai (UTC+4)</option>
           </select>
         </div>
 
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+        <button
+          className="btn btn-primary"
+          onClick={handleSave}
+          disabled={saving}
+        >
           {saving ? "Saving…" : "Save Settings"}
         </button>
       </div>
@@ -2497,7 +3496,9 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
       {/* ── Schedule ── */}
       <div className="card">
         <h3 style={{ fontWeight: 700, marginBottom: 4 }}>Schedule</h3>
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>
+        <p
+          style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}
+        >
           Set which days and hours your campaign is active.
         </p>
 
@@ -2514,7 +3515,9 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
               }}
             >
               {/* Day label */}
-              <span style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}>
+              <span
+                style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}
+              >
                 {row.day}
               </span>
 
@@ -2523,13 +3526,17 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
                 <input
                   type="checkbox"
                   checked={row.enabled}
-                  onChange={(e) => updateScheduleDay(idx, { enabled: e.target.checked })}
+                  onChange={(e) =>
+                    updateScheduleDay(idx, { enabled: e.target.checked })
+                  }
                 />
                 <span className="toggle-track" />
               </label>
 
               {/* Divider */}
-              <span style={{ borderTop: "1px solid var(--border)", width: "100%" }} />
+              <span
+                style={{ borderTop: "1px solid var(--border)", width: "100%" }}
+              />
 
               {/* Time range */}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -2538,16 +3545,22 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
                   type="time"
                   value={row.start}
                   disabled={!row.enabled}
-                  onChange={(e) => updateScheduleDay(idx, { start: e.target.value })}
+                  onChange={(e) =>
+                    updateScheduleDay(idx, { start: e.target.value })
+                  }
                   onClick={(e) => e.currentTarget.showPicker?.()}
                 />
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>to</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  to
+                </span>
                 <input
                   className="input time-picker"
                   type="time"
                   value={row.end}
                   disabled={!row.enabled}
-                  onChange={(e) => updateScheduleDay(idx, { end: e.target.value })}
+                  onChange={(e) =>
+                    updateScheduleDay(idx, { end: e.target.value })
+                  }
                   onClick={(e) => e.currentTarget.showPicker?.()}
                 />
               </div>
@@ -2555,11 +3568,22 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           ))}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            marginTop: 20,
+          }}
+        >
           <button className="btn btn-secondary" onClick={resetSchedule}>
             Reset Schedule
           </button>
-          <button className="btn btn-primary" onClick={handleSaveSchedule} disabled={savingSchedule}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveSchedule}
+            disabled={savingSchedule}
+          >
             {savingSchedule ? "Saving…" : "Save schedule"}
           </button>
         </div>
@@ -2571,13 +3595,27 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           {/* Left description */}
           <div style={{ flex: "0 0 200px" }}>
             <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Frequency</h3>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Set how many times you want your campaign to run per day. We recommend leaving these as default to avoid LinkedIn restrictions.
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                lineHeight: 1.5,
+              }}
+            >
+              Set how many times you want your campaign to run per day. We
+              recommend leaving these as default to avoid LinkedIn restrictions.
             </p>
           </div>
 
           {/* Right counters */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
             {FREQUENCY_ITEMS.map(({ key, label, icon }) => (
               <div
                 key={key}
@@ -2592,24 +3630,57 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
                   background: "var(--surface-2, #1a1f2e)",
                 }}
               >
-                <span style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", flexShrink: 0 }}>
-                  {React.cloneElement(icon, { style: { width: 20, height: 20 } })}
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--text-muted)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {React.cloneElement(icon, {
+                    style: { width: 20, height: 20 },
+                  })}
                 </span>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{label}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>
+                  {label}
+                </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <button
                     className="btn btn-ghost btn-sm"
-                    style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      padding: 0,
+                      fontWeight: 700,
+                      fontSize: 16,
+                    }}
                     onClick={() => adjustFreq(key, -1)}
                   >
                     −
                   </button>
-                  <span style={{ width: 32, textAlign: "center", fontWeight: 600, fontSize: 14 }}>
+                  <span
+                    style={{
+                      width: 32,
+                      textAlign: "center",
+                      fontWeight: 600,
+                      fontSize: 14,
+                    }}
+                  >
                     {frequency[key] ?? DEFAULT_FREQUENCY[key]}
                   </span>
                   <button
                     className="btn btn-ghost btn-sm"
-                    style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      padding: 0,
+                      fontWeight: 700,
+                      fontSize: 16,
+                    }}
                     onClick={() => adjustFreq(key, 1)}
                   >
                     +
@@ -2620,8 +3691,14 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           </div>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-          <button className="btn btn-primary" onClick={handleSaveFrequency} disabled={savingFrequency}>
+        <div
+          style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}
+        >
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveFrequency}
+            disabled={savingFrequency}
+          >
             {savingFrequency ? "Saving…" : "Save Frequency"}
           </button>
         </div>
@@ -2629,10 +3706,16 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
 
       {/* ── Danger Zone ── */}
       <div className="card">
-        <h3 style={{ fontWeight: 700, marginBottom: 12, color: "var(--danger)" }}>
+        <h3
+          style={{ fontWeight: 700, marginBottom: 12, color: "var(--danger)" }}
+        >
           Danger Zone
         </h3>
-        <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+        <button
+          className="btn btn-danger"
+          onClick={handleDelete}
+          disabled={deleting}
+        >
           {deleting ? "Deleting…" : "Delete Campaign"}
         </button>
       </div>
@@ -2644,11 +3727,11 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
 const NOTE_CHAR_LIMIT = 300;
 
 function ConnectionNoteEditor({ node, updateNode, toast }) {
-  const [showVarMenu,   setShowVarMenu]   = useState(false);
-  const [showAiPrompt,  setShowAiPrompt]  = useState(false);
-  const [aiPrompt,      setAiPrompt]      = useState("");
-  const [generatingAI,  setGeneratingAI]  = useState(false);
-  const [showPreview,   setShowPreview]   = useState(false);
+  const [showVarMenu, setShowVarMenu] = useState(false);
+  const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [generatingAI, setGeneratingAI] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const textareaRef = useRef(null);
 
   const noteText = node.config?.note || "";
@@ -2656,21 +3739,30 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
 
   function insertVar(v) {
     const ta = textareaRef.current;
-    if (!ta) { updateNode(node._id, { note: noteText + v }); setShowVarMenu(false); return; }
+    if (!ta) {
+      updateNode(node._id, { note: noteText + v });
+      setShowVarMenu(false);
+      return;
+    }
     const start = ta.selectionStart;
-    const end   = ta.selectionEnd;
-    const next  = noteText.slice(0, start) + v + noteText.slice(end);
+    const end = ta.selectionEnd;
+    const next = noteText.slice(0, start) + v + noteText.slice(end);
     if (next.length > NOTE_CHAR_LIMIT) return;
     updateNode(node._id, { note: next });
     setShowVarMenu(false);
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + v.length, start + v.length); }, 0);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + v.length, start + v.length);
+    }, 0);
   }
 
   async function handleGenerateAI() {
     if (!aiPrompt.trim()) return;
     setGeneratingAI(true);
     try {
-      const result = await campaignsApi.generateMessage({ prompt: aiPrompt + " Keep it under 300 characters." });
+      const result = await campaignsApi.generateMessage({
+        prompt: aiPrompt + " Keep it under 300 characters.",
+      });
       const truncated = result.message.slice(0, NOTE_CHAR_LIMIT);
       updateNode(node._id, { note: truncated });
       setShowAiPrompt(false);
@@ -2685,7 +3777,10 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
   function previewText() {
     let t = noteText;
     CONTACT_VARS.filter((v) => v.value).forEach((v) => {
-      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), v.preview);
+      t = t.replace(
+        new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"),
+        v.preview,
+      );
     });
     return t;
   }
@@ -2697,7 +3792,10 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
         <div className="msg-toolbar">
           <button
             className={`msg-toolbar-btn${showAiPrompt ? " active" : ""}`}
-            onClick={() => { setShowAiPrompt((v) => !v); setShowPreview(false); }}
+            onClick={() => {
+              setShowAiPrompt((v) => !v);
+              setShowPreview(false);
+            }}
           >
             ✦ AI Prompt
           </button>
@@ -2709,23 +3807,39 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
               + Contact Variables
             </button>
             {showVarMenu && (
-              <div className="var-dropdown" onMouseLeave={() => setShowVarMenu(false)}>
+              <div
+                className="var-dropdown"
+                onMouseLeave={() => setShowVarMenu(false)}
+              >
                 {CONTACT_VARS.map((v, i) =>
                   v.group ? (
-                    <div key={i} className="var-dropdown-group">{v.group}</div>
+                    <div key={i} className="var-dropdown-group">
+                      {v.group}
+                    </div>
                   ) : (
-                    <button key={v.value} className="var-dropdown-item" onClick={() => insertVar(v.value)}>
+                    <button
+                      key={v.value}
+                      className="var-dropdown-item"
+                      onClick={() => insertVar(v.value)}
+                    >
                       <span className="var-tag">{v.value}</span>
-                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.label}</span>
+                      <span
+                        style={{ fontSize: 11, color: "var(--text-muted)" }}
+                      >
+                        {v.label}
+                      </span>
                     </button>
-                  )
+                  ),
                 )}
               </div>
             )}
           </div>
           <button
             className={`msg-toolbar-btn${showPreview ? " active" : ""}`}
-            onClick={() => { setShowPreview((v) => !v); setShowAiPrompt(false); }}
+            onClick={() => {
+              setShowPreview((v) => !v);
+              setShowAiPrompt(false);
+            }}
           >
             ◉ Preview
           </button>
@@ -2740,7 +3854,9 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
               placeholder="Describe the connection note… e.g. Mention shared interest in SaaS, keep it friendly"
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleGenerateAI()}
+              onKeyDown={(e) =>
+                e.key === "Enter" && !e.shiftKey && handleGenerateAI()
+              }
               autoFocus
             />
             <button
@@ -2757,7 +3873,11 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
         {/* Note body */}
         {showPreview ? (
           <div className="msg-preview-body">
-            {previewText() || <span style={{ color: "var(--text-disabled)" }}>Nothing to preview yet.</span>}
+            {previewText() || (
+              <span style={{ color: "var(--text-disabled)" }}>
+                Nothing to preview yet.
+              </span>
+            )}
           </div>
         ) : (
           <textarea
@@ -2773,7 +3893,14 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
       </div>
 
       {/* Char counter */}
-      <div style={{ fontSize: 11, color: charsLeft < 30 ? "var(--danger)" : "var(--text-muted)", textAlign: "right", marginTop: 4 }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: charsLeft < 30 ? "var(--danger)" : "var(--text-muted)",
+          textAlign: "right",
+          marginTop: 4,
+        }}
+      >
         {charsLeft} / {NOTE_CHAR_LIMIT} characters remaining
       </div>
     </>
@@ -2783,30 +3910,41 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
 // ── Message Step Editor ────────────────────────────────────────
 const CONTACT_VARS = [
   { group: "Contact" },
-  { label: "First Name",      value: "{firstName}",     preview: "John" },
-  { label: "Last Name",       value: "{lastName}",      preview: "Smith" },
-  { label: "Full Name",       value: "{fullName}",      preview: "John Smith" },
-  { label: "Job Title",       value: "{jobTitle}",      preview: "Head of Sales" },
-  { label: "Company",         value: "{company}",       preview: "Acme Corp" },
-  { label: "Location",        value: "{location}",      preview: "London, UK" },
+  { label: "First Name", value: "{firstName}", preview: "John" },
+  { label: "Last Name", value: "{lastName}", preview: "Smith" },
+  { label: "Full Name", value: "{fullName}", preview: "John Smith" },
+  { label: "Job Title", value: "{jobTitle}", preview: "Head of Sales" },
+  { label: "Company", value: "{company}", preview: "Acme Corp" },
+  { label: "Location", value: "{location}", preview: "London, UK" },
   { group: "Sender" },
-  { label: "Calendar Link",   value: "{calendarLink}",  preview: "https://cal.com/you" },
-  { label: "Your Company",    value: "{senderCompany}", preview: "ReachFlow" },
-  { label: "Your Website",    value: "{senderWebsite}", preview: "https://reachflow.io" },
+  {
+    label: "Calendar Link",
+    value: "{calendarLink}",
+    preview: "https://cal.com/you",
+  },
+  { label: "Your Company", value: "{senderCompany}", preview: "ReachFlow" },
+  {
+    label: "Your Website",
+    value: "{senderWebsite}",
+    preview: "https://reachflow.io",
+  },
 ];
 
 const SEND_CONDITIONS = [
-  { value: "always",          label: "Always send" },
-  { value: "if_accepted",     label: "Only if connection accepted" },
-  { value: "if_no_reply",     label: "Send only if the recipient has never sent a message" },
+  { value: "always", label: "Always send" },
+  { value: "if_accepted", label: "Only if connection accepted" },
+  {
+    value: "if_no_reply",
+    label: "Send only if the recipient has never sent a message",
+  },
 ];
 
 function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
-  const [showVarMenu, setShowVarMenu]     = useState(false);
-  const [showAiPrompt, setShowAiPrompt]   = useState(false);
-  const [aiPrompt, setAiPrompt]           = useState("");
-  const [generatingAI, setGeneratingAI]   = useState(false);
-  const [showPreview, setShowPreview]     = useState(false);
+  const [showVarMenu, setShowVarMenu] = useState(false);
+  const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [generatingAI, setGeneratingAI] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -2818,7 +3956,10 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
         const base64 = ev.target.result.split(",")[1];
         const current = node.config?.attachments || [];
         updateNode(node._id, {
-          attachments: [...current, { name: file.name, type: file.type, size: file.size, data: base64 }],
+          attachments: [
+            ...current,
+            { name: file.name, type: file.type, size: file.size, data: base64 },
+          ],
         });
       };
       reader.readAsDataURL(file);
@@ -2827,24 +3968,33 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
   }
 
   function removeAttachment(idx) {
-    const attachments = (node.config?.attachments || []).filter((_, i) => i !== idx);
+    const attachments = (node.config?.attachments || []).filter(
+      (_, i) => i !== idx,
+    );
     updateNode(node._id, { attachments });
   }
 
-  const config  = node.config || {};
+  const config = node.config || {};
   const msgText = config.text || "";
   const isEmpty = !msgText.trim();
-  const selAcc  = linkedinAccounts.find((a) => a.id === config.accountId);
+  const selAcc = linkedinAccounts.find((a) => a.id === config.accountId);
 
   function insertVar(v) {
     const ta = textareaRef.current;
-    if (!ta) { updateNode(node._id, { text: msgText + v }); setShowVarMenu(false); return; }
+    if (!ta) {
+      updateNode(node._id, { text: msgText + v });
+      setShowVarMenu(false);
+      return;
+    }
     const start = ta.selectionStart;
-    const end   = ta.selectionEnd;
-    const next  = msgText.slice(0, start) + v + msgText.slice(end);
+    const end = ta.selectionEnd;
+    const next = msgText.slice(0, start) + v + msgText.slice(end);
     updateNode(node._id, { text: next });
     setShowVarMenu(false);
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + v.length, start + v.length); }, 0);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + v.length, start + v.length);
+    }, 0);
   }
 
   async function handleGenerateAI() {
@@ -2865,7 +4015,10 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
   function previewText() {
     let t = msgText;
     CONTACT_VARS.filter((v) => v.value).forEach((v) => {
-      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), v.preview);
+      t = t.replace(
+        new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"),
+        v.preview,
+      );
     });
     return t;
   }
@@ -2874,17 +4027,33 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
     <>
       {/* Sender account */}
       <div className="input-group">
-        <label className="input-label" style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 10 }}>
+        <label
+          className="input-label"
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--text-muted)",
+            marginBottom: 10,
+          }}
+        >
           Select a sender account
         </label>
         {selAcc ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div className="sender-chip">
-              <div className="sender-avatar">{(selAcc.name || "?")[0].toUpperCase()}</div>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{selAcc.name}</span>
+              <div className="sender-avatar">
+                {(selAcc.name || "?")[0].toUpperCase()}
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>
+                {selAcc.name}
+              </span>
               <button
                 className="sender-chip-remove"
-                onClick={() => updateNode(node._id, { accountId: "", accountName: "" })}
+                onClick={() =>
+                  updateNode(node._id, { accountId: "", accountName: "" })
+                }
               >
                 ×
               </button>
@@ -2894,12 +4063,19 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
               style={{ fontSize: 12, padding: "4px 8px", width: "auto" }}
               value={config.accountId}
               onChange={(e) => {
-                const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-                updateNode(node._id, { accountId: e.target.value, accountName: acc?.name || "" });
+                const acc = linkedinAccounts.find(
+                  (a) => a.id === e.target.value,
+                );
+                updateNode(node._id, {
+                  accountId: e.target.value,
+                  accountName: acc?.name || "",
+                });
               }}
             >
               {linkedinAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                <option key={a.id} value={a.id}>
+                  {a.name || a.id}
+                </option>
               ))}
             </select>
           </div>
@@ -2909,12 +4085,17 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
             value=""
             onChange={(e) => {
               const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-              updateNode(node._id, { accountId: e.target.value, accountName: acc?.name || "" });
+              updateNode(node._id, {
+                accountId: e.target.value,
+                accountName: acc?.name || "",
+              });
             }}
           >
             <option value="">Select account…</option>
             {linkedinAccounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+              <option key={a.id} value={a.id}>
+                {a.name || a.id}
+              </option>
             ))}
           </select>
         )}
@@ -2926,7 +4107,10 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
         <div className="msg-toolbar">
           <button
             className={`msg-toolbar-btn${showAiPrompt ? " active" : ""}`}
-            onClick={() => { setShowAiPrompt((v) => !v); setShowPreview(false); }}
+            onClick={() => {
+              setShowAiPrompt((v) => !v);
+              setShowPreview(false);
+            }}
           >
             ✦ AI Prompt
           </button>
@@ -2938,21 +4122,37 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
               + Contact Variables
             </button>
             {showVarMenu && (
-              <div className="var-dropdown" onMouseLeave={() => setShowVarMenu(false)}>
+              <div
+                className="var-dropdown"
+                onMouseLeave={() => setShowVarMenu(false)}
+              >
                 {CONTACT_VARS.map((v, i) =>
                   v.group ? (
-                    <div key={i} className="var-dropdown-group">{v.group}</div>
+                    <div key={i} className="var-dropdown-group">
+                      {v.group}
+                    </div>
                   ) : (
-                    <button key={v.value} className="var-dropdown-item" onClick={() => insertVar(v.value)}>
+                    <button
+                      key={v.value}
+                      className="var-dropdown-item"
+                      onClick={() => insertVar(v.value)}
+                    >
                       <span className="var-tag">{v.value}</span>
-                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.label}</span>
+                      <span
+                        style={{ fontSize: 11, color: "var(--text-muted)" }}
+                      >
+                        {v.label}
+                      </span>
                     </button>
-                  )
+                  ),
                 )}
               </div>
             )}
           </div>
-          <button className="msg-toolbar-btn" onClick={() => fileInputRef.current?.click()}>
+          <button
+            className="msg-toolbar-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
             📎 Add
           </button>
           <input
@@ -2965,7 +4165,10 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
           />
           <button
             className={`msg-toolbar-btn${showPreview ? " active" : ""}`}
-            onClick={() => { setShowPreview((v) => !v); setShowAiPrompt(false); }}
+            onClick={() => {
+              setShowPreview((v) => !v);
+              setShowAiPrompt(false);
+            }}
           >
             ◉ Preview
           </button>
@@ -2980,7 +4183,9 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
               placeholder="Describe the message you want… e.g. Follow up after connection, mention their company"
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleGenerateAI()}
+              onKeyDown={(e) =>
+                e.key === "Enter" && !e.shiftKey && handleGenerateAI()
+              }
               autoFocus
             />
             <button
@@ -2997,7 +4202,11 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
         {/* Message body */}
         {showPreview ? (
           <div className="msg-preview-body">
-            {previewText() || <span style={{ color: "var(--text-disabled)" }}>Nothing to preview yet.</span>}
+            {previewText() || (
+              <span style={{ color: "var(--text-disabled)" }}>
+                Nothing to preview yet.
+              </span>
+            )}
           </div>
         ) : (
           <textarea
@@ -3012,24 +4221,56 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
 
         {/* Attachment chips */}
         {(node.config?.attachments || []).length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderTop: "1px solid var(--border)" }}>
-            {(node.config.attachments).map((att, i) => (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              padding: "8px 12px",
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            {node.config.attachments.map((att, i) => (
               <div
                 key={i}
                 style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  background: "var(--surface-3, #252a3a)", borderRadius: 5,
-                  padding: "3px 8px", fontSize: 12, maxWidth: 220,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  background: "var(--surface-3, #252a3a)",
+                  borderRadius: 5,
+                  padding: "3px 8px",
+                  fontSize: 12,
+                  maxWidth: 220,
                 }}
               >
                 <span>📎</span>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{att.name}</span>
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                  }}
+                >
+                  {att.name}
+                </span>
                 <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-                  {att.size > 1024 * 1024 ? `${(att.size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(att.size / 1024)}KB`}
+                  {att.size > 1024 * 1024
+                    ? `${(att.size / 1024 / 1024).toFixed(1)}MB`
+                    : `${Math.round(att.size / 1024)}KB`}
                 </span>
                 <button
                   onClick={() => removeAttachment(i)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0 2px", fontSize: 14, lineHeight: 1 }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "0 2px",
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
                 >
                   ×
                 </button>
@@ -3041,7 +4282,15 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
 
       {/* Validation */}
       {isEmpty && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--danger)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "var(--danger)",
+          }}
+        >
           <span>⊙</span> Type your message
         </div>
       )}
@@ -3054,7 +4303,9 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
           onChange={(e) => updateNode(node._id, { condition: e.target.value })}
         >
           {SEND_CONDITIONS.map((c) => (
-            <option key={c.value} value={c.value}>{c.label}</option>
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
           ))}
         </select>
       </div>

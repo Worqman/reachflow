@@ -5,6 +5,8 @@ import {
   unipile,
   agents as agentsApi,
 } from "../lib/api";
+import { SkeletonConvItems } from "../components/Skeleton";
+import Modal from "../components/Modal";
 import { setInboxUnreadCount } from "../lib/inboxState";
 import "./Inbox.css";
 
@@ -52,9 +54,28 @@ function chatToConversation(chat, backendConvMap) {
   // Must have a person ID to identify this conversation
   if (!personId) return null;
 
+  // Try to extract name from attendees array (client-side fallback)
+  const matchedAttendee =
+    chat.attendees?.find(
+      (a) => a.provider_id === personId || a.id === personId,
+    ) || chat.attendees?.[0];
+  const attendeeName = matchedAttendee
+    ? (matchedAttendee.name ||
+        matchedAttendee.display_name ||
+        matchedAttendee.displayName ||
+        matchedAttendee.full_name ||
+        [matchedAttendee.first_name, matchedAttendee.last_name].filter(Boolean).join(" ") ||
+        matchedAttendee.username ||
+        null)
+    : null;
+
   // Backend enrichment sets _enrichedName/_enrichedHeadline after profile lookup
-  const name = chat._enrichedName || chat.name || "LinkedIn User";
-  const company = chat._enrichedHeadline || "";
+  const name = chat._enrichedName || chat.name || attendeeName || "LinkedIn User";
+  const company =
+    chat._enrichedHeadline ||
+    matchedAttendee?.headline ||
+    matchedAttendee?.occupation ||
+    "";
   const preview = chat.last_message?.text || chat.last_message?.content || "";
   const time = chat.last_message?.created_at
     ? formatRelativeTime(chat.last_message.created_at)
@@ -64,7 +85,7 @@ function chatToConversation(chat, backendConvMap) {
   const unread = (chat.unread_count || 0) > 0;
 
   const backend = backendConvMap[chat.id] || null;
-  const status = backend?.status || "review";
+  const status = backend?.status || "inbox";
   const aiPaused = backend?.aiPaused ?? true;
 
   return {
@@ -81,6 +102,7 @@ function chatToConversation(chat, backendConvMap) {
     agentId: backend?.agentId || null,
     providerId: personId || null,
     bookedAt: backend?.bookedAt || null,
+    picture: chat._enrichedPicture || null,
   };
 }
 
@@ -106,6 +128,7 @@ export default function Inbox() {
   const [messages, setMessages] = useState([]);
   const [filter, setFilter] = useState("all");
   const [reply, setReply] = useState("");
+  const draftsRef = useRef({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -144,9 +167,11 @@ export default function Inbox() {
         (m) => !m.account_id || m.account_id === accId
       );
       const meetingByChatId = {};
+      const meetingByProspectId = {};
       const meetingByName = {};
       for (const m of accountMeetings) {
         if (m.linkedin_chat_id) meetingByChatId[m.linkedin_chat_id] = m;
+        if (m.prospect_id) meetingByProspectId[m.prospect_id] = m;
         if (m.prospect_name) {
           meetingByName[m.prospect_name.toLowerCase().trim()] = m;
         }
@@ -157,9 +182,10 @@ export default function Inbox() {
         .map((chat) => {
           const conv = chatToConversation(chat, backendMap);
           if (!conv) return null;
-          // Cross-reference with meetings: match by chat ID or by prospect name
+          // Cross-reference with meetings: match by chat ID, prospect ID, or name (last resort)
           const bookedMeeting =
             meetingByChatId[chat.id] ||
+            (conv.providerId && meetingByProspectId[conv.providerId]) ||
             meetingByName[conv.name.toLowerCase().trim()] ||
             null;
           if (bookedMeeting && conv.status !== "booked") {
@@ -174,11 +200,9 @@ export default function Inbox() {
             // Enrich with booked date if we have it
             const m =
               meetingByChatId[chat.id] ||
-              accountMeetings.find(
-                (mtg) =>
-                  mtg.prospect_name?.toLowerCase().trim() ===
-                  conv.name.toLowerCase().trim()
-              );
+              (conv.providerId && meetingByProspectId[conv.providerId]) ||
+              meetingByName[conv.name.toLowerCase().trim()] ||
+              null;
             return { ...conv, bookedAt: m?.booked_at || conv.bookedAt || null };
           }
           return conv;
@@ -231,11 +255,11 @@ export default function Inbox() {
     init();
   }, []);
 
-  // Auto-refresh every 30s silently
+  // Auto-refresh every 60s silently
   useEffect(() => {
     const interval = setInterval(() => {
       if (accountIdRef.current) loadConversations(accountIdRef.current, true);
-    }, 30000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [loadConversations]);
 
@@ -251,6 +275,12 @@ export default function Inbox() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSelectConv(c) {
+    if (active) draftsRef.current[active.id] = reply;
+    setReply(draftsRef.current[c.id] || "");
+    setActive(c);
   }
 
   function applyConvUpdate(chatId, patch) {
@@ -276,11 +306,12 @@ export default function Inbox() {
           agentId: agentId || agentsList[0]?.id || null,
         });
         convId = conv.id;
-      } else {
-        await conversationsApi.resumeAI(convId);
       }
+      // Always call resumeAI — backend creates convs with aiPaused:true by default
+      await conversationsApi.resumeAI(convId);
       applyConvUpdate(active.id, {
         convId,
+        agentId: agentId || active.agentId,
         aiPaused: false,
         status: "ai_active",
       });
@@ -376,8 +407,8 @@ export default function Inbox() {
     }
 
     loadMessages();
-    // Poll every 10s: sync for AI reply triggering + refresh messages
-    const interval = setInterval(pollAndSync, 10000);
+    // Poll every 20s: sync for AI reply triggering + refresh messages
+    const interval = setInterval(pollAndSync, 20000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -391,14 +422,19 @@ export default function Inbox() {
   async function handleSend() {
     if (!reply.trim() || !active) return;
     setSending(true);
+    const text = reply.trim();
     try {
-      await unipile.sendChatMessage(active.id, reply.trim());
+      await unipile.sendChatMessage(active.id, text);
+      // Record in backend store so AI context includes this human reply
+      if (active.convId) {
+        conversationsApi.reply(active.convId, { text }).catch(() => {});
+      }
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now(),
           from: "ai",
-          text: reply.trim(),
+          text,
           time: new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -416,9 +452,7 @@ export default function Inbox() {
   const filtered =
     filter === "all"
       ? conversations
-      : conversations.filter(
-          (c) => c?.status === (FILTER_STATUS[filter] || filter),
-        );
+      : conversations.filter((c) => c?.status === (FILTER_STATUS[filter] || filter));
 
   const needsReview = conversations.filter(
     (c) => c?.status === "review",
@@ -485,15 +519,7 @@ export default function Inbox() {
 
         <div className="conv-list">
           {loading ? (
-            <div
-              style={{
-                padding: "24px 16px",
-                color: "var(--text-muted)",
-                fontSize: 13,
-              }}
-            >
-              Loading conversations…
-            </div>
+            <SkeletonConvItems rows={8} />
           ) : error ? (
             <div
               style={{
@@ -522,9 +548,12 @@ export default function Inbox() {
               <div
                 key={c.id}
                 className={`conv-item ${active?.id === c.id ? "active" : ""} ${c.unread ? "unread" : ""}`}
-                onClick={() => setActive(c)}
+                onClick={() => handleSelectConv(c)}
               >
-                <div className="conv-avatar">{c.name[0]?.toUpperCase()}</div>
+                {c.picture
+                  ? <img src={c.picture} alt={c.name} className="conv-avatar" style={{ objectFit: 'cover' }} />
+                  : <div className="conv-avatar">{c.name[0]?.toUpperCase()}</div>
+                }
                 <div className="conv-info">
                   <div className="conv-name-row">
                     <span className="conv-name">{c.name}</span>
@@ -558,12 +587,10 @@ export default function Inbox() {
         <div className="inbox-thread">
           <div className="thread-header">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div
-                className="conv-avatar"
-                style={{ width: 40, height: 40, fontSize: 16 }}
-              >
-                {active.name[0]?.toUpperCase()}
-              </div>
+              {active.picture
+                ? <img src={active.picture} alt={active.name} className="conv-avatar" style={{ width: 40, height: 40, objectFit: 'cover' }} />
+                : <div className="conv-avatar" style={{ width: 40, height: 40, fontSize: 16 }}>{active.name[0]?.toUpperCase()}</div>
+              }
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>
                   {active.name}
@@ -723,9 +750,7 @@ export default function Inbox() {
                 >
                   <button
                     className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      handleEnableAI(active.agentId || agentsList[0]?.id)
-                    }
+                    onClick={() => setReply("")}
                   >
                     Cancel
                   </button>
@@ -769,54 +794,79 @@ export default function Inbox() {
         </div>
       )}
 
-      {/* Agent picker modal — shown when user clicks Enable AI and has multiple agents */}
-      {agentPicker && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.6)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            className="card"
-            style={{
-              width: 360,
-              padding: 24,
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Select AI Agent</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-              Choose which agent will handle this conversation:
-            </div>
-            {agentsList.map((a) => (
-              <button
-                key={a.id}
-                className="btn btn-secondary"
-                style={{ justifyContent: "flex-start" }}
-                onClick={() => handleEnableAI(a.id)}
-              >
-                <span style={{ fontWeight: 600 }}>
-                  {a.name || "Unnamed Agent"}
-                </span>
-              </button>
-            ))}
+      {/* Agent picker modal */}
+      <Modal
+        open={agentPicker}
+        onClose={() => setAgentPicker(false)}
+        title="Select AI Agent"
+        width={420}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>
+            Choose which agent will handle this conversation:
+          </p>
+          {agentsList.map((a) => (
             <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setAgentPicker(false)}
+              key={a.id}
+              onClick={() => handleEnableAI(a.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                width: "100%",
+                padding: "12px 16px",
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-md)",
+                cursor: "pointer",
+                transition: "border-color 0.15s, background 0.15s",
+                textAlign: "left",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = "var(--signal)";
+                e.currentTarget.style.background = "var(--signal-subtle)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = "var(--border)";
+                e.currentTarget.style.background = "var(--surface-2)";
+              }}
             >
-              Cancel
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: "50%",
+                  background: "var(--surface)",
+                  border: "1.5px solid var(--border-2)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 15, fontWeight: 700, color: "var(--text-primary)",
+                }}>
+                  {(a.name || "A")[0].toUpperCase()}
+                </div>
+                <div style={{
+                  position: "absolute", bottom: -2, right: -2,
+                  width: 16, height: 16, borderRadius: "50%",
+                  background: "var(--signal)", border: "2px solid var(--surface)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 1a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V3a2 2 0 0 1 2-2zM6 4h4V3a2 2 0 0 0-4 0v1zM5.5 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm5 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" fill="#080c14"/>
+                  </svg>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)" }}>
+                  {a.name || "Unnamed Agent"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                  AI Agent · {a.status === "active" ? "Active" : "Paused"}
+                </div>
+              </div>
+              <svg style={{ marginLeft: "auto", color: "var(--text-muted)", flexShrink: 0 }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
             </button>
-          </div>
+          ))}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

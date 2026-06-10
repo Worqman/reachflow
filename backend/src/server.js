@@ -17,6 +17,7 @@ import unipileRouter from "./routes/unipile.js";
 import dashboardRouter from "./routes/dashboard.js";
 import unipileWebhook from "./webhooks/unipile.js";
 import { startScheduler } from "./services/scheduler.js";
+import { initConversationStore } from "./services/store.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -136,6 +137,7 @@ app.use((err, req, res, next) => {
 
 // ── Start ─────────────────────────────────────────────────────
 startScheduler();
+initConversationStore();
 
 app.listen(PORT, () => {
   console.log(`\n🚀 ReachFlow API running at http://localhost:${PORT}`);

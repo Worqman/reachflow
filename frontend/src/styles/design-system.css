@@ -590,6 +590,9 @@ tbody td {
 .animate-fade-in {
   animation: fadeIn 0.3s ease forwards;
 }
+.animate-tab-in {
+  animation: fadeIn 0.18s ease forwards;
+}
 .animate-slide-in {
   animation: slideIn 0.25s ease forwards;
 }
@@ -598,6 +601,17 @@ tbody td {
 }
 .animate-spin {
   animation: spin 0.8s linear infinite;
+}
+
+/* ── Skeleton table rows ── */
+.skeleton-tr td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* ── Data-loaded fade-in ── */
+.data-loaded {
+  animation: fadeIn 0.25s ease forwards;
 }
 
 /* ── Signal dot (live indicator) ── */

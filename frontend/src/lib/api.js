@@ -8,16 +8,25 @@ const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : "/api";
 
+// ── Token cache ────────────────────────────────────────────────
+// Avoids awaiting getSession() on every request (reads from memory instead)
+let _cachedToken = null;
+
+supabase.auth.getSession().then(({ data }) => {
+  _cachedToken = data?.session?.access_token || null;
+}).catch(() => {});
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  _cachedToken = session?.access_token || null;
+});
+// ──────────────────────────────────────────────────────────────
+
 async function request(method, path, body) {
   const headers = { "Content-Type": "application/json" };
 
-  // Attach Supabase auth token so the backend can identify the user
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) {
-      headers["Authorization"] = `Bearer ${data.session.access_token}`;
-    }
-  } catch {}
+  if (_cachedToken) {
+    headers["Authorization"] = `Bearer ${_cachedToken}`;
+  }
 
   // Attach active workspace so the backend scopes data correctly
   const workspaceId = getActiveWorkspaceId();

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { conversationStore } from '../services/store.js'
-import { generateAIReply, generateOpeningMessage } from '../routes/conversations.js'
-import { executePostConnectionSteps } from '../routes/campaigns.js'
+import { scheduleAIReply, scheduleOpeningMessage } from '../routes/conversations.js'
+import { executePostConnectionSteps, fetchAndSummarizeProfile } from '../routes/campaigns.js'
 import { supabase } from '../services/supabase.js'
 
 const router = Router()
@@ -32,10 +32,11 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
       .from('campaign_leads')
       .select('campaign_id, status, workspace_id')
       .eq('provider_id', providerUserId)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     // Skip if already processed (avoid duplicate messages on repeated calls)
-    if (leadRow?.status === 'connected' || leadRow?.status === 'replied') {
+    if (['connected', 'replied', 'booked'].includes(leadRow?.status)) {
       console.log('[Connection] Already processed for:', providerUserId)
       return
     }
@@ -55,33 +56,74 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
     await executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId)
   }
 
-  // Trigger AI opening message if an agent is assigned to the campaign
+  // Fetch and summarise prospect's LinkedIn profile for AI context
+  let profileSummary = null
+  if (campaignId) {
+    profileSummary = await fetchAndSummarizeProfile(providerUserId, accountId, campaignId, workspaceId)
+  }
+
+  // Trigger AI opening message only if no sequence message nodes would also fire
+  // (avoids the prospect receiving two messages simultaneously after connecting)
   const agentId = await findAgentForProspect(providerUserId)
   if (agentId) {
-    await generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId })
+    const hasSequenceMessages = await sequenceHasPostConnectionMessages(campaignId)
+    if (hasSequenceMessages) {
+      console.log(`[Connection] Skipping AI opening for ${providerUserId} — campaign has sequence message nodes`)
+    } else {
+      scheduleOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId, profileSummary })
+    }
   }
 }
 
-// Find the campaign agent for a given prospect
+// Returns true if the campaign sequence has any message nodes after connection_request.
+// Used to avoid sending both a sequence message AND an AI opening message simultaneously.
+async function sequenceHasPostConnectionMessages(campaignId) {
+  if (!supabase || !campaignId) return false
+  try {
+    const { data } = await supabase
+      .from('campaigns')
+      .select('sequence')
+      .eq('id', campaignId)
+      .maybeSingle()
+    const nodes = data?.sequence?.nodes || []
+    const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
+    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : []
+    return postNodes.some(n => ['message', 'message_open', 'inmail'].includes(n.type))
+  } catch {
+    return false
+  }
+}
+
+// Find the campaign agent for a given prospect — only returns if agent is active.
 async function findAgentForProspect(providerUserId) {
   if (!supabase || !providerUserId) return null
   try {
-    const { data } = await supabase
+    const { data: lead } = await supabase
       .from('campaign_leads')
       .select('campaign_id')
       .eq('provider_id', providerUserId)
       .limit(1)
-      .single()
+      .maybeSingle()
 
-    if (!data?.campaign_id) return null
+    if (!lead?.campaign_id) return null
 
     const { data: campaign } = await supabase
       .from('campaigns')
       .select('settings')
-      .eq('id', data.campaign_id)
-      .single()
+      .eq('id', lead.campaign_id)
+      .maybeSingle()
 
-    return campaign?.settings?.agentId || null
+    const agentId = campaign?.settings?.agentId
+    if (!agentId) return null
+
+    // Only return if the agent is active — paused agents should not send messages
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('id, status')
+      .eq('id', agentId)
+      .maybeSingle()
+
+    return agent?.status === 'active' ? agentId : null
   } catch {
     return null
   }
@@ -130,7 +172,16 @@ router.post('/unipile', async (req, res) => {
 
         if (!chatId || !text) break
 
-        let conv = conversationStore.list().find(c => c.linkedinChatId === chatId)
+        let conv = conversationStore.findByChatId(chatId)
+
+        // If the sender is NOT the prospect (i.e. it's our own outgoing message),
+        // store it as 'ai' and do not trigger a reply.
+        const isOurMessage = conv?.prospectId && senderId !== conv.prospectId
+        if (isOurMessage) {
+          conversationStore.addMessage(conv.id, { from: 'ai', text, timestamp: data.created_at })
+          break
+        }
+
         if (!conv) {
           const agentId = await findAgentForProspect(senderId)
           conv = conversationStore.create(undefined, {
@@ -147,14 +198,17 @@ router.post('/unipile', async (req, res) => {
         conversationStore.addMessage(conv.id, { from: 'prospect', text, timestamp: data.created_at })
 
         if (supabase && senderId) {
-          await supabase
+          let q = supabase
             .from('campaign_leads')
             .update({ status: 'replied' })
             .eq('provider_id', senderId)
             .eq('status', 'connected')
+          if (conv.campaignId) q = q.eq('campaign_id', conv.campaignId)
+          await q
         }
 
-        if (!conv.aiPaused) await generateAIReply(conv.id)
+        // Use scheduleAIReply (45-min delay) — same as the polling path
+        if (!conv.aiPaused) scheduleAIReply(conv.id)
         break
       }
 
@@ -184,7 +238,10 @@ router.post('/unipile', async (req, res) => {
         const providerUserId = data.attendee?.provider_id || data.user_provider_id || data.prospectId
         console.log('[Webhook] Connection rejected:', providerUserId)
         if (supabase && providerUserId) {
-          await supabase.from('campaign_leads').update({ status: 'rejected' }).eq('provider_id', providerUserId)
+          await supabase.from('campaign_leads')
+            .update({ status: 'rejected' })
+            .eq('provider_id', providerUserId)
+            .in('status', ['pending', 'invited'])
         }
         break
       }

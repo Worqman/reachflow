@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js'
-import { syncCampaignStatuses, executePostConnectionSteps } from '../routes/campaigns.js'
+import { syncCampaignStatuses, executePostConnectionSteps, runCampaignInvites } from '../routes/campaigns.js'
 
 async function processActiveCampaigns() {
   if (!supabase) return
@@ -30,6 +30,19 @@ async function processActiveCampaigns() {
       })
       .catch(err => {
         console.error(`[scheduler] Campaign ${campaign.id} sync error:`, err.message)
+      })
+
+    // Resume invite sending for pending leads — recovers loops killed by a
+    // server restart. runCampaignInvites enforces schedule, daily limits and
+    // skips campaigns whose loop is already running.
+    runCampaignInvites(campaign.id, campaign.workspace_id)
+      .then(result => {
+        if (result.queued > 0) {
+          console.log(`[scheduler] Campaign ${campaign.id}: resumed invites for ${result.queued} pending lead(s)`)
+        }
+      })
+      .catch(err => {
+        console.error(`[scheduler] Campaign ${campaign.id} invite error:`, err.message)
       })
   }
 }

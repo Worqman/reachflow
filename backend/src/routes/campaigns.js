@@ -152,6 +152,7 @@ function leadDbToApi(row) {
     source:         row.source,
     addedAt:        row.added_at,
     profileSummary: row.profile_summary || null,
+    lastError:      row.last_error || null,
   }
 }
 
@@ -333,8 +334,14 @@ router.post('/:id/leads/:leadId/status', async (req, res) => {
   if (!status) return res.status(400).json({ message: 'status required' })
   const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
   if (!camp) return res.status(404).json({ message: 'Campaign not found' })
-  const { data, error } = await supabase
-    .from('campaign_leads').update({ status }).eq('id', req.params.leadId).select().single()
+  // Clear last_error on manual status changes (e.g. retrying a failed lead);
+  // fall back to status-only if the column doesn't exist yet.
+  let { data, error } = await supabase
+    .from('campaign_leads').update({ status, last_error: null }).eq('id', req.params.leadId).select().single()
+  if (error) {
+    ({ data, error } = await supabase
+      .from('campaign_leads').update({ status }).eq('id', req.params.leadId).select().single())
+  }
   if (error || !data) return res.status(500).json({ message: error?.message || 'Update failed' })
   res.json(leadDbToApi(data))
 })
@@ -429,8 +436,12 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId,
           console.log(`[sequence] visit_profile skipped for ${lead.name} — daily limit (${frequency.profileVisits}) reached`)
           break
         }
-        console.log(`[sequence] visiting profile of ${lead.name} (today: ${getDailyCount(campaignId, 'profileVisits')}/${frequency.profileVisits || '∞'})`)
-        await linkedin.visitProfile(accountId, providerUserId)
+        try {
+          console.log(`[sequence] visiting profile of ${lead.name} (today: ${getDailyCount(campaignId, 'profileVisits')}/${frequency.profileVisits || '∞'})`)
+          await linkedin.visitProfile(accountId, providerUserId)
+        } catch (err) {
+          console.error(`[sequence] visit_profile error for ${lead.name}: ${err.message}`)
+        }
         break
       }
       case 'like_post': {
@@ -867,6 +878,52 @@ router.post('/:id/sync-statuses', async (req, res) => {
 // Tracks campaigns currently running invite loops — prevents concurrent duplicate sends.
 const _runningCampaigns = new Set()
 
+// Classify an invite-send error into a lead outcome.
+// Returns { status, reason, stop } — status null means "leave as pending" (retried next run),
+// stop true means the whole loop should halt (account-level problem, no point continuing).
+function classifyInviteError(err) {
+  const msg = err.message || ''
+  const typ = err.data?.type || ''
+  const text = `${msg} ${typ}`.toLowerCase()
+  const httpStatus = err.status
+
+  if (msg.startsWith('CONDITION_FAILED')) {
+    return { status: 'skipped', reason: msg, stop: false }
+  }
+  // Recipient is already a 1st-level connection — not a failure
+  if (/already[ _-]?connect|already.*relation/.test(text)) {
+    return { status: 'connected', reason: null, stop: false }
+  }
+  // Invitation already pending on LinkedIn (e.g. sent before a restart, or manually)
+  if (/already[ _-]?invit|invitation.*(pending|exist|sent)|cannot[ _-]?resend|invited[ _-]?recently|invalid_recipient/.test(text)) {
+    return { status: 'invited', reason: null, stop: false }
+  }
+  // Account-level problems — stop the loop, leave leads pending for retry
+  if (httpStatus === 401 || httpStatus === 403 ||
+      /disconnected[ _-]?account|checkpoint|credentials|expired[ _-]?(token|session)|insufficient[ _-]?credits|weekly.*limit|limit.*(week|invitation)/.test(text)) {
+    return { status: null, reason: msg, stop: true }
+  }
+  // Transient: rate limits, provider/network hiccups — leave pending, retry next run
+  if (httpStatus === 429 || (httpStatus >= 500 && httpStatus <= 599) ||
+      /rate[ _-]?limit|too[ _-]?many[ _-]?request|provider[ _-]?unavailable|fetch failed|network|timeout|econnreset|socket/.test(text)) {
+    return { status: null, reason: msg, stop: false }
+  }
+  // Genuine permanent failure (bad profile URL, unresolvable provider_id, …)
+  return { status: 'failed', reason: msg, stop: false }
+}
+
+// Update lead status + last_error; falls back to status-only if the
+// last_error column hasn't been added to campaign_leads yet.
+async function updateLeadStatus(leadId, status, lastError = null) {
+  const { error } = await supabase
+    .from('campaign_leads')
+    .update({ status, last_error: lastError })
+    .eq('id', leadId)
+  if (error) {
+    await supabase.from('campaign_leads').update({ status }).eq('id', leadId)
+  }
+}
+
 // ── Shared: run send-invites logic for a campaign ──────────────
 // Returns { queued, message } or throws. Used by both the route and the scheduler.
 export async function runCampaignInvites(campaignId, workspaceId) {
@@ -922,14 +979,24 @@ export async function runCampaignInvites(campaignId, workspaceId) {
       const lead = pendingLeads[i]
       try {
         await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
-        await supabase.from('campaign_leads').update({ status: 'invited' }).eq('id', lead.id)
+        await updateLeadStatus(lead.id, 'invited')
         consumeDailyLimit(campaignId, 'connectionRequests', 0) // track without enforcing (limit enforced above)
         console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
       } catch (err) {
-        const status = err.message?.startsWith('CONDITION_FAILED') ? 'skipped' : 'failed'
-        await supabase.from('campaign_leads').update({ status }).eq('id', lead.id)
         const detail = err.data ? JSON.stringify(err.data) : err.message
-        console.error(`[send-invites] ✗ (${i + 1}/${pendingLeads.length}) failed for ${lead.name}:`, detail)
+        const outcome = classifyInviteError(err)
+        if (outcome.status) {
+          await updateLeadStatus(lead.id, outcome.status, outcome.reason)
+          console.error(`[send-invites] ✗ (${i + 1}/${pendingLeads.length}) ${lead.name} → ${outcome.status}:`, detail)
+        } else {
+          // Transient or account-level error — leave lead as pending so it's retried next run
+          await updateLeadStatus(lead.id, 'pending', outcome.reason)
+          console.error(`[send-invites] ⟳ (${i + 1}/${pendingLeads.length}) ${lead.name} left pending (will retry):`, detail)
+        }
+        if (outcome.stop) {
+          console.error(`[send-invites] halting loop for campaign ${campaignId} — account-level error: ${detail}`)
+          break
+        }
       }
       if (i < pendingLeads.length - 1) {
         const delayMs = (15 + Math.floor(Math.random() * 6)) * 60 * 1000

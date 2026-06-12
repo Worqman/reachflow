@@ -826,6 +826,8 @@ const STATUS_COLORS = {
   replied: "badge-info",
   booked: "badge-signal",
   rejected: "badge-danger",
+  failed: "badge-danger",
+  skipped: "badge-muted",
 };
 
 const PERSONA_FIELDS = [
@@ -1035,16 +1037,27 @@ export default function CampaignDetail() {
   if (loading) {
     return (
       <div className="campaign-detail animate-fade-in">
-        <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div
+          style={{
+            padding: "24px 32px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 20,
+          }}
+        >
           <Sk w="40%" h={28} r={6} />
           <Sk w="25%" h={14} r={4} />
-          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
             {Array.from({ length: 4 }).map((_, i) => (
               <Sk key={i} w={80} h={32} r={6} />
             ))}
           </div>
           <div className="table-wrap" style={{ marginTop: 8 }}>
-            <table><tbody><SkeletonTableRows rows={6} cols={6} /></tbody></table>
+            <table>
+              <tbody>
+                <SkeletonTableRows rows={6} cols={6} />
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1280,11 +1293,33 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
         </div>
         <div className="modal-body" style={{ flex: 1, overflowY: "auto" }}>
           {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                padding: "8px 0",
+              }}
+            >
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 1 - i * 0.15 }}>
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    opacity: 1 - i * 0.15,
+                  }}
+                >
                   <Sk w={32} h={32} r={999} />
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 5,
+                    }}
+                  >
                     <Sk w="50%" h={13} />
                     <Sk w="70%" h={11} />
                   </div>
@@ -1767,6 +1802,17 @@ function LeadsTab({
   const [myLeadsOpen, setMyLeadsOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [leadsSearch, setLeadsSearch] = useState("");
+  const [retryingFor, setRetryingFor] = useState(null);
+
+  const handleRetry = async (leadId) => {
+    setRetryingFor(leadId);
+    try {
+      await campaignsApi.updateLeadStatus(campaignId, leadId, "pending");
+      await onRefreshLeads?.();
+    } finally {
+      setRetryingFor(null);
+    }
+  };
 
   const visibleLeads = leadsSearch
     ? leads.filter((l) => {
@@ -1790,7 +1836,9 @@ function LeadsTab({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13, flexShrink: 0 }}>
+          <span
+            style={{ color: "var(--text-muted)", fontSize: 13, flexShrink: 0 }}
+          >
             {leadsSearch
               ? `${visibleLeads.length} of ${leads.length} leads`
               : `${leads.length} leads in campaign`}
@@ -1798,7 +1846,12 @@ function LeadsTab({
           {leads.length > 0 && (
             <input
               className="input"
-              style={{ fontSize: 12, padding: "5px 10px", height: "auto", width: 200 }}
+              style={{
+                fontSize: 12,
+                padding: "5px 10px",
+                height: "auto",
+                width: 200,
+              }}
               placeholder="Search leads…"
               value={leadsSearch}
               onChange={(e) => setLeadsSearch(e.target.value)}
@@ -1816,7 +1869,7 @@ function LeadsTab({
               {syncing ? "↻ Syncing…" : `↻ Sync (${invitedCount} invited)`}
             </button>
           )}
-          {pendingCount > 0 && (
+          {/* {pendingCount > 0 && (
             <button
               className="btn btn-primary btn-sm"
               onClick={onSendInvites}
@@ -1824,7 +1877,7 @@ function LeadsTab({
             >
               {sendingInvites ? "Sending…" : `▶ Send Invites (${pendingCount})`}
             </button>
-          )}
+          )} */}
           {/* <button className="btn btn-secondary btn-sm" onClick={onImport}>
             + Import Contacts
           </button> */}
@@ -1869,7 +1922,9 @@ function LeadsTab({
               {visibleLeads.map((l) => (
                 <tr key={l.id || l.name}>
                   <td style={{ fontWeight: 600 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
                       {l.name || l.firstName + " " + l.lastName || "—"}
                       {l.profileSummary && (
                         <span
@@ -1893,6 +1948,8 @@ function LeadsTab({
                   <td>
                     <span
                       className={`badge ${STATUS_COLORS[l.status] || "badge-muted"}`}
+                      title={l.lastError || undefined}
+                      style={l.lastError ? { cursor: "help" } : undefined}
                     >
                       {l.status || "pending"}
                     </span>
@@ -1919,6 +1976,16 @@ function LeadsTab({
                         title="Generate and send AI opening message"
                       >
                         {sendingMessageFor === l.id ? "…" : "◆ Send AI Message"}
+                      </button>
+                    )}
+                    {(l.status === "failed" || l.status === "skipped") && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={retryingFor === l.id}
+                        onClick={() => handleRetry(l.id)}
+                        title="Move back to pending so the next invite run retries this lead"
+                      >
+                        {retryingFor === l.id ? "…" : "↻ Retry"}
                       </button>
                     )}
                     <button
@@ -2080,14 +2147,14 @@ function BuilderTab({
 
   function handleDragStart(e, index) {
     isDraggingRef.current = true;
-    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = "move";
     // Delay so browser screenshots node before opacity change
     setTimeout(() => setDragIndex(index), 0);
   }
 
   function handleDragOver(e, index) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     if (dragOverIndex !== index) setDragOverIndex(index);
   }
 
@@ -2097,7 +2164,7 @@ function BuilderTab({
     setDragIndex(null);
     setDragOverIndex(null);
     if (from === null || from === index) return;
-    setNodes(prev => {
+    setNodes((prev) => {
       const next = [...prev];
       const [item] = next.splice(from, 1);
       next.splice(index > from ? index - 1 : index, 0, item);
@@ -2108,7 +2175,9 @@ function BuilderTab({
   function handleDragEnd() {
     setDragIndex(null);
     setDragOverIndex(null);
-    setTimeout(() => { isDraggingRef.current = false; }, 0);
+    setTimeout(() => {
+      isDraggingRef.current = false;
+    }, 0);
   }
 
   async function saveSequence(updatedNodes) {
@@ -2213,17 +2282,22 @@ function BuilderTab({
           return (
             <div
               key={node._id}
-              className={dragOverIndex === i && dragIndex !== i ? 'builder-drop-target' : ''}
+              className={
+                dragOverIndex === i && dragIndex !== i
+                  ? "builder-drop-target"
+                  : ""
+              }
               onDragOver={(e) => handleDragOver(e, i)}
               onDrop={(e) => handleDrop(e, i)}
               onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget)) setDragOverIndex(null);
+                if (!e.currentTarget.contains(e.relatedTarget))
+                  setDragOverIndex(null);
               }}
             >
               <div
                 draggable
                 className={`builder-node${node._new ? " builder-node--new" : ""}${meta.isCondition ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node._id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
-                style={{ animationDelay: node._new ? '0ms' : `${i * 45}ms` }}
+                style={{ animationDelay: node._new ? "0ms" : `${i * 45}ms` }}
                 onDragStart={(e) => handleDragStart(e, i)}
                 onDragEnd={handleDragEnd}
                 onClick={(e) => {
@@ -2245,7 +2319,13 @@ function BuilderTab({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <span
-                    style={{ fontSize: 13, color: 'var(--text-disabled)', cursor: 'grab', padding: '0 4px', lineHeight: 1 }}
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-disabled)",
+                      cursor: "grab",
+                      padding: "0 4px",
+                      lineHeight: 1,
+                    }}
                     title="Drag to reorder"
                     onMouseDown={(e) => e.stopPropagation()}
                   >
@@ -3000,9 +3080,24 @@ function AnalyticsTab({ campaignId }) {
         </div>
 
         {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 0' }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              padding: "16px 0",
+            }}
+          >
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: 1 - i * 0.15 }}>
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  opacity: 1 - i * 0.15,
+                }}
+              >
                 <Sk w="18%" h={14} r={4} />
                 <Sk w={`${55 - i * 6}%`} h={22} r={4} />
               </div>

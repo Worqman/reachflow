@@ -28,6 +28,7 @@
   flex-direction: column;
   justify-content: center;
   z-index: var(--z-modal);
+  height: 100vh;
   padding: 24px;
   overflow-y: auto;
   animation: modalOverlayIn 0.18s ease forwards;
@@ -38,6 +39,7 @@
   border: 1px solid var(--border-2);
   border-radius: var(--radius-xl);
   width: 100%;
+  max-height: calc(100vh - 48px); /* overlay has 24px padding on each side */
   display: flex;
   flex-direction: column;
   box-shadow:
@@ -52,6 +54,7 @@
   justify-content: space-between;
   padding: 20px 24px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -76,6 +79,15 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
+  /* Negative margins counteract .modal-body's 24px padding when the footer
+     is rendered inside the body (shared <Modal> usage). */
   margin: 16px -24px -24px;
   border-top: 1px solid var(--border);
+}
+
+/* Footer rendered as a direct child of the box (custom-built modals like
+   CreateAgentModal, LeadFinderModal) — no body padding to counteract. */
+.modal-box > .modal-footer {
+  margin: 0;
+  flex-shrink: 0;
 }

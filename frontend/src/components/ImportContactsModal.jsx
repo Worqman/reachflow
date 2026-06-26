@@ -43,139 +43,92 @@ export default function ImportContactsModal({
       className="modal-overlay"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div
-        className="animate-fade-in"
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border-2)",
-          borderRadius: "var(--radius-xl)",
-          boxShadow: "var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.04)",
-          width: "100%",
-          maxWidth: 460,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal-box animate-fade-in" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+
         {/* Header */}
-        <div style={{ padding: "24px 24px 20px" }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)" }}>
-            Import contacts
-          </div>
+        <div className="modal-header">
+          <h2 className="modal-title">Import contacts</h2>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>✕</button>
         </div>
-        <div style={{ borderTop: "1px solid var(--border)" }} />
 
         {/* Body */}
-        <div style={{ padding: "24px 24px 20px", display: "flex", flexDirection: "column", gap: 24 }}>
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
           {/* Select a user */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 4 }}>
-              Select a user <span style={{ color: "var(--danger)" }}>*</span>
+          <div className="input-group" style={{ marginBottom: 0 }}>
+            <label className="input-label">
+              Select a user <span style={{ color: "var(--danger)", textTransform: "none", fontWeight: 700 }}>*</span>
             </label>
-            <div style={{ position: "relative" }}>
-              <select
-                className="input"
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-                style={{
-                  cursor: "pointer",
-                  appearance: "none",
-                  paddingRight: 36,
-                  color: selectedUserId ? "var(--text-primary)" : "var(--text-muted)",
-                }}
-              >
-                <option value="" disabled>Select User</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name || m.username || m.email || m.id}
-                  </option>
-                ))}
-              </select>
-              <span style={{
-                position: "absolute",
-                right: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
-                pointerEvents: "none",
-                color: "var(--text-muted)",
-                fontSize: 12,
-              }}>▾</span>
-            </div>
+            <select
+              className="input"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              style={{ cursor: "pointer" }}
+            >
+              <option value="" disabled>Select user…</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name || m.username || m.email || m.id}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Add to a list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <label style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 4 }}>
-              Add to a list<span style={{ color: "var(--danger)" }}>*</span>
+            <label className="input-label">
+              Add to a list <span style={{ color: "var(--danger)", textTransform: "none", fontWeight: 700 }}>*</span>
             </label>
 
-            {/* Existing list dropdown */}
-            <div style={{ position: "relative" }}>
-              <select
-                className="input"
-                value={selectedListId}
-                onChange={(e) => { setSelectedListId(e.target.value); setShowNewList(false); }}
-                style={{
-                  cursor: "pointer",
-                  appearance: "none",
-                  paddingRight: 36,
-                  color: selectedListId ? "var(--text-primary)" : "var(--text-muted)",
-                }}
-              >
-                <option value="" disabled>Select an existing list</option>
-                {lists.map((l) => (
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
-              </select>
-              <span style={{
-                position: "absolute",
-                right: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
-                pointerEvents: "none",
-                color: "var(--text-muted)",
-                fontSize: 12,
-              }}>▾</span>
-            </div>
+            <select
+              className="input"
+              value={selectedListId}
+              onChange={(e) => { setSelectedListId(e.target.value); setShowNewList(false); }}
+              style={{ cursor: "pointer" }}
+            >
+              <option value="" disabled>Select an existing list…</option>
+              {lists.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
 
             {/* Move existing checkbox */}
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "var(--text-secondary)" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
               <input
                 type="checkbox"
                 checked={moveExisting}
                 onChange={(e) => setMoveExisting(e.target.checked)}
-                style={{ width: 15, height: 15, cursor: "pointer", accentColor: "var(--signal)", flexShrink: 0 }}
+                style={{ width: 14, height: 14, accentColor: "var(--signal)", cursor: "pointer", flexShrink: 0 }}
               />
-              Move existing leads to the new list
+              <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                Move existing leads to the new list
+              </span>
               <span
                 title="Leads that already exist in another list will be moved to this list"
                 style={{
-                  width: 16,
-                  height: 16,
+                  width: 15, height: 15,
                   borderRadius: "50%",
                   border: "1px solid var(--border-2)",
                   color: "var(--text-muted)",
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: 700,
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
                   cursor: "default",
                   flexShrink: 0,
+                  lineHeight: 1,
                 }}
               >?</span>
             </label>
 
             {/* Create a new list */}
             {showNewList ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input
                   autoFocus
                   className="input"
-                  style={{ flex: 1, fontSize: 13 }}
-                  placeholder="New list name…"
+                  placeholder="List name…"
                   value={newListName}
                   onChange={(e) => setNewListName(e.target.value)}
                   onKeyDown={(e) => {
@@ -194,31 +147,22 @@ export default function ImportContactsModal({
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => { setShowNewList(false); setNewListName(""); }}
-                  style={{ flexShrink: 0 }}
+                  style={{ flexShrink: 0, padding: "5px 8px" }}
                 >
                   ✕
                 </button>
               </div>
             ) : (
               <button
+                className="btn btn-ghost"
                 onClick={() => setShowNewList(true)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
+                  border: "1px dashed var(--border-2)",
+                  color: "var(--signal)",
                   justifyContent: "center",
                   gap: 6,
-                  padding: "10px 16px",
-                  border: "1.5px solid var(--signal)",
-                  borderRadius: "var(--radius-md)",
-                  background: "none",
-                  color: "var(--signal)",
                   fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "background var(--transition-fast)",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--signal-subtle)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
               >
                 + Create a new list
               </button>
@@ -226,22 +170,16 @@ export default function ImportContactsModal({
           </div>
         </div>
 
-        <div style={{ borderTop: "1px solid var(--border)" }} />
-
         {/* Footer */}
-        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button
-            className="btn btn-secondary"
-            onClick={onClose}
-            style={{ minWidth: 80 }}
-          >
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
           <button
             className="btn btn-primary"
             disabled={!canConfirm}
             onClick={handleConfirm}
-            style={{ minWidth: 100 }}
+            style={{ minWidth: 90 }}
           >
             {saving ? "Saving…" : "Confirm"}
           </button>

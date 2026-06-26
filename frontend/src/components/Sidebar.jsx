@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import Modal from './Modal'
 import { getActiveWorkspaceId, onActiveWorkspaceChange, setActiveWorkspaceId } from '../lib/workspaceState'
 import { getInboxUnreadCount, onInboxUnreadChange } from '../lib/inboxState'
+import { useToast } from './Toast'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '⬡', exact: true },
@@ -27,6 +28,7 @@ const BOTTOM_NAV = [
 export default function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [workspaceState, setWorkspaceState] = useState({
     loading: true,
     signedIn: false,
@@ -232,7 +234,7 @@ export default function Sidebar() {
             } catch (e) {
               // eslint-disable-next-line no-console
               console.error(e)
-              alert('Could not sign out. Please try again.')
+              toast('Could not sign out. Please try again.', 'danger')
             }
           }}
         >

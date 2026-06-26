@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { campaigns as campaignsApi, leads as leadsApi, leadLists as listsApi, unipile } from "../lib/api";
+import ImportContactsModal from "../components/ImportContactsModal";
 import "./LeadFinder.css";
 
 // LinkedIn industry list with official numeric IDs (used as facetIndustry in search)
@@ -217,10 +218,11 @@ export default function LeadFinder() {
   const [listPickerOpen, setListPickerOpen] = useState(false);
   const [pendingListLeads, setPendingListLeads] = useState(null); // overrides selection when set
   const [leadLists, setLeadLists] = useState([]);
-  const [savingToListId, setSavingToListId] = useState(null);
+  const [savingToList, setSavingToList] = useState(false);
   const [savedToList, setSavedToList] = useState(false);
-  const [newListName, setNewListName] = useState('');
-  const [creatingList, setCreatingList] = useState(false);
+
+  // ── Workspace members ─────────────────────────────────────────
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
 
   // ── Results table search + sort ───────────────────────────────
   const [tableSearch, setTableSearch] = useState("");
@@ -252,6 +254,13 @@ export default function LeadFinder() {
     listsApi.list().then((data) => setLeadLists(Array.isArray(data) ? data : [])).catch(() => {});
   }, []);
 
+  // Load LinkedIn accounts for ImportContactsModal user picker
+  useEffect(() => {
+    unipile.getAccounts().then((data) => {
+      setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
+    }).catch(() => {});
+  }, []);
+
   function openCampaignPicker(leads) {
     setPendingLeads(leads);
     setPickerOpen(true);
@@ -273,24 +282,16 @@ export default function LeadFinder() {
     setListPickerOpen(true);
   }
 
-  async function handleCreateAndSave(e) {
-    e.preventDefault();
-    const name = newListName.trim();
-    if (!name) return;
-    setCreatingList(true);
-    try {
-      const created = await listsApi.create(name);
-      setLeadLists((prev) => [...prev, created]);
-      setNewListName('');
-      await saveToList(created.id);
-    } catch {}
-    setCreatingList(false);
+  async function handleCreateList(name) {
+    const created = await listsApi.create(name);
+    setLeadLists((prev) => [...prev, created]);
+    return created;
   }
 
   async function saveToList(listId) {
     const leadsToSave = pendingListLeads || tableRows.filter((r) => selected.includes(r.id));
     if (!leadsToSave.length) return;
-    setSavingToListId(listId);
+    setSavingToList(true);
     setSavedToList(false);
     try {
       await leadsApi.bulkCreate(leadsToSave, listId);
@@ -300,7 +301,11 @@ export default function LeadFinder() {
       setSelected([]);
       setTimeout(() => setSavedToList(false), 3000);
     } catch {}
-    setSavingToListId(null);
+    setSavingToList(false);
+  }
+
+  async function handleImportConfirm({ listId }) {
+    await saveToList(listId);
   }
 
   // ── Filters mode ─────────────────────────────────────────────
@@ -1180,112 +1185,16 @@ export default function LeadFinder() {
           ))}
       </div>
 
-      {/* List picker modal */}
-      {listPickerOpen && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => e.target === e.currentTarget && setListPickerOpen(false)}
-        >
-          <div
-            className="animate-fade-in"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border-2)",
-              borderRadius: "var(--radius-xl)",
-              boxShadow: "var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.04)",
-              width: "100%",
-              maxWidth: 340,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div style={{ padding: "20px 20px 16px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>
-                  Save to List
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
-                  {(() => { const n = pendingListLeads ? pendingListLeads.length : selected.length; return `${n} lead${n !== 1 ? "s" : ""} selected`; })()}
-                </div>
-              </div>
-              <button className="btn btn-icon btn-ghost" style={{ flexShrink: 0, marginTop: -2 }} onClick={() => setListPickerOpen(false)}>✕</button>
-            </div>
-
-            {/* List options */}
-            <div style={{ padding: "0 8px", maxHeight: 240, overflowY: "auto" }}>
-              {leadLists.length === 0 ? (
-                <div style={{ padding: "12px 12px 16px", fontSize: 13, color: "var(--text-muted)", textAlign: "center" }}>
-                  No lists yet — create one below.
-                </div>
-              ) : (
-                leadLists.map((ll) => (
-                  <button
-                    key={ll.id}
-                    disabled={savingToListId === ll.id}
-                    onClick={() => saveToList(ll.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      width: "100%",
-                      padding: "9px 12px",
-                      borderRadius: "var(--radius-md)",
-                      border: "none",
-                      background: "none",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: "background var(--transition-fast)",
-                      color: "var(--text-primary)",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = "var(--surface-2)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "none"}
-                  >
-                    <span style={{ fontSize: 14, color: "var(--text-muted)", flexShrink: 0 }}>≡</span>
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {ll.name}
-                    </span>
-                    <span style={{ fontSize: 11, color: savingToListId === ll.id ? "var(--signal)" : "var(--text-muted)", fontWeight: 600, flexShrink: 0 }}>
-                      {savingToListId === ll.id ? "Saving…" : "→"}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-
-            {/* Create new list */}
-            <form
-              onSubmit={handleCreateAndSave}
-              style={{
-                display: "flex",
-                gap: 8,
-                padding: "12px 12px 14px",
-                borderTop: "1px solid var(--border)",
-                marginTop: 4,
-                alignItems: "center",
-              }}
-            >
-              <input
-                className="input"
-                style={{ flex: 1, fontSize: 13, padding: "7px 10px" }}
-                placeholder="New list name…"
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary btn-sm"
-                disabled={creatingList || !newListName.trim()}
-                style={{ flexShrink: 0 }}
-              >
-                {creatingList ? "…" : "Create"}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Import contacts modal */}
+      <ImportContactsModal
+        open={listPickerOpen}
+        onClose={() => { setListPickerOpen(false); setPendingListLeads(null); }}
+        onConfirm={handleImportConfirm}
+        members={workspaceMembers}
+        lists={leadLists}
+        onCreateList={handleCreateList}
+        saving={savingToList}
+      />
 
       {/* Campaign picker modal */}
       {pickerOpen && (

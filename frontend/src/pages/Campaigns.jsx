@@ -27,7 +27,7 @@ export default function Campaigns() {
       const campaign = await campaignsApi.create({ name: name.trim() })
       setCreateOpen(false)
       setName('')
-      navigate(`/campaigns/${campaign.id}`)
+      navigate(`/campaigns/${campaign.id}?setup=true`)
     } catch {
       setCreating(false)
     }

@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useLocation, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
 import LinkedInProfileModal from "../components/LinkedInProfileModal";
+import ImportContactsModal from "../components/ImportContactsModal";
 import Modal from "../components/Modal";
 import { Sk, SkeletonTableRows } from "../components/Skeleton";
 import {
   campaigns as campaignsApi,
   agents as agentsApi,
   leads as leadsApi,
+  leadLists as leadListsApi,
   unipile,
 } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -869,6 +871,9 @@ const PERSONA_FIELDS = [
 // ── Main component ───────────────────────────────────────────
 export default function CampaignDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { search } = useLocation();
+  const isSetup = new URLSearchParams(search).get("setup") === "true";
   const { toast } = useToast();
 
   const [campaign, setCampaign] = useState(null);
@@ -878,6 +883,10 @@ export default function CampaignDetail() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("leads");
   const [showImport, setShowImport] = useState(false);
+  const [importContactsOpen, setImportContactsOpen] = useState(false);
+  const [savingImportContacts, setSavingImportContacts] = useState(false);
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [campaignLeadLists, setCampaignLeadLists] = useState([]);
   const [lfOpen, setLfOpen] = useState(false);
   const [profileUrlOpen, setProfileUrlOpen] = useState(false);
   const [linkedInProfileOpen, setLinkedInProfileOpen] = useState(false);
@@ -982,6 +991,70 @@ export default function CampaignDetail() {
       setLeads(Array.isArray(data) ? data : []);
     } catch {}
   }
+
+  // Load LinkedIn accounts + lead lists for ImportContactsModal
+  useEffect(() => {
+    unipile.getAccounts().then((data) => {
+      setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
+    }).catch(() => {});
+    leadListsApi.list().then((data) => {
+      setCampaignLeadLists(Array.isArray(data) ? data : []);
+    }).catch(() => {});
+  }, []);
+
+  // Called after any import modal completes in setup mode
+  async function handleSetupImportDone() {
+    await refreshLeads();
+    if (isSetup) setImportContactsOpen(true);
+  }
+
+  async function handleImportContactsConfirm({ userId, listId }) {
+    setSavingImportContacts(true);
+    try {
+      const saves = [];
+      if (userId) {
+        const acc = workspaceMembers.find((a) => a.id === userId);
+        saves.push(
+          campaignsApi.update(id, {
+            settings: {
+              ...campaign?.settings,
+              linkedinAccountId: userId,
+              linkedinAccountName: acc?.name || acc?.username || "",
+            },
+          }).then((updated) => setCampaign(updated)).catch(() => {})
+        );
+      }
+      if (listId) {
+        const leadsToSave = leads.map((l) => ({
+          name: l.name,
+          title: l.title,
+          company: l.company,
+          location: l.location,
+          linkedinUrl: l.linkedinUrl,
+          providerId: l.providerId,
+        }));
+        saves.push(leadsApi.bulkCreate(leadsToSave, listId).catch(() => {}));
+      }
+      await Promise.all(saves);
+    } finally {
+      setSavingImportContacts(false);
+    }
+    setImportContactsOpen(false);
+    setTab("builder");
+  }
+
+  async function handleCreateLeadList(name) {
+    const created = await leadListsApi.create(name);
+    setCampaignLeadLists((prev) => [...prev, created]);
+    return created;
+  }
+
+  // Auto-open import modal on first load in setup mode
+  useEffect(() => {
+    if (isSetup && !loading && campaign) {
+      setShowImport(true);
+    }
+  }, [isSetup, loading, campaign?.id]);
 
   useEffect(() => {
     async function load() {
@@ -1104,63 +1177,91 @@ export default function CampaignDetail() {
             {campaign.status === "active" ? "active" : "paused"}
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {selectedAgent && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {!isSetup && selectedAgent && (
             <span className="chip">◆ {selectedAgent.name}</span>
           )}
-          {campaign.settings?.linkedinAccountName && (
+          {!isSetup && campaign.settings?.linkedinAccountName && (
             <span className="chip">
               ◎ {campaign.settings.linkedinAccountName}
             </span>
           )}
-          <button
-            className={`btn ${campaign.status === "active" ? "btn-secondary" : "btn-primary"} btn-sm`}
-            onClick={handleToggleStatus}
-          >
-            {campaign.status === "active" ? "⏸ Pause" : "▶ Run"}
-          </button>
+          {isSetup ? (
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Complete each step to launch your campaign
+            </span>
+          ) : (
+            <button
+              className={`btn ${campaign.status === "active" ? "btn-secondary" : "btn-primary"} btn-sm`}
+              onClick={handleToggleStatus}
+            >
+              {campaign.status === "active" ? "⏸ Pause" : "▶ Run"}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs / Setup stepper */}
       <div className="detail-tabs">
-        {["leads", "builder", "persona", "analytics", "settings"].map((t) => (
-          <button
-            key={t}
-            className={`detail-tab ${tab === t ? "active" : ""}`}
-            onClick={() => setTab(t)}
-          >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+        {isSetup
+          ? ["leads", "builder", "persona", "settings"].map((t, i) => (
+              <button
+                key={t}
+                className={`detail-tab setup-wizard-tab ${tab === t ? "active" : ""}`}
+                onClick={() => setTab(t)}
+              >
+                <span className="setup-step-num">{i + 1}</span>
+                {t === "leads" ? "Import Leads" : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))
+          : ["leads", "builder", "persona", "analytics", "settings"].map((t) => (
+              <button
+                key={t}
+                className={`detail-tab ${tab === t ? "active" : ""}`}
+                onClick={() => setTab(t)}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))
+        }
       </div>
 
       <LeadFinderModal
         open={lfOpen}
         onClose={() => setLfOpen(false)}
-        onImport={refreshLeads}
+        onImport={isSetup ? handleSetupImportDone : refreshLeads}
         campaignId={id}
       />
 
       <ProfileUrlModal
         open={profileUrlOpen}
         onClose={() => setProfileUrlOpen(false)}
-        onImport={refreshLeads}
+        onImport={isSetup ? handleSetupImportDone : refreshLeads}
         campaignId={id}
       />
 
       <PostEngagersModal
         open={postEngagersOpen}
         onClose={() => setPostEngagersOpen(false)}
-        onImport={refreshLeads}
+        onImport={isSetup ? handleSetupImportDone : refreshLeads}
         campaignId={id}
       />
 
       <LinkedInProfileModal
         open={linkedInProfileOpen}
         onClose={() => setLinkedInProfileOpen(false)}
-        onImport={refreshLeads}
+        onImport={isSetup ? handleSetupImportDone : refreshLeads}
         campaignId={id}
+      />
+
+      <ImportContactsModal
+        open={importContactsOpen}
+        onClose={() => setImportContactsOpen(false)}
+        onConfirm={handleImportContactsConfirm}
+        members={workspaceMembers}
+        lists={campaignLeadLists}
+        onCreateList={handleCreateLeadList}
+        saving={savingImportContacts}
       />
 
       {/* Tab content */}
@@ -1190,6 +1291,12 @@ export default function CampaignDetail() {
             onSync={() => syncStatuses(false)}
             syncing={syncing}
             onRefreshLeads={refreshLeads}
+            onSetupImportDone={isSetup ? handleSetupImportDone : undefined}
+            isSetup={isSetup}
+            onSetupNext={() => setTab("builder")}
+            linkedinAccounts={linkedinAccounts}
+            campaign={campaign}
+            onSaveCampaign={setCampaign}
           />
         )}
         {tab === "builder" && (
@@ -1198,12 +1305,15 @@ export default function CampaignDetail() {
             initialNodes={campaign.sequence?.nodes || []}
             linkedinAccounts={linkedinAccounts}
             leads={leads}
-            onSaved={(updated) =>
-              setCampaign((prev) => ({ ...prev, sequence: updated }))
-            }
+            onSaved={(updated) => {
+              setCampaign((prev) => ({ ...prev, sequence: updated }));
+              if (isSetup) setTab("persona");
+            }}
             toast={toast}
             campaignStatus={campaign.status}
             onToggleStatus={handleToggleStatus}
+            isSetup={isSetup}
+            onSetupNext={() => setTab("persona")}
           />
         )}
         {tab === "persona" && (
@@ -1211,18 +1321,29 @@ export default function CampaignDetail() {
             campaignId={id}
             campaign={campaign}
             agents={agents}
-            onSaved={setCampaign}
+            onSaved={(updated) => {
+              setCampaign(updated);
+              if (isSetup) setTab("settings");
+            }}
             toast={toast}
+            isSetup={isSetup}
           />
         )}
-        {tab === "analytics" && <AnalyticsTab campaignId={id} />}
+        {tab === "analytics" && !isSetup && <AnalyticsTab campaignId={id} />}
         {tab === "settings" && (
           <SettingsTab
             campaign={campaign}
             agents={agents}
             linkedinAccounts={linkedinAccounts}
-            onSaved={setCampaign}
+            onSaved={(updated) => {
+              setCampaign(updated);
+              if (isSetup) {
+                navigate(`/campaigns/${id}`, { replace: true });
+                setTab("leads");
+              }
+            }}
             toast={toast}
+            isSetup={isSetup}
           />
         )}
       </div>
@@ -1796,14 +1917,74 @@ function LeadsTab({
   onSync,
   syncing,
   onRefreshLeads,
+  onSetupImportDone,
+  isSetup = false,
+  onSetupNext,
+  linkedinAccounts = [],
+  campaign,
+  onSaveCampaign,
 }) {
-  const pendingCount = leads.filter((l) => l.status === "pending").length;
+  const { toast } = useToast();
   const invitedCount = leads.filter((l) => l.status === "invited").length;
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [myLeadsOpen, setMyLeadsOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [leadsSearch, setLeadsSearch] = useState("");
   const [retryingFor, setRetryingFor] = useState(null);
+
+  // Setup mode state
+  const [setupAccountId, setSetupAccountId] = useState(campaign?.settings?.linkedinAccountId || "");
+  const [showSaveList, setShowSaveList] = useState(false);
+  const [listName, setListName] = useState("");
+  const [savingList, setSavingList] = useState(false);
+  const [savedListId, setSavedListId] = useState(null);
+  const [nextLoading, setNextLoading] = useState(false);
+
+  async function handleSaveAsMyList() {
+    if (!listName.trim()) return;
+    setSavingList(true);
+    try {
+      const list = await leadListsApi.create(listName.trim());
+      const leadsToAdd = leads.map((l) => ({
+        name: l.name,
+        title: l.title,
+        company: l.company,
+        location: l.location,
+        linkedinUrl: l.linkedinUrl,
+        providerId: l.providerId,
+      }));
+      await leadsApi.bulkCreate(leadsToAdd, list.id);
+      setSavedListId(list.id);
+      setShowSaveList(false);
+      setListName("");
+    } catch {
+      /* silent */
+    } finally {
+      setSavingList(false);
+    }
+  }
+
+  async function handleNextToBuilder() {
+    setNextLoading(true);
+    try {
+      if (setupAccountId && setupAccountId !== campaign?.settings?.linkedinAccountId) {
+        const acc = linkedinAccounts.find((a) => a.id === setupAccountId);
+        const updated = await campaignsApi.update(campaignId, {
+          settings: {
+            ...campaign?.settings,
+            linkedinAccountId: setupAccountId,
+            linkedinAccountName: acc?.name || "",
+          },
+        });
+        onSaveCampaign?.(updated);
+      }
+    } catch {
+      /* silent — don't block navigation */
+    } finally {
+      setNextLoading(false);
+    }
+    onSetupNext?.();
+  }
 
   const handleRetry = async (leadId) => {
     setRetryingFor(leadId);
@@ -1884,6 +2065,23 @@ function LeadsTab({
           </button> */}
         </div>
       </div>
+
+      {isSetup && linkedinAccounts.length > 0 && (
+        <div className="setup-account-picker">
+          <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>LinkedIn Account to use for this campaign</label>
+          <select
+            className="input"
+            style={{ maxWidth: 320 }}
+            value={setupAccountId}
+            onChange={e => setSetupAccountId(e.target.value)}
+          >
+            <option value="">Select account…</option>
+            {linkedinAccounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name || a.email || a.id}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {leads.length === 0 ? (
         <div
@@ -2008,6 +2206,48 @@ function LeadsTab({
         </div>
       )}
 
+      {isSetup && (
+        <div className="setup-leads-footer">
+          {leads.length > 0 && (
+            savedListId ? (
+              <span className="setup-saved-badge">✓ Saved to My Lists</span>
+            ) : showSaveList ? (
+              <div className="setup-save-list-row">
+                <input
+                  className="input"
+                  style={{ width: 220 }}
+                  placeholder="List name…"
+                  value={listName}
+                  onChange={e => setListName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && listName.trim() && handleSaveAsMyList()}
+                  autoFocus
+                />
+                <button
+                  className="btn btn-secondary btn-sm"
+                  disabled={!listName.trim() || savingList}
+                  onClick={handleSaveAsMyList}
+                >
+                  {savingList ? 'Saving…' : 'Save List'}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveList(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveList(true)}>
+                + Save as My List
+              </button>
+            )
+          )}
+          <button
+            className="btn btn-primary"
+            disabled={nextLoading || leads.length === 0}
+            onClick={handleNextToBuilder}
+            style={{ marginLeft: 'auto' }}
+          >
+            {nextLoading ? 'Saving…' : 'Next: Builder →'}
+          </button>
+        </div>
+      )}
+
       <Modal
         open={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
@@ -2052,14 +2292,14 @@ function LeadsTab({
         open={myLeadsOpen}
         onClose={() => setMyLeadsOpen(false)}
         campaignId={campaignId}
-        onImported={onRefreshLeads}
+        onImported={onSetupImportDone || onRefreshLeads}
       />
 
       <CsvImportModal
         open={csvImportOpen}
         onClose={() => setCsvImportOpen(false)}
         campaignId={campaignId}
-        onImported={onRefreshLeads}
+        onImported={onSetupImportDone || onRefreshLeads}
       />
 
       {showImport && (
@@ -2108,7 +2348,7 @@ function LeadsTab({
                         onCloseImport();
                         setCsvImportOpen(true);
                       } else {
-                        alert(`${s.label} — coming soon`);
+                        toast(`${s.label} — coming soon`, 'info');
                       }
                     }}
                   >
@@ -2136,6 +2376,8 @@ function BuilderTab({
   toast,
   campaignStatus,
   onToggleStatus,
+  isSetup = false,
+  onSetupNext,
 }) {
   const [nodes, setNodes] = useState(() => {
     const expanded = [];
@@ -2336,20 +2578,24 @@ function BuilderTab({
       <div className="builder-canvas" onClick={() => setSelectedId(null)}>
         {/* Start node */}
         <div
-          className={`builder-entry-node ${campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
+          className={`builder-entry-node ${isSetup ? "builder-entry-node--setup" : campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            onToggleStatus?.();
+            if (isSetup) onSetupNext?.();
+            else onToggleStatus?.();
           }}
-          title={
-            campaignStatus === "active" ? "Pause campaign" : "Start campaign"
-          }
+          title={isSetup ? "Save & continue to Persona" : campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
           style={{ cursor: "pointer" }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {campaignStatus === "active" ? <><span>⏸</span> Running</> : <><span>▶</span> Start the campaign</>}
+            {isSetup
+              ? <><span>→</span> Next: Persona</>
+              : campaignStatus === "active"
+                ? <><span>⏸</span> Running</>
+                : <><span>▶</span> Start the campaign</>
+            }
           </div>
-          {leads?.length > 0 && (
+          {!isSetup && leads?.length > 0 && (
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
               {leads.length.toLocaleString()} contacts
             </div>
@@ -3073,7 +3319,7 @@ function BuilderTab({
 }
 
 // ── Persona Tab ───────────────────────────────────────────────
-function PersonaTab({ campaignId, campaign, agents, onSaved, toast }) {
+function PersonaTab({ campaignId, campaign, agents, onSaved, toast, isSetup = false }) {
   const [agentId, setAgentId] = useState(campaign.settings?.agentId || "");
   const [persona, setPersona] = useState(campaign.settings?.persona || {});
   const [saving, setSaving] = useState(false);
@@ -3193,7 +3439,7 @@ function PersonaTab({ campaignId, campaign, agents, onSaved, toast }) {
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? "Saving…" : "Save Persona"}
+            {saving ? "Saving…" : isSetup ? "Save & Continue to Settings →" : "Save Persona"}
           </button>
         </div>
       </div>
@@ -3759,7 +4005,7 @@ const FREQUENCY_ITEMS = [
   },
 ];
 
-function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
+function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast, isSetup = false }) {
   const [form, setForm] = useState({
     linkedinAccountId: campaign.settings?.linkedinAccountId || "",
     linkedinAccountName: campaign.settings?.linkedinAccountName || "",
@@ -3958,7 +4204,7 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? "Saving…" : "Save Settings"}
+          {saving ? "Saving…" : isSetup ? "Finish Setup →" : "Save Settings"}
         </button>
       </div>
 

@@ -1197,6 +1197,7 @@ export default function CampaignDetail() {
             campaignId={id}
             initialNodes={campaign.sequence?.nodes || []}
             linkedinAccounts={linkedinAccounts}
+            leads={leads}
             onSaved={(updated) =>
               setCampaign((prev) => ({ ...prev, sequence: updated }))
             }
@@ -1948,11 +1949,14 @@ function LeadsTab({
                   <td>
                     <span
                       className={`badge ${STATUS_COLORS[l.status] || "badge-muted"}`}
-                      title={l.lastError || undefined}
-                      style={l.lastError ? { cursor: "help" } : undefined}
                     >
                       {l.status || "pending"}
                     </span>
+                    {l.lastError && (
+                      <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 3, maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.lastError}>
+                        {l.lastError}
+                      </div>
+                    )}
                   </td>
                   <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
                     {l.addedAt
@@ -2127,21 +2131,76 @@ function BuilderTab({
   campaignId,
   initialNodes,
   linkedinAccounts,
+  leads,
   onSaved,
   toast,
   campaignStatus,
   onToggleStatus,
 }) {
-  const [nodes, setNodes] = useState(() =>
-    (initialNodes || []).map((n, i) => ({ ...n, _id: n.id || `n_${i}` })),
-  );
+  const [nodes, setNodes] = useState(() => {
+    const expanded = [];
+    (initialNodes || []).forEach((n, i) => {
+      const parentId = n.id || `n_${i}`;
+      const { noBranch, yesBranch, ...restConfig } = n.config || {};
+      expanded.push({ ...n, _id: parentId, config: restConfig });
+      if (noBranch?.length) {
+        noBranch.forEach((nb, j) => {
+          expanded.push({ ...nb, _id: nb.id || `nb_${parentId}_${j}`, _nobranchOf: parentId });
+        });
+      }
+      if (yesBranch?.length) {
+        yesBranch.forEach((yb, j) => {
+          expanded.push({ ...yb, _id: yb.id || `yb_${parentId}_${j}`, _yesbranchOf: parentId });
+        });
+      }
+    });
+    return expanded;
+  });
+  // Pick a random campaign lead to use for message previews (falls back to
+  // the static placeholder values when there are no leads yet). Memoised on
+  // the lead set so it stays stable while typing.
+  const sampleLead = React.useMemo(() => {
+    if (!Array.isArray(leads) || leads.length === 0) return null;
+    return leads[Math.floor(Math.random() * leads.length)];
+  }, [leads]);
   const [selectedId, setSelectedId] = useState(null);
   const [addingAt, setAddingAt] = useState(null); // index to insert after (-1 = beginning)
+  const [addingToNoBranch, setAddingToNoBranch] = useState(null); // condNode._id
+  const [addingToYesBranch, setAddingToYesBranch] = useState(null); // condNode._id
   const [pickerTab, setPickerTab] = useState("action");
   const [saving, setSaving] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const isDraggingRef = React.useRef(false);
+  const [openStatsId, setOpenStatsId] = useState(null);
+
+  // Close stats popup on outside click
+  React.useEffect(() => {
+    if (!openStatsId) return;
+    const handler = () => setOpenStatsId(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [openStatsId]);
+
+  function getNodeLeadStats(nodeType) {
+    if (!leads?.length) return { inProgress: 0, finished: 0, failed: 0 };
+    const failedSt = ["failed", "rejected", "skipped"];
+    let inProgressSt, finishedSt;
+    if (["visit_profile", "like_post", "follow", "comment_post"].includes(nodeType)) {
+      inProgressSt = ["pending"]; finishedSt = ["invited", "connected", "replied", "booked"];
+    } else if (nodeType === "connection_request") {
+      inProgressSt = ["invited"]; finishedSt = ["connected", "replied", "booked"];
+    } else if (["message", "message_open", "inmail"].includes(nodeType)) {
+      inProgressSt = ["connected"]; finishedSt = ["replied", "booked"];
+    } else {
+      inProgressSt = ["pending", "invited"]; finishedSt = ["connected", "replied", "booked"];
+    }
+    return {
+      inProgress: leads.filter(l => inProgressSt.includes(l.status)).length,
+      finished:   leads.filter(l => finishedSt.includes(l.status)).length,
+      failed:     leads.filter(l => failedSt.includes(l.status)).length,
+    };
+  }
 
   const selectedNode = nodes.find((n) => n._id === selectedId) || null;
 
@@ -2183,7 +2242,35 @@ function BuilderTab({
   async function saveSequence(updatedNodes) {
     setSaving(true);
     try {
-      const payload = { nodes: updatedNodes.map(({ _id, ...rest }) => rest) };
+      // Collect noBranch / yesBranch nodes back into their parent's config
+      const nobranchMap = {};
+      const yesbranchMap = {};
+      updatedNodes.forEach((n) => {
+        if (n._nobranchOf) {
+          if (!nobranchMap[n._nobranchOf]) nobranchMap[n._nobranchOf] = [];
+          nobranchMap[n._nobranchOf].push(n);
+        }
+        if (n._yesbranchOf) {
+          if (!yesbranchMap[n._yesbranchOf]) yesbranchMap[n._yesbranchOf] = [];
+          yesbranchMap[n._yesbranchOf].push(n);
+        }
+      });
+      const payload = {
+        nodes: updatedNodes
+          .filter((n) => !n._nobranchOf && !n._yesbranchOf)
+          .map(({ _id, _new, ...rest }) => ({
+            ...rest,
+            config: {
+              ...rest.config,
+              ...(nobranchMap[_id]?.length
+                ? { noBranch: nobranchMap[_id].map(({ _id: _nbId, _nobranchOf, _new: _nbNew, ...nbRest }) => nbRest) }
+                : {}),
+              ...(yesbranchMap[_id]?.length
+                ? { yesBranch: yesbranchMap[_id].map(({ _id: _ybId, _yesbranchOf, _new: _ybNew, ...ybRest }) => ybRest) }
+                : {}),
+            },
+          })),
+      };
       const result = await campaignsApi.updateSequence(campaignId, payload);
       onSaved(result);
       toast?.("Sequence saved", "success");
@@ -2194,19 +2281,39 @@ function BuilderTab({
     }
   }
 
-  function addNode(type, insertAfterIndex) {
+  function addNode(type, insertAfterIndex, noBranchOfId = null, yesBranchOfId = null) {
+    const branchTag = noBranchOfId
+      ? { _nobranchOf: noBranchOfId }
+      : yesBranchOfId
+        ? { _yesbranchOf: yesBranchOfId }
+        : {};
     const newNode = {
       _id: `n_${Date.now()}`,
       type,
       config: type === "wait" ? { days: 1, unit: "days" } : {},
       _new: true,
+      ...branchTag,
     };
     setNodes((prev) => {
       const next = [...prev];
-      next.splice(insertAfterIndex + 1, 0, newNode);
+      if (noBranchOfId || yesBranchOfId) {
+        const parentId = noBranchOfId || yesBranchOfId;
+        const tagKey = noBranchOfId ? "_nobranchOf" : "_yesbranchOf";
+        const condIdx = prev.findIndex((n) => n._id === parentId);
+        let insertIdx = condIdx;
+        for (let k = condIdx + 1; k < next.length; k++) {
+          if (next[k][tagKey] === parentId) insertIdx = k;
+          else if (!next[k]._nobranchOf && !next[k]._yesbranchOf) break;
+        }
+        next.splice(insertIdx + 1, 0, newNode);
+      } else {
+        next.splice(insertAfterIndex + 1, 0, newNode);
+      }
       return next;
     });
     setAddingAt(null);
+    setAddingToNoBranch(null);
+    setAddingToYesBranch(null);
     setSelectedId(newNode._id);
   }
 
@@ -2239,14 +2346,13 @@ function BuilderTab({
           }
           style={{ cursor: "pointer" }}
         >
-          {campaignStatus === "active" ? (
-            <>
-              <span>⏸</span> Running
-            </>
-          ) : (
-            <>
-              <span>▶</span> Start
-            </>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {campaignStatus === "active" ? <><span>⏸</span> Running</> : <><span>▶</span> Start the campaign</>}
+          </div>
+          {leads?.length > 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+              {leads.length.toLocaleString()} contacts
+            </div>
           )}
         </div>
 
@@ -2267,11 +2373,13 @@ function BuilderTab({
         </div>
 
         {nodes.map((node, i) => {
+          // Branch nodes are rendered inside the condition fork, not in the main flow
+          if (node._nobranchOf || node._yesbranchOf) return null;
           const meta = stepMeta(node.type);
           const ok = nodeConfigured(node);
           const sub =
             node.type === "wait"
-              ? waitLabel(node.config)
+              ? null // day count is shown in the title via nodeLabel
               : node.config?.text
                 ? node.config.text.slice(0, 42) +
                   (node.config.text.length > 42 ? "…" : "")
@@ -2279,14 +2387,13 @@ function BuilderTab({
                   ? node.config.note.slice(0, 42) +
                     (node.config.note.length > 42 ? "…" : "")
                   : null;
+          const nodeStats = getNodeLeadStats(node.type);
+          const statsTotal = nodeStats.inProgress + nodeStats.finished + nodeStats.failed;
           return (
             <div
               key={node._id}
-              className={
-                dragOverIndex === i && dragIndex !== i
-                  ? "builder-drop-target"
-                  : ""
-              }
+              className={`builder-node-wrap${dragOverIndex === i && dragIndex !== i ? " builder-drop-target" : ""}`}
+              style={{ position: "relative" }}
               onDragOver={(e) => handleDragOver(e, i)}
               onDrop={(e) => handleDrop(e, i)}
               onDragLeave={(e) => {
@@ -2307,7 +2414,7 @@ function BuilderTab({
               >
                 <div className="node-icon">{meta.icon}</div>
                 <div className="node-content">
-                  <div className="node-label">{meta.label}</div>
+                  <div className="node-label">{nodeLabel(node)}</div>
                   {!ok ? (
                     <div className="node-error">Configure required</div>
                   ) : (
@@ -2318,6 +2425,16 @@ function BuilderTab({
                   className="node-actions"
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {leads?.length > 0 && (
+                    <button
+                      className="btn btn-icon btn-ghost node-contacts-btn"
+                      title="Contact statuses"
+                      onClick={(e) => { e.stopPropagation(); setOpenStatsId(openStatsId === node._id ? null : node._id); }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1z"/></svg>
+                      <span>{statsTotal}</span>
+                    </button>
+                  )}
                   <span
                     style={{
                       fontSize: 13,
@@ -2345,21 +2462,150 @@ function BuilderTab({
                 </div>
               </div>
 
+              {/* Contact statuses popup */}
+              {openStatsId === node._id && (
+                <div className="node-stats-popup" onClick={(e) => e.stopPropagation()}>
+                  <div className="node-stats-popup-header">
+                    <span>CONTACT'S STATUSES</span><span>COUNT</span>
+                  </div>
+                  <div className="node-stats-popup-row">
+                    <span><span className="node-stats-dot node-stats-dot--yellow" />In Progress</span>
+                    <span>{nodeStats.inProgress}</span>
+                  </div>
+                  <div className="node-stats-popup-row">
+                    <span><span className="node-stats-dot node-stats-dot--green" />Finished</span>
+                    <span>{nodeStats.finished}</span>
+                  </div>
+                  <div className="node-stats-popup-row">
+                    <span><span className="node-stats-dot node-stats-dot--red" />Failed</span>
+                    <span>{nodeStats.failed}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Connector + add button between nodes */}
-              <div className="builder-connector-wrap">
-                <div className="builder-connector" />
-                <button
-                  className="add-node-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setAddingAt(i);
-                  }}
-                  title="Add step here"
-                >
-                  +
-                </button>
-                {i < nodes.length - 1 && <div className="builder-connector" />}
-              </div>
+              {meta.isCondition ? (() => {
+                const noBranchNodes = nodes.filter((n) => n._nobranchOf === node._id);
+                const yesBranchNodes = nodes.filter((n) => n._yesbranchOf === node._id);
+                const mainNodesAfter = nodes.filter((n) => !n._nobranchOf && !n._yesbranchOf);
+                const condMainIdx = mainNodesAfter.findIndex((n) => n._id === node._id);
+                const hasNextMain = condMainIdx < mainNodesAfter.length - 1;
+                return (
+                  <div className="builder-branch-wrap">
+                    <div className="builder-connector" />
+                    <div className="builder-branch-fork">
+                      {/* ── No column ── */}
+                      <div className="builder-branch-col branch-col-no">
+                        <span className="branch-label branch-label-no">No</span>
+                        {noBranchNodes.map((nb) => {
+                          const nbMeta = stepMeta(nb.type);
+                          const nbOk = nodeConfigured(nb);
+                          return (
+                            <React.Fragment key={nb._id}>
+                              <div className="branch-nb-connector" />
+                              <div
+                                className={`builder-node builder-node-nb${selectedId === nb._id ? " selected" : ""}${!nbOk ? " missing" : ""}`}
+                                onClick={(e) => { e.stopPropagation(); setSelectedId(nb._id); }}
+                              >
+                                <div className="node-icon">{nbMeta.icon}</div>
+                                <div className="node-content">
+                                  <div className="node-label">{nodeLabel(nb)}</div>
+                                  {!nbOk && <div className="node-error">Configure required</div>}
+                                </div>
+                                <button
+                                  className="btn btn-icon btn-ghost"
+                                  style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }}
+                                  onClick={(e) => { e.stopPropagation(); deleteNode(nb._id); }}
+                                  title="Remove"
+                                >✕</button>
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
+                        <div className="branch-nb-connector" />
+                        <button
+                          className="add-node-btn"
+                          onClick={(e) => { e.stopPropagation(); setAddingToNoBranch(node._id); setAddingToYesBranch(null); setAddingAt(null); }}
+                          title="Add step to No branch"
+                        >+</button>
+                        <div className="branch-col-fill" />
+                      </div>
+
+                      {/* ── Yes column ── */}
+                      <div className="builder-branch-col branch-col-yes">
+                        <span className="branch-label branch-label-yes">Yes</span>
+                        {yesBranchNodes.map((yb) => {
+                          const ybMeta = stepMeta(yb.type);
+                          const ybOk = nodeConfigured(yb);
+                          return (
+                            <React.Fragment key={yb._id}>
+                              <div className="branch-nb-connector branch-nb-connector-yes" />
+                              <div
+                                className={`builder-node builder-node-nb builder-node-yb${selectedId === yb._id ? " selected" : ""}${!ybOk ? " missing" : ""}`}
+                                onClick={(e) => { e.stopPropagation(); setSelectedId(yb._id); }}
+                              >
+                                <div className="node-icon">{ybMeta.icon}</div>
+                                <div className="node-content">
+                                  <div className="node-label">{nodeLabel(yb)}</div>
+                                  {!ybOk && <div className="node-error">Configure required</div>}
+                                </div>
+                                <button
+                                  className="btn btn-icon btn-ghost"
+                                  style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }}
+                                  onClick={(e) => { e.stopPropagation(); deleteNode(yb._id); }}
+                                  title="Remove"
+                                >✕</button>
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
+                        {yesBranchNodes.length === 0 ? (
+                          <button
+                            className="branch-yes-add-placeholder"
+                            onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }}
+                          >
+                            <span style={{ fontSize: 16, marginRight: 6 }}>⊕</span> Add Action
+                          </button>
+                        ) : (
+                          <>
+                            <div className="branch-nb-connector branch-nb-connector-yes" />
+                            <button
+                              className="add-node-btn"
+                              onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }}
+                              title="Add step to Yes branch"
+                            >+</button>
+                          </>
+                        )}
+                        <div className="branch-col-fill" />
+                      </div>
+                    </div>
+
+                    {/* Merge: connector + add button for main sequence */}
+                    <div className="builder-connector" />
+                    <button
+                      className="add-node-btn"
+                      onClick={(e) => { e.stopPropagation(); setAddingAt(i); setAddingToNoBranch(null); setAddingToYesBranch(null); }}
+                      title="Add step after branch"
+                    >+</button>
+                    {hasNextMain && <div className="builder-connector" />}
+                  </div>
+                );
+              })() : (
+                <div className="builder-connector-wrap">
+                  <div className="builder-connector" />
+                  <button
+                    className="add-node-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddingAt(i);
+                    }}
+                    title="Add step here"
+                  >
+                    +
+                  </button>
+                  {i < nodes.length - 1 && <div className="builder-connector" />}
+                </div>
+              )}
             </div>
           );
         })}
@@ -2517,6 +2763,7 @@ function BuilderTab({
                   <ConnectionNoteEditor
                     node={selectedNode}
                     updateNode={updateNode}
+                    sampleLead={sampleLead}
                     toast={toast}
                   />
                 </div>
@@ -2526,8 +2773,8 @@ function BuilderTab({
             {selectedNode.type === "message" && (
               <MessageStepEditor
                 node={selectedNode}
-                linkedinAccounts={linkedinAccounts}
                 updateNode={updateNode}
+                sampleLead={sampleLead}
                 toast={toast}
               />
             )}
@@ -2574,8 +2821,8 @@ function BuilderTab({
             {selectedNode.type === "message_open" && (
               <MessageStepEditor
                 node={selectedNode}
-                linkedinAccounts={linkedinAccounts}
                 updateNode={updateNode}
+                sampleLead={sampleLead}
                 toast={toast}
               />
             )}
@@ -2751,8 +2998,8 @@ function BuilderTab({
       )}
 
       {/* Add step picker modal */}
-      {addingAt !== null && (
-        <div className="modal-overlay" onClick={() => setAddingAt(null)}>
+      {(addingAt !== null || addingToNoBranch !== null || addingToYesBranch !== null) && (
+        <div className="modal-overlay" onClick={() => { setAddingAt(null); setAddingToNoBranch(null); setAddingToYesBranch(null); }}>
           <div
             className="step-picker-modal animate-fade-in"
             onClick={(e) => e.stopPropagation()}
@@ -2775,7 +3022,7 @@ function BuilderTab({
               </div>
               <button
                 className="btn btn-icon btn-ghost"
-                onClick={() => setAddingAt(null)}
+                onClick={() => { setAddingAt(null); setAddingToNoBranch(null); setAddingToYesBranch(null); }}
                 style={{ marginLeft: "auto" }}
               >
                 ✕
@@ -2790,7 +3037,7 @@ function BuilderTab({
                     <button
                       key={s.type}
                       className="step-picker-card"
-                      onClick={() => addNode(s.type, addingAt)}
+                      onClick={() => addingToNoBranch ? addNode(s.type, null, addingToNoBranch) : addingToYesBranch ? addNode(s.type, null, null, addingToYesBranch) : addNode(s.type, addingAt)}
                     >
                       <div className="step-picker-icon">
                         <span className="spi-action">{s.icon}</span>
@@ -2806,7 +3053,7 @@ function BuilderTab({
                     <button
                       key={s.type}
                       className="step-picker-card"
-                      onClick={() => addNode(s.type, addingAt)}
+                      onClick={() => addingToNoBranch ? addNode(s.type, null, addingToNoBranch) : addingToYesBranch ? addNode(s.type, null, null, addingToYesBranch) : addNode(s.type, addingAt)}
                     >
                       <div className="step-picker-icon">
                         <span className="spi-action">{s.icon}</span>
@@ -2954,12 +3201,38 @@ function PersonaTab({ campaignId, campaign, agents, onSaved, toast }) {
   );
 }
 
+function timeAgo(ts) {
+  if (!ts) return "—";
+  const diff = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)} minute${Math.floor(diff / 60) === 1 ? "" : "s"} ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) === 1 ? "" : "s"} ago`;
+  return `${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) === 1 ? "" : "s"} ago`;
+}
+
+function LeadAvatar({ name }) {
+  const initials = (name || "?").split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const hue = [...(name || "")].reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
+  return (
+    <div style={{
+      width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+      background: `hsl(${hue},40%,45%)`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 11, fontWeight: 600, color: "#fff",
+    }}>{initials}</div>
+  );
+}
+
 // ── Analytics Tab ─────────────────────────────────────────────
 function AnalyticsTab({ campaignId }) {
   const [range, setRange] = useState("30d");
   const [metric, setMetric] = useState("sent");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actPage, setActPage] = useState(1);
+  const [actData, setActData] = useState(null);
+  const [actLoading, setActLoading] = useState(true);
+  const ACT_LIMIT = 10;
 
   useEffect(() => {
     campaignsApi
@@ -2968,6 +3241,15 @@ function AnalyticsTab({ campaignId }) {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [campaignId]);
+
+  useEffect(() => {
+    setActLoading(true);
+    campaignsApi
+      .getActivity(campaignId, actPage, ACT_LIMIT)
+      .then(setActData)
+      .catch(() => setActData(null))
+      .finally(() => setActLoading(false));
+  }, [campaignId, actPage]);
 
   const totals = data || {
     sent: 0,
@@ -3234,6 +3516,64 @@ function AnalyticsTab({ campaignId }) {
           </div>
         )}
       </div>
+
+      {/* Activity log */}
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>
+          Past Actions
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border)" }}>
+              <th style={{ padding: "8px 18px", textAlign: "left", fontWeight: 500, color: "var(--text-muted)", width: 160 }}>Time</th>
+              <th style={{ padding: "8px 18px", textAlign: "left", fontWeight: 500, color: "var(--text-muted)" }}>Past Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {actLoading ? (
+              Array.from({ length: ACT_LIMIT }).map((_, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "12px 18px" }}><Sk w={90} h={12} r={4} /></td>
+                  <td style={{ padding: "12px 18px" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><Sk w={28} h={28} r="50%" /><Sk w={260} h={12} r={4} /></div></td>
+                </tr>
+              ))
+            ) : !actData?.items?.length ? (
+              <tr><td colSpan={2} style={{ padding: "32px 18px", textAlign: "center", color: "var(--text-muted)" }}>No actions yet.</td></tr>
+            ) : (
+              actData.items.map(item => (
+                <tr key={item.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "12px 18px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{timeAgo(item.timestamp)}</td>
+                  <td style={{ padding: "12px 18px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <LeadAvatar name={item.name} />
+                      <span>
+                        {item.action}{" "}
+                        {item.linkedinUrl ? (
+                          <a href={item.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>{item.name}</a>
+                        ) : (
+                          <strong>{item.name}</strong>
+                        )}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        {/* Pagination */}
+        {actData?.total > ACT_LIMIT && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "10px 18px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)" }}>
+            <span>{(actPage - 1) * ACT_LIMIT + 1}–{Math.min(actPage * ACT_LIMIT, actData.total)} of {actData.total.toLocaleString()} items</span>
+            <button className="btn-ghost" style={{ padding: "3px 8px", fontSize: 12 }} disabled={actPage === 1} onClick={() => setActPage(p => p - 1)}>‹</button>
+            {Array.from({ length: Math.min(5, Math.ceil(actData.total / ACT_LIMIT)) }, (_, i) => i + 1).map(p => (
+              <button key={p} className={`btn-ghost${actPage === p ? " active" : ""}`} style={{ padding: "3px 8px", fontSize: 12, fontWeight: actPage === p ? 600 : 400 }} onClick={() => setActPage(p)}>{p}</button>
+            ))}
+            {Math.ceil(actData.total / ACT_LIMIT) > 5 && <span>…</span>}
+            <button className="btn-ghost" style={{ padding: "3px 8px", fontSize: 12 }} disabled={actPage * ACT_LIMIT >= actData.total} onClick={() => setActPage(p => p + 1)}>›</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3248,6 +3588,42 @@ const DEFAULT_SCHEDULE = [
   { day: "Saturday", enabled: false, start: "00:00", end: "00:00" },
   { day: "Sunday", enabled: false, start: "00:00", end: "00:00" },
 ];
+
+// Full IANA timezone list from the browser, with each zone's current UTC
+// offset in the label. Falls back to a small set on older browsers that
+// don't support Intl.supportedValuesOf.
+const FALLBACK_TIMEZONES = [
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "America/New_York",
+  "America/Chicago",
+  "America/Los_Angeles",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Australia/Sydney",
+  "UTC",
+];
+
+function tzOffsetLabel(value) {
+  try {
+    const part = new Intl.DateTimeFormat("en-GB", {
+      timeZone: value,
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(new Date())
+      .find((p) => p.type === "timeZoneName");
+    const offset = part?.value?.replace("GMT", "UTC") || "";
+    return offset ? `${value.replace(/_/g, " ")} (${offset})` : value;
+  } catch {
+    return value.replace(/_/g, " ");
+  }
+}
+
+const TIMEZONES = (typeof Intl.supportedValuesOf === "function"
+  ? Intl.supportedValuesOf("timeZone")
+  : FALLBACK_TIMEZONES
+).map((value) => ({ value, label: tzOffsetLabel(value) }));
 
 const DEFAULT_FREQUENCY = {
   messages: 20,
@@ -3397,6 +3773,25 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
     campaign.settings?.schedule || DEFAULT_SCHEDULE,
   );
   const [savingSchedule, setSavingSchedule] = useState(false);
+
+  // Live clock so the Schedule card can show the current time in the
+  // selected timezone (the schedule hours are interpreted in that zone).
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  let tzClock = "";
+  try {
+    tzClock = new Intl.DateTimeFormat("en-GB", {
+      timeZone: form.timezone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(now);
+  } catch {
+    tzClock = ""; // invalid/unknown timezone — hide the clock
+  }
 
   const [frequency, setFrequency] = useState(
     campaign.settings?.frequency || {
@@ -3558,27 +3953,6 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
           </div>
         </div>
 
-        <div className="input-group">
-          <label className="input-label">Timezone</label>
-          <select
-            className="input"
-            value={form.timezone}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, timezone: e.target.value }))
-            }
-          >
-            <option value="Europe/London">Europe/London (UTC+0/+1)</option>
-            <option value="Europe/Paris">Europe/Paris (UTC+1/+2)</option>
-            <option value="America/New_York">
-              America/New_York (UTC-5/-4)
-            </option>
-            <option value="America/Los_Angeles">
-              America/Los_Angeles (UTC-8/-7)
-            </option>
-            <option value="Asia/Dubai">Asia/Dubai (UTC+4)</option>
-          </select>
-        </div>
-
         <button
           className="btn btn-primary"
           onClick={handleSave}
@@ -3594,10 +3968,55 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
         <p
           style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}
         >
-          Set which days and hours your campaign is active.
+          Set which days and hours your campaign is active. All times below are
+          in the selected timezone.
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Timezone — the schedule hours are interpreted in this zone */}
+        <div className="input-group">
+          <label className="input-label">Timezone</label>
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+          >
+            <select
+              className="input"
+              value={form.timezone}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, timezone: e.target.value }))
+              }
+              style={{ flex: 1, minWidth: 220 }}
+            >
+              {TIMEZONES.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
+            {tzClock && (
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Current time:{" "}
+                <strong style={{ color: "var(--text-primary)" }}>
+                  {tzClock}
+                </strong>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            marginTop: 16,
+          }}
+        >
           {schedule.map((row, idx) => (
             <div
               key={row.day}
@@ -3821,7 +4240,36 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast }) {
 // ── Connection Note Editor ─────────────────────────────────────
 const NOTE_CHAR_LIMIT = 300;
 
-function ConnectionNoteEditor({ node, updateNode, toast }) {
+// Resolve a {variable} to a real lead's value for message previews.
+// Returns null when the lead doesn't have that field, so callers can fall
+// back to the static placeholder.
+function leadVarValue(varValue, lead) {
+  if (!lead) return null;
+  const fullName =
+    lead.name ||
+    [lead.firstName, lead.lastName].filter(Boolean).join(" ").trim();
+  const parts = (fullName || "").trim().split(/\s+/).filter(Boolean);
+  switch (varValue) {
+    case "{firstName}":
+      return lead.firstName || parts[0] || null;
+    case "{lastName}":
+      return (
+        lead.lastName || (parts.length > 1 ? parts.slice(1).join(" ") : null)
+      );
+    case "{fullName}":
+      return fullName || null;
+    case "{jobTitle}":
+      return lead.title || lead.jobTitle || null;
+    case "{company}":
+      return lead.company || null;
+    case "{location}":
+      return lead.location || null;
+    default:
+      return null; // sender vars aren't lead-specific
+  }
+}
+
+function ConnectionNoteEditor({ node, updateNode, sampleLead, toast }) {
   const [showVarMenu, setShowVarMenu] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -3872,10 +4320,8 @@ function ConnectionNoteEditor({ node, updateNode, toast }) {
   function previewText() {
     let t = noteText;
     CONTACT_VARS.filter((v) => v.value).forEach((v) => {
-      t = t.replace(
-        new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"),
-        v.preview,
-      );
+      const val = leadVarValue(v.value, sampleLead) || v.preview;
+      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), val);
     });
     return t;
   }
@@ -4034,7 +4480,12 @@ const SEND_CONDITIONS = [
   },
 ];
 
-function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
+function MessageStepEditor({
+  node,
+  updateNode,
+  sampleLead,
+  toast,
+}) {
   const [showVarMenu, setShowVarMenu] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -4072,7 +4523,7 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
   const config = node.config || {};
   const msgText = config.text || "";
   const isEmpty = !msgText.trim();
-  const selAcc = linkedinAccounts.find((a) => a.id === config.accountId);
+
 
   function insertVar(v) {
     const ta = textareaRef.current;
@@ -4110,92 +4561,14 @@ function MessageStepEditor({ node, linkedinAccounts, updateNode, toast }) {
   function previewText() {
     let t = msgText;
     CONTACT_VARS.filter((v) => v.value).forEach((v) => {
-      t = t.replace(
-        new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"),
-        v.preview,
-      );
+      const val = leadVarValue(v.value, sampleLead) || v.preview;
+      t = t.replace(new RegExp(v.value.replace(/[{}]/g, "\\$&"), "g"), val);
     });
     return t;
   }
 
   return (
     <>
-      {/* Sender account */}
-      <div className="input-group">
-        <label
-          className="input-label"
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "var(--text-muted)",
-            marginBottom: 10,
-          }}
-        >
-          Select a sender account
-        </label>
-        {selAcc ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div className="sender-chip">
-              <div className="sender-avatar">
-                {(selAcc.name || "?")[0].toUpperCase()}
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>
-                {selAcc.name}
-              </span>
-              <button
-                className="sender-chip-remove"
-                onClick={() =>
-                  updateNode(node._id, { accountId: "", accountName: "" })
-                }
-              >
-                ×
-              </button>
-            </div>
-            <select
-              className="input"
-              style={{ fontSize: 12, padding: "4px 8px", width: "auto" }}
-              value={config.accountId}
-              onChange={(e) => {
-                const acc = linkedinAccounts.find(
-                  (a) => a.id === e.target.value,
-                );
-                updateNode(node._id, {
-                  accountId: e.target.value,
-                  accountName: acc?.name || "",
-                });
-              }}
-            >
-              {linkedinAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name || a.id}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <select
-            className="input"
-            value=""
-            onChange={(e) => {
-              const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-              updateNode(node._id, {
-                accountId: e.target.value,
-                accountName: acc?.name || "",
-              });
-            }}
-          >
-            <option value="">Select account…</option>
-            {linkedinAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.id}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
       {/* Message composer */}
       <div className="msg-composer">
         {/* Toolbar */}

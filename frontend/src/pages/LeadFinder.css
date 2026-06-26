@@ -121,6 +121,76 @@
   border-color: rgba(57, 255, 135, 0.3);
 }
 
+/* Job title tag input */
+.tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  transition: border-color var(--transition-fast);
+}
+.tag-input:focus-within {
+  border-color: var(--signal);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--signal-subtle);
+  color: var(--signal);
+  border: 1px solid rgba(57, 255, 135, 0.3);
+}
+
+.tag-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  opacity: 0.7;
+}
+.tag-chip-remove:hover {
+  opacity: 1;
+  background: rgba(57, 255, 135, 0.2);
+}
+
+.tag-input-field {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 3px 2px;
+  outline: none;
+}
+.tag-input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.filter-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
 .results-panel {
   flex: 1;
   min-height: 0;

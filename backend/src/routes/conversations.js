@@ -136,6 +136,15 @@ router.get('/:id', (req, res) => {
   res.json(conv)
 })
 
+// DELETE /api/conversations/:id — hide a conversation from the inbox
+router.delete('/:id', (req, res) => {
+  const conv = conversationStore.get(req.params.id)
+  if (!conv) return res.status(404).json({ message: 'Conversation not found' })
+  cancelPendingReply(req.params.id)
+  conversationStore.update(req.params.id, { hidden: true, aiPaused: true })
+  res.json({ success: true })
+})
+
 // POST /api/conversations/:id/pause-ai
 router.post('/:id/pause-ai', (req, res) => {
   const conv = conversationStore.get(req.params.id)
@@ -146,10 +155,29 @@ router.post('/:id/pause-ai', (req, res) => {
 })
 
 // POST /api/conversations/:id/resume-ai
-router.post('/:id/resume-ai', (req, res) => {
+router.post('/:id/resume-ai', async (req, res) => {
   const conv = conversationStore.get(req.params.id)
   if (!conv) return res.status(404).json({ message: 'Conversation not found' })
-  const updated = conversationStore.update(req.params.id, { aiPaused: false, status: 'ai_active' })
+
+  const patch = { aiPaused: false, status: 'ai_active' }
+
+  // If the caller explicitly chose an agent, use it (overrides any previously stored agentId)
+  const requestedAgentId = req.body?.agentId
+  if (requestedAgentId) {
+    patch.agentId = requestedAgentId
+    console.log(`[resume-ai] Using caller-selected agentId=${requestedAgentId} for conv ${req.params.id}`)
+  } else if (!conv.agentId) {
+    // Auto-resolve: campaign agent → any active workspace agent
+    const resolved = await resolveAgentForConv(conv)
+    if (resolved?.agentId) {
+      patch.agentId = resolved.agentId
+      console.log(`[resume-ai] Auto-resolved agentId=${resolved.agentId} for conv ${req.params.id}`)
+    } else {
+      console.warn(`[resume-ai] No agent found for conv ${req.params.id} — AI will not reply until an agent is configured`)
+    }
+  }
+
+  const updated = conversationStore.update(req.params.id, patch)
   res.json(updated)
 })
 
@@ -280,7 +308,7 @@ router.post('/ai-edit', async (req, res) => {
     }
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1000,
       messages: [{
         role: 'user',
@@ -354,13 +382,79 @@ async function getCampaignSettingsForProspect(prospectId, campaignId = null) {
   }
 }
 
+// Resolve the best available agent for a conversation.
+// Priority: conv.agentId → campaign agent via prospect → any active workspace agent
+async function resolveAgentForConv(conv) {
+  if (conv.agentId) {
+    const agent = await getAgentById(conv.agentId)
+    if (agent?.persona) return { agent, agentId: conv.agentId }
+  }
+
+  if (supabase) {
+    // Try via campaign_leads → campaign settings
+    if (conv.prospectId) {
+      try {
+        const { data: lead } = await supabase
+          .from('campaign_leads')
+          .select('campaign_id')
+          .eq('provider_id', conv.prospectId)
+          .limit(1)
+          .maybeSingle()
+
+        if (lead?.campaign_id) {
+          const { data: campaign } = await supabase
+            .from('campaigns')
+            .select('settings')
+            .eq('id', lead.campaign_id)
+            .maybeSingle()
+
+          const agentId = campaign?.settings?.agentId
+          if (agentId) {
+            const agent = await getAgentById(agentId)
+            if (agent?.persona) return { agent, agentId }
+          }
+        }
+      } catch {}
+    }
+
+    // Fall back to any active agent in the workspace
+    const wsId = conv.workspaceId
+    if (wsId && wsId !== 'ws_default') {
+      try {
+        const { data: rows } = await supabase
+          .from('agents')
+          .select('id')
+          .eq('workspace_id', wsId)
+          .eq('status', 'active')
+          .limit(1)
+
+        if (rows?.length) {
+          const agent = await getAgentById(rows[0].id)
+          if (agent?.persona) return { agent, agentId: rows[0].id }
+        }
+      } catch {}
+    }
+  }
+
+  return null
+}
+
 // Internal: generate a Claude reply and send it back to LinkedIn via Unipile
 export async function generateAIReply(conversationId) {
   const conv = conversationStore.get(conversationId)
   if (!conv || conv.aiPaused) return null
 
-  const agent = await getAgentById(conv.agentId)
-  if (!agent || !agent.persona) return null
+  const resolved = await resolveAgentForConv(conv)
+  if (!resolved) {
+    console.warn(`[AI reply] No active agent/persona found for conv ${conversationId} — aborting`)
+    return null
+  }
+  const { agent, agentId } = resolved
+
+  // Cache the resolved agentId on the conversation for future calls
+  if (!conv.agentId && agentId) {
+    conversationStore.update(conversationId, { agentId })
+  }
 
   // Enforce campaign schedule and message frequency limit
   const campaignData = await getCampaignSettingsForProspect(conv.prospectId, conv.campaignId)
@@ -416,14 +510,18 @@ export async function generateAIReply(conversationId) {
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 300,
       system: buildSystemPrompt(agent, profile, profileSummary),
       messages: validHistory,
     })
 
-    const replyText = message.content[0].text.trim()
-    if (!replyText) return null
+    const contentBlock = message.content?.[0]
+    if (!contentBlock || contentBlock.type !== 'text' || !contentBlock.text?.trim()) {
+      console.warn(`[AI reply] Empty or non-text response for conv ${conversationId} — stop_reason: ${message.stop_reason}`)
+      return null
+    }
+    const replyText = contentBlock.text.trim()
 
     // Store in conversation
     conversationStore.addMessage(conversationId, { from: 'ai', text: replyText })
@@ -434,7 +532,15 @@ export async function generateAIReply(conversationId) {
         await chats.sendMessage(conv.linkedinChatId, replyText)
         console.log(`[AI] Sent reply to chat ${conv.linkedinChatId}: "${replyText.slice(0, 60)}…"`)
       } catch (sendErr) {
-        console.error('[AI] Failed to send via Unipile:', sendErr.message)
+        const errMsg = sendErr.message || ''
+        console.error('[AI] Failed to send via Unipile:', errMsg)
+        // If the chat is gone or account lacks access, pause AI so we stop retrying
+        if (sendErr.status === 403 || sendErr.status === 404 ||
+            errMsg.includes('403') || errMsg.includes('not found') ||
+            errMsg.toLowerCase().includes('access')) {
+          console.warn(`[AI] Pausing AI for conv ${conversationId} due to send failure (${sendErr.status || 'unknown'})`)
+          conversationStore.update(conversationId, { aiPaused: true, status: 'review' })
+        }
       }
     }
 
@@ -491,8 +597,16 @@ export async function generateAIReply(conversationId) {
 
 // Internal: generate and send an opening message after connection accepted
 export async function generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId, profileSummary }) {
+  console.log(`[AI opening] generateOpeningMessage called — agentId=${agentId} providerUserId=${providerUserId} campaignId=${campaignId}`)
   const agent = await getAgentById(agentId)
-  if (!agent || !agent.persona) return null
+  if (!agent) {
+    console.error(`[AI opening] agent not found for agentId=${agentId} — aborting`)
+    return null
+  }
+  if (!agent.persona) {
+    console.error(`[AI opening] agent ${agentId} has no persona configured — aborting`)
+    return null
+  }
 
   // Enforce campaign schedule and message frequency limit
   if (campaignId && supabase) {
@@ -520,7 +634,7 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 200,
       system: buildSystemPrompt(agent, profile, profileSummary || null),
       messages: [{
@@ -529,8 +643,12 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
       }],
     })
 
-    const text = message.content[0].text.trim()
-    if (!text) return null
+    const openingBlock = message.content?.[0]
+    if (!openingBlock || openingBlock.type !== 'text' || !openingBlock.text?.trim()) {
+      console.warn(`[AI opening] Empty or non-text response for ${providerUserId} — stop_reason: ${message.stop_reason}`)
+      return null
+    }
+    const text = openingBlock.text.trim()
 
     // Send directly as a LinkedIn message via Unipile
     const { linkedin } = await import('../services/unipile.js')

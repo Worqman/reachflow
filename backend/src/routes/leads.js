@@ -20,6 +20,7 @@ function dbToApi(row) {
     providerId:        row.provider_id,
     profilePictureUrl: row.profile_picture_url,
     status:            row.status,
+    listId:            row.list_id || null,
     createdAt:         row.created_at,
   }
 }
@@ -28,12 +29,15 @@ function dbToApi(row) {
 router.get('/', async (req, res) => {
   if (!supabase) return res.json(leadStore.list())
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('leads')
     .select('*')
     .eq('workspace_id', wsId(req))
     .order('created_at', { ascending: false })
 
+  if (req.query.list_id) query = query.eq('list_id', req.query.list_id)
+
+  const { data, error } = await query
   if (error) return res.status(500).json({ message: error.message })
   res.json(data.map(dbToApi))
 })
@@ -56,6 +60,7 @@ router.post('/', async (req, res) => {
     provider_id:       req.body.providerId || null,
     profile_picture_url: req.body.profilePictureUrl || null,
     status:            req.body.status || 'Not contacted',
+    list_id:           req.body.listId || null,
   }
 
   const { data, error } = await supabase.from('leads').insert(row).select().single()
@@ -75,6 +80,8 @@ router.post('/bulk', async (req, res) => {
     return res.status(201).json(created)
   }
 
+  const listId = req.body.list_id || null
+
   const rows = leads.map(l => ({
     id:                `lead_${randomUUID().slice(0, 8)}`,
     workspace_id:      wsId(req),
@@ -86,6 +93,7 @@ router.post('/bulk', async (req, res) => {
     provider_id:       l.providerId || null,
     profile_picture_url: l.profilePictureUrl || null,
     status:            l.status || 'Not contacted',
+    list_id:           listId,
   }))
 
   const { data, error } = await supabase.from('leads').insert(rows).select()
@@ -130,6 +138,7 @@ router.put('/:id', async (req, res) => {
       provider_id:       req.body.providerId,
       profile_picture_url: req.body.profilePictureUrl,
       status:            req.body.status,
+      list_id:           req.body.listId !== undefined ? req.body.listId : undefined,
     })
     .eq('id', req.params.id)
     .select()

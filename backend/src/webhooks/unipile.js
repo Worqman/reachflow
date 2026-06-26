@@ -65,11 +65,14 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
   // Trigger AI opening message only if no sequence message nodes would also fire
   // (avoids the prospect receiving two messages simultaneously after connecting)
   const agentId = await findAgentForProspect(providerUserId)
-  if (agentId) {
+  if (!agentId) {
+    console.log(`[Connection] No active agent found for ${providerUserId} — skipping AI opening message`)
+  } else {
     const hasSequenceMessages = await sequenceHasPostConnectionMessages(campaignId)
     if (hasSequenceMessages) {
       console.log(`[Connection] Skipping AI opening for ${providerUserId} — campaign has sequence message nodes`)
     } else {
+      console.log(`[Connection] Scheduling AI opening message for ${providerUserId} (agentId=${agentId})`)
       scheduleOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId, profileSummary })
     }
   }
@@ -105,7 +108,10 @@ async function findAgentForProspect(providerUserId) {
       .limit(1)
       .maybeSingle()
 
-    if (!lead?.campaign_id) return null
+    if (!lead?.campaign_id) {
+      console.log(`[findAgent] no campaign_lead found for providerUserId=${providerUserId} — AI message will not fire`)
+      return null
+    }
 
     const { data: campaign } = await supabase
       .from('campaigns')
@@ -114,7 +120,10 @@ async function findAgentForProspect(providerUserId) {
       .maybeSingle()
 
     const agentId = campaign?.settings?.agentId
-    if (!agentId) return null
+    if (!agentId) {
+      console.log(`[findAgent] campaign ${lead.campaign_id} has no agentId in settings — AI message will not fire`)
+      return null
+    }
 
     // Only return if the agent is active — paused agents should not send messages
     const { data: agent } = await supabase
@@ -123,8 +132,19 @@ async function findAgentForProspect(providerUserId) {
       .eq('id', agentId)
       .maybeSingle()
 
-    return agent?.status === 'active' ? agentId : null
-  } catch {
+    if (!agent) {
+      console.log(`[findAgent] agentId=${agentId} not found in DB — AI message will not fire`)
+      return null
+    }
+    if (agent.status !== 'active') {
+      console.log(`[findAgent] agentId=${agentId} status=${agent.status} (not active) — AI message will not fire`)
+      return null
+    }
+
+    console.log(`[findAgent] resolved agentId=${agentId} (active) for providerUserId=${providerUserId}`)
+    return agentId
+  } catch (err) {
+    console.error(`[findAgent] error for providerUserId=${providerUserId}:`, err.message)
     return null
   }
 }
@@ -184,12 +204,28 @@ router.post('/unipile', async (req, res) => {
 
         if (!conv) {
           const agentId = await findAgentForProspect(senderId)
-          conv = conversationStore.create(undefined, {
+
+          // Resolve the workspace from the LinkedIn account so resolveAgentForConv
+          // can fall back to any active workspace agent for inbox conversations
+          let workspaceId
+          if (supabase && accountId) {
+            try {
+              const { data: acct } = await supabase
+                .from('workspace_linkedin_accounts')
+                .select('workspace_id')
+                .eq('unipile_account_id', accountId)
+                .maybeSingle()
+              workspaceId = acct?.workspace_id || undefined
+            } catch {}
+          }
+
+          conv = conversationStore.create(workspaceId, {
             linkedinChatId:    chatId,
             linkedinAccountId: accountId,
             prospectId:        senderId,
             agentId:           agentId || null,
-            status:            'ai_active',
+            workspaceId,
+            status:            agentId ? 'ai_active' : 'review',
             source:            agentId ? 'campaign' : 'inbox',
             aiPaused:          !agentId,
           })

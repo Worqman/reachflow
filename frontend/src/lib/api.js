@@ -104,6 +104,7 @@ export const campaigns = {
   getSequence: (id) => get(`/campaigns/${id}/sequence`),
   updateSequence: (id, d) => put(`/campaigns/${id}/sequence`, d),
   getAnalytics: (id) => get(`/campaigns/${id}/analytics`),
+  getActivity: (id, page = 1, limit = 10) => get(`/campaigns/${id}/activity?page=${page}&limit=${limit}`),
   generateMessage: (data) => post("/campaigns/generate-message", data),
   syncStatuses: (id) => post(`/campaigns/${id}/sync-statuses`, {}),
   syncMessages: (id) => post(`/campaigns/${id}/sync-messages`, {}),
@@ -117,12 +118,20 @@ export const campaigns = {
 
 // ── Leads ──────────────────────────────────────
 export const leads = {
-  list: () => get("/leads"),
+  list: (listId) => get(listId ? `/leads?list_id=${encodeURIComponent(listId)}` : "/leads"),
   search: (data) => post("/leads/search", data),
   create: (data) => post("/leads", data),
-  bulkCreate: (leadsArr) => post("/leads/bulk", { leads: leadsArr }),
+  bulkCreate: (leadsArr, listId) => post("/leads/bulk", { leads: leadsArr, list_id: listId || null }),
   update: (id, d) => put(`/leads/${id}`, d),
   delete: (id) => del(`/leads/${id}`),
+};
+
+// ── Lead Lists ─────────────────────────────────
+export const leadLists = {
+  list: () => get("/lead-lists"),
+  create: (name) => post("/lead-lists", { name }),
+  update: (id, name) => put(`/lead-lists/${id}`, { name }),
+  delete: (id) => del(`/lead-lists/${id}`),
 };
 
 // ── Conversations (Inbox) ──────────────────────
@@ -133,8 +142,9 @@ export const conversations = {
   create: (data) => post("/conversations", data),
   sync: (id) => post(`/conversations/${id}/sync`, {}),
   reply: (id, d) => post(`/conversations/${id}/reply`, d),
+  hide: (id) => del(`/conversations/${id}`),
   pauseAI: (id) => post(`/conversations/${id}/pause-ai`, {}),
-  resumeAI: (id) => post(`/conversations/${id}/resume-ai`, {}),
+  resumeAI: (id, agentId) => post(`/conversations/${id}/resume-ai`, agentId ? { agentId } : {}),
   markBooked: (id, data = {}) => post(`/conversations/${id}/mark-booked`, data),
   aiEdit: (data) => post("/conversations/ai-edit", data),
 };

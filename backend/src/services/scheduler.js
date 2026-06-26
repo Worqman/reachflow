@@ -1,5 +1,6 @@
 import { supabase } from './supabase.js'
 import { syncCampaignStatuses, executePostConnectionSteps, runCampaignInvites } from '../routes/campaigns.js'
+import { conversationStore } from './store.js'
 
 async function processActiveCampaigns() {
   if (!supabase) return
@@ -77,15 +78,84 @@ async function resumePendingWaits() {
   }
 }
 
+// Poll all AI-enabled conversations for new prospect messages and trigger replies.
+// This is the fallback for when Unipile webhooks are not delivered (e.g. local dev).
+async function syncAIConversations() {
+  const conversations = conversationStore.list().filter(c => !c.aiPaused && c.linkedinChatId)
+  if (!conversations.length) return
+
+  let triggered = 0
+  try {
+    const { chats } = await import('../services/unipile.js')
+    const { scheduleAIReply } = await import('../routes/conversations.js')
+
+    for (const conv of conversations) {
+      try {
+        const data = await chats.getMessages(conv.linkedinChatId, { limit: 5 })
+        const msgs = data?.items || data?.objects || []
+        if (!msgs.length) continue
+
+        // Unipile returns newest-first — index 0 is most recent
+        const latest = msgs[0]
+        const latestIsProspect = latest.is_sender === 0 || latest.is_sender === false
+        if (!latestIsProspect) continue
+
+        // Skip if we already know this message
+        const alreadyKnown = conv.messages.some(m => m.id === latest.id)
+        if (alreadyKnown) continue
+
+        // Store new prospect messages
+        const knownIds = new Set(conv.messages.map(m => m.id).filter(Boolean))
+        const newMsgs = [...msgs].reverse().filter(
+          m => !knownIds.has(m.id) && !(m.is_sender === 1 || m.is_sender === true)
+        )
+        for (const m of newMsgs) {
+          conversationStore.addMessage(conv.id, {
+            id:        m.id,
+            from:      'prospect',
+            text:      m.text || m.content || '',
+            timestamp: m.timestamp || m.created_at,
+          })
+        }
+
+        scheduleAIReply(conv.id)
+        triggered++
+      } catch (err) {
+        const msg = err.message || ''
+        // Chat no longer accessible — pause AI so we stop polling it
+        if (msg.toLowerCase().includes('not found') || msg.includes('403') || msg.toLowerCase().includes('access')) {
+          console.warn(`[sync-ai-convs] Chat inaccessible for conv ${conv.id} — pausing AI. Reason: ${msg}`)
+          conversationStore.update(conv.id, { aiPaused: true, status: 'review' })
+        } else {
+          console.error(`[sync-ai-convs] error for conv ${conv.id}:`, msg)
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[sync-ai-convs] import error:', err.message)
+  }
+
+  if (triggered > 0) {
+    console.log(`[sync-ai-convs] Scheduled AI replies for ${triggered} conversation(s)`)
+  }
+}
+
 // Run every hour by default; override with SCHEDULER_INTERVAL_MS env var
 export function startScheduler() {
   const intervalMs = parseInt(process.env.SCHEDULER_INTERVAL_MS || '') || 60 * 60 * 1000
 
   console.log(`[scheduler] Starting — checking active campaigns every ${Math.round(intervalMs / 60000)} min`)
 
+  // AI conversation sync runs more frequently than campaign sync (default every 10 min)
+  const aiSyncIntervalMs = parseInt(process.env.AI_SYNC_INTERVAL_MS || '') || 10 * 60 * 1000
+
   // Run once shortly after startup, then on interval
   setTimeout(processActiveCampaigns, 30 * 1000)
-  setTimeout(resumePendingWaits, 35 * 1000) // recover any wait nodes that survived restart
+  setTimeout(resumePendingWaits, 35 * 1000)
+  setTimeout(syncAIConversations, 60 * 1000) // first check 1 min after startup
   setInterval(processActiveCampaigns, intervalMs)
-  setInterval(resumePendingWaits, intervalMs) // also check on each scheduler tick
+  setInterval(resumePendingWaits, intervalMs)
+  setInterval(syncAIConversations, aiSyncIntervalMs)
+
+  console.log(`[scheduler] AI conversation sync every ${Math.round(aiSyncIntervalMs / 60000)} min`)
 }

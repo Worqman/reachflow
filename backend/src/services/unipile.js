@@ -15,6 +15,9 @@ async function request(method, path, body) {
   if (!apiKey) throw new Error('UNIPILE_API_KEY is not configured')
 
   const url = `${getBaseUrl()}${path}`
+  if (body !== undefined) {
+    console.log(`[unipile] ${method} ${path} payload:`, JSON.stringify(body))
+  }
   const res = await fetch(url, {
     method,
     headers: {
@@ -28,7 +31,21 @@ async function request(method, path, body) {
   const data = await res.json().catch(() => ({}))
 
   if (!res.ok) {
-    const msg = data?.message || data?.error || `Unipile API error ${res.status}`
+    // Extract message from every known Unipile response shape
+    const rawBody = typeof data === 'string' ? data : (Object.keys(data || {}).length ? JSON.stringify(data) : null)
+    const msg =
+      data?.message ||
+      data?.error ||
+      data?.detail ||
+      data?.title ||
+      data?.reason ||
+      data?.description ||
+      data?.error_description ||
+      data?.errors?.[0]?.message ||
+      data?.errors?.[0] ||
+      rawBody ||
+      `Unipile API error ${res.status}`
+    console.error(`[unipile] ${method} ${path} → ${res.status}:`, JSON.stringify(data))
     const err = new Error(msg)
     err.status = res.status
     err.data = data
@@ -152,12 +169,15 @@ export const linkedin = {
    * Requires accountId + providerUserId (LinkedIn member URN, e.g. ACoAABc...).
    * To get provider_id from a URL, first call getProfileByUrl().
    */
-  sendInvite: ({ accountId, providerUserId, message } = {}) =>
-    request('POST', '/users/invite', {
+  sendInvite: ({ accountId, providerUserId, message } = {}) => {
+    if (!accountId) throw new Error('sendInvite: account_id is missing — check campaign LinkedIn account setting')
+    if (!providerUserId) throw new Error('sendInvite: provider_id is missing — lead has no valid LinkedIn URN')
+    return request('POST', '/users/invite', {
       account_id:  accountId,
       provider_id: providerUserId,
       ...(message && { message }),
-    }),
+    })
+  },
 
   /**
    * Send a LinkedIn message to a user (creates or uses existing chat).
@@ -186,7 +206,20 @@ export const linkedin = {
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const msg = data?.message || data?.error || `Unipile API error ${res.status}`
+      const rawBody = typeof data === 'string' ? data : (Object.keys(data || {}).length ? JSON.stringify(data) : null)
+      const msg =
+        data?.message ||
+        data?.error ||
+        data?.detail ||
+        data?.title ||
+        data?.reason ||
+        data?.description ||
+        data?.error_description ||
+        data?.errors?.[0]?.message ||
+        data?.errors?.[0] ||
+        rawBody ||
+        `Unipile API error ${res.status}`
+      console.error(`[unipile] POST /chats (sendMessage) → ${res.status}:`, JSON.stringify(data))
       const err = new Error(msg)
       err.status = res.status
       err.data = data

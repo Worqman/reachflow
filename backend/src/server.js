@@ -8,6 +8,7 @@ import settingsRouter from "./routes/settings.js";
 import agentsRouter from "./routes/agents.js";
 import campaignsRouter from "./routes/campaigns.js";
 import leadsRouter from "./routes/leads.js";
+import leadListsRouter from "./routes/leadLists.js";
 import conversationsRouter from "./routes/conversations.js";
 import meetingsRouter from "./routes/meetings.js";
 import profilesRouter from "./routes/profiles.js";
@@ -111,6 +112,7 @@ app.use("/api/settings",         requireAuth, verifyWorkspaceMembership, setting
 app.use("/api/agents",           requireAuth, verifyWorkspaceMembership, agentsRouter);
 app.use("/api/campaigns",        requireAuth, verifyWorkspaceMembership, campaignsRouter);
 app.use("/api/leads",            requireAuth, verifyWorkspaceMembership, leadsRouter);
+app.use("/api/lead-lists",       requireAuth, verifyWorkspaceMembership, leadListsRouter);
 app.use("/api/conversations",    requireAuth, verifyWorkspaceMembership, conversationsRouter);
 app.use("/api/meetings",         requireAuth, verifyWorkspaceMembership, meetingsRouter);
 app.use("/api/profiles",         requireAuth, verifyWorkspaceMembership, profilesRouter);

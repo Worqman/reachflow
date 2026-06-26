@@ -66,6 +66,26 @@
 .conv-item.active { background: var(--signal-subtle); border-left: 2px solid var(--signal); }
 .conv-item.unread .conv-name { color: var(--text-primary); font-weight: 700; }
 
+.conv-hide-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.conv-item:hover .conv-hide-btn { display: flex; }
+.conv-hide-btn:hover { background: var(--border-2); color: var(--text-primary); }
+
 .conv-avatar {
   width: 34px;
   height: 34px;

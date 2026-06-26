@@ -139,6 +139,7 @@ export default function Inbox() {
   const [actionLoading, setActionLoading] = useState(false);
   const [agentsList, setAgentsList] = useState([]);
   const [agentPicker, setAgentPicker] = useState(false); // show agent picker modal
+  const [hidingId, setHidingId] = useState(null);
   const messagesEndRef = useRef(null);
   const accountIdRef = useRef(null);
 
@@ -158,8 +159,12 @@ export default function Inbox() {
       ]);
 
       const backendMap = {};
+      const hiddenChatIds = new Set();
       for (const c of backendConvs || []) {
-        if (c.linkedinChatId) backendMap[c.linkedinChatId] = c;
+        if (c.linkedinChatId) {
+          backendMap[c.linkedinChatId] = c;
+          if (c.hidden) hiddenChatIds.add(c.linkedinChatId);
+        }
       }
 
       // Build lookup maps from meetings for cross-referencing — scoped to current account
@@ -207,7 +212,8 @@ export default function Inbox() {
           }
           return conv;
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter(c => !hiddenChatIds.has(c.id));
       setConversations(merged);
       setInboxUnreadCount(merged.filter((c) => c.unread).length);
 
@@ -290,6 +296,17 @@ export default function Inbox() {
     setActive((prev) => (prev?.id === chatId ? { ...prev, ...patch } : prev));
   }
 
+  async function handleHide(c, e) {
+    e.stopPropagation();
+    setHidingId(c.id);
+    try {
+      if (c.convId) await conversationsApi.hide(c.convId);
+      setConversations(prev => prev.filter(x => x.id !== c.id));
+      if (active?.id === c.id) setActive(null);
+    } catch {}
+    setHidingId(null);
+  }
+
   // Create backend conversation record and enable AI
   async function handleEnableAI(agentId) {
     if (!active || actionLoading) return;
@@ -307,8 +324,8 @@ export default function Inbox() {
         });
         convId = conv.id;
       }
-      // Always call resumeAI — backend creates convs with aiPaused:true by default
-      await conversationsApi.resumeAI(convId);
+      // Always call resumeAI — pass the selected agentId so backend uses it even if conv already existed
+      await conversationsApi.resumeAI(convId, agentId || agentsList[0]?.id || null);
       applyConvUpdate(active.id, {
         convId,
         agentId: agentId || active.agentId,
@@ -549,6 +566,7 @@ export default function Inbox() {
                 key={c.id}
                 className={`conv-item ${active?.id === c.id ? "active" : ""} ${c.unread ? "unread" : ""}`}
                 onClick={() => handleSelectConv(c)}
+                style={{ position: 'relative' }}
               >
                 {c.picture
                   ? <img src={c.picture} alt={c.name} className="conv-avatar" style={{ objectFit: 'cover' }} />
@@ -562,20 +580,13 @@ export default function Inbox() {
                   {c.company && <div className="conv-company">{c.company}</div>}
                   {c.preview && <div className="conv-preview">{c.preview}</div>}
                 </div>
-                <span
-                  className={`badge ${STATUS_META[c.status]?.class || "badge-muted"}`}
-                  style={{
-                    flexShrink: 0,
-                    alignSelf: "flex-start",
-                    marginTop: 4,
-                  }}
-                >
-                  {c.status === "ai_active"
-                    ? "◆"
-                    : c.status === "review"
-                      ? "!"
-                      : "✓"}
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                  <span
+                    className={`badge ${STATUS_META[c.status]?.class || "badge-muted"}`}
+                  >
+                    {c.status === "ai_active" ? "◆" : c.status === "review" ? "!" : "✓"}
+                  </span>
+                </div>
               </div>
             ))
           )}
@@ -609,8 +620,8 @@ export default function Inbox() {
                     className="btn btn-sm btn-primary"
                     disabled={actionLoading}
                     onClick={() => {
-                      if (agentsList.length > 1) setAgentPicker(true);
-                      else handleEnableAI(agentsList[0]?.id);
+                      if (agentsList.filter(a => a.status === 'active').length > 1) setAgentPicker(true);
+                      else handleEnableAI(agentsList.find(a => a.status === 'active')?.id || agentsList[0]?.id);
                     }}
                   >
                     ◆ Enable AI
@@ -805,7 +816,7 @@ export default function Inbox() {
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>
             Choose which agent will handle this conversation:
           </p>
-          {agentsList.map((a) => (
+          {agentsList.filter(a => a.status === 'active').map((a) => (
             <button
               key={a.id}
               onClick={() => handleEnableAI(a.id)}

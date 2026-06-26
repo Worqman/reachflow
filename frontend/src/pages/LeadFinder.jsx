@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { campaigns as campaignsApi, leads as leadsApi, unipile } from "../lib/api";
+import { campaigns as campaignsApi, leads as leadsApi, leadLists as listsApi, unipile } from "../lib/api";
 import "./LeadFinder.css";
 
 // LinkedIn industry list with official numeric IDs (used as facetIndustry in search)
@@ -188,7 +188,8 @@ export default function LeadFinder() {
   const [sizes, setSizes] = useState([]);
   const [seniority, setSeniority] = useState([]);
   const [industry, setIndustry] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
+  const [jobTitles, setJobTitles] = useState([]);
+  const [jobTitleInput, setJobTitleInput] = useState("");
   const [location, setLocation] = useState("");
   const [linkedinSearchUrl, setLinkedinSearchUrl] = useState("");
 
@@ -213,8 +214,13 @@ export default function LeadFinder() {
   const [addingToCampaign, setAddingToCampaign] = useState(null); // campaignId being added to
 
   // ── Save to List state ────────────────────────────────────────
-  const [savingToList, setSavingToList] = useState(false);
+  const [listPickerOpen, setListPickerOpen] = useState(false);
+  const [pendingListLeads, setPendingListLeads] = useState(null); // overrides selection when set
+  const [leadLists, setLeadLists] = useState([]);
+  const [savingToListId, setSavingToListId] = useState(null);
   const [savedToList, setSavedToList] = useState(false);
+  const [newListName, setNewListName] = useState('');
+  const [creatingList, setCreatingList] = useState(false);
 
   // ── Results table search + sort ───────────────────────────────
   const [tableSearch, setTableSearch] = useState("");
@@ -241,6 +247,11 @@ export default function LeadFinder() {
       .catch(() => {});
   }, []);
 
+  // Load lead lists
+  useEffect(() => {
+    listsApi.list().then((data) => setLeadLists(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
   function openCampaignPicker(leads) {
     setPendingLeads(leads);
     setPickerOpen(true);
@@ -257,18 +268,39 @@ export default function LeadFinder() {
     setAddingToCampaign(null);
   }
 
-  async function handleSaveToList() {
-    const leadsToSave = tableRows.filter((r) => selected.includes(r.id));
+  function openListPicker(overrideLeads) {
+    setPendingListLeads(overrideLeads || null);
+    setListPickerOpen(true);
+  }
+
+  async function handleCreateAndSave(e) {
+    e.preventDefault();
+    const name = newListName.trim();
+    if (!name) return;
+    setCreatingList(true);
+    try {
+      const created = await listsApi.create(name);
+      setLeadLists((prev) => [...prev, created]);
+      setNewListName('');
+      await saveToList(created.id);
+    } catch {}
+    setCreatingList(false);
+  }
+
+  async function saveToList(listId) {
+    const leadsToSave = pendingListLeads || tableRows.filter((r) => selected.includes(r.id));
     if (!leadsToSave.length) return;
-    setSavingToList(true);
+    setSavingToListId(listId);
     setSavedToList(false);
     try {
-      await leadsApi.bulkCreate(leadsToSave);
+      await leadsApi.bulkCreate(leadsToSave, listId);
       setSavedToList(true);
+      setListPickerOpen(false);
+      setPendingListLeads(null);
       setSelected([]);
       setTimeout(() => setSavedToList(false), 3000);
     } catch {}
-    setSavingToList(false);
+    setSavingToListId(null);
   }
 
   // ── Filters mode ─────────────────────────────────────────────
@@ -284,6 +316,25 @@ export default function LeadFinder() {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
+
+  const addJobTitle = (raw) => {
+    const t = (raw ?? jobTitleInput).trim();
+    setJobTitleInput("");
+    if (!t) return;
+    setJobTitles((prev) =>
+      prev.some((x) => x.toLowerCase() === t.toLowerCase()) ? prev : [...prev, t],
+    );
+  };
+  const removeJobTitle = (t) =>
+    setJobTitles((prev) => prev.filter((x) => x !== t));
+  const handleJobTitleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addJobTitle();
+    } else if (e.key === "Backspace" && !jobTitleInput && jobTitles.length) {
+      removeJobTitle(jobTitles[jobTitles.length - 1]);
+    }
+  };
 
   const [filterError, setFilterError] = useState("");
   const [filterSource, setFilterSource] = useState(""); // 'linkedin_search' | 'connections'
@@ -302,12 +353,26 @@ export default function LeadFinder() {
     setFilterSource("");
     try {
       const trimmedUrl = linkedinSearchUrl.trim();
-      const trimmedJobTitle = jobTitle.trim();
+      // Include any title still in the input that wasn't turned into a tag yet
+      const pendingTitle = jobTitleInput.trim();
+      const allTitles = [
+        ...jobTitles,
+        ...(pendingTitle &&
+        !jobTitles.some((x) => x.toLowerCase() === pendingTitle.toLowerCase())
+          ? [pendingTitle]
+          : []),
+      ];
+      // LinkedIn keyword search supports boolean OR with quoted phrases:
+      //   ("Head of Sales" OR "VP Sales")
+      const titleQuery =
+        allTitles.length > 1
+          ? `(${allTitles.map((t) => `"${t}"`).join(" OR ")})`
+          : allTitles[0] || "";
       const trimmedLocation = location.trim();
 
       const basePayload = {
         url: trimmedUrl || undefined,
-        title: !trimmedUrl ? trimmedJobTitle || undefined : undefined,
+        title: !trimmedUrl ? titleQuery || undefined : undefined,
         industry_id: !trimmedUrl && industry ? industry : undefined,
         location_text: !trimmedUrl ? trimmedLocation || undefined : undefined,
         seniority: !trimmedUrl && seniority.length > 0 ? seniority : undefined,
@@ -359,7 +424,8 @@ export default function LeadFinder() {
     setSizes([]);
     setSeniority([]);
     setIndustry("");  // ID string — empty = "Any industry"
-    setJobTitle("");
+    setJobTitles([]);
+    setJobTitleInput("");
     setLocation("");
     setSearched(false);
     setResults([]);
@@ -564,13 +630,38 @@ export default function LeadFinder() {
                 )}
               </div>
               <div className="filter-section">
-                <div className="filter-label">Job Title</div>
-                <input
-                  className="input"
-                  placeholder="e.g. Managing Partner"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                />
+                <div className="filter-label">Job Titles</div>
+                <div className="tag-input">
+                  {jobTitles.map((t) => (
+                    <span key={t} className="tag-chip">
+                      {t}
+                      <button
+                        type="button"
+                        className="tag-chip-remove"
+                        onClick={() => removeJobTitle(t)}
+                        aria-label={`Remove ${t}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    className="tag-input-field"
+                    placeholder={
+                      jobTitles.length
+                        ? "Add another…"
+                        : "e.g. Managing Partner"
+                    }
+                    value={jobTitleInput}
+                    onChange={(e) => setJobTitleInput(e.target.value)}
+                    onKeyDown={handleJobTitleKeyDown}
+                    onBlur={() => addJobTitle()}
+                  />
+                </div>
+                <div className="filter-hint">
+                  Press Enter or comma to add. Multiple titles are matched with
+                  OR.
+                </div>
               </div>
               <div className="filter-section">
                 <div className="filter-label">Industry</div>
@@ -755,12 +846,20 @@ export default function LeadFinder() {
                 <span style={{ fontWeight: 700, fontSize: 15 }}>
                   Profile found
                 </span>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => openCampaignPicker([profileResult])}
-                >
-                  Add to Campaign
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => openListPicker([profileResult])}
+                  >
+                    {savedToList ? "✓ Saved" : "Save to List"}
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => openCampaignPicker([profileResult])}
+                  >
+                    Add to Campaign
+                  </button>
+                </div>
               </div>
               <div className="card" style={{ maxWidth: 560 }}>
                 <div
@@ -985,14 +1084,10 @@ export default function LeadFinder() {
                   </button>
                   <button
                     className="btn btn-secondary btn-sm"
-                    disabled={selected.length === 0 || savingToList}
-                    onClick={handleSaveToList}
+                    disabled={selected.length === 0}
+                    onClick={() => openListPicker()}
                   >
-                    {savingToList
-                      ? "Saving…"
-                      : savedToList
-                        ? "✓ Saved"
-                        : "Save to List"}
+                    {savedToList ? "✓ Saved" : "Save to List"}
                   </button>
                   <button
                     className="btn btn-primary btn-sm"
@@ -1084,6 +1179,113 @@ export default function LeadFinder() {
             </>
           ))}
       </div>
+
+      {/* List picker modal */}
+      {listPickerOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setListPickerOpen(false)}
+        >
+          <div
+            className="animate-fade-in"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border-2)",
+              borderRadius: "var(--radius-xl)",
+              boxShadow: "var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.04)",
+              width: "100%",
+              maxWidth: 340,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ padding: "20px 20px 16px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>
+                  Save to List
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                  {(() => { const n = pendingListLeads ? pendingListLeads.length : selected.length; return `${n} lead${n !== 1 ? "s" : ""} selected`; })()}
+                </div>
+              </div>
+              <button className="btn btn-icon btn-ghost" style={{ flexShrink: 0, marginTop: -2 }} onClick={() => setListPickerOpen(false)}>✕</button>
+            </div>
+
+            {/* List options */}
+            <div style={{ padding: "0 8px", maxHeight: 240, overflowY: "auto" }}>
+              {leadLists.length === 0 ? (
+                <div style={{ padding: "12px 12px 16px", fontSize: 13, color: "var(--text-muted)", textAlign: "center" }}>
+                  No lists yet — create one below.
+                </div>
+              ) : (
+                leadLists.map((ll) => (
+                  <button
+                    key={ll.id}
+                    disabled={savingToListId === ll.id}
+                    onClick={() => saveToList(ll.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      padding: "9px 12px",
+                      borderRadius: "var(--radius-md)",
+                      border: "none",
+                      background: "none",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "background var(--transition-fast)",
+                      color: "var(--text-primary)",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--surface-2)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}
+                  >
+                    <span style={{ fontSize: 14, color: "var(--text-muted)", flexShrink: 0 }}>≡</span>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ll.name}
+                    </span>
+                    <span style={{ fontSize: 11, color: savingToListId === ll.id ? "var(--signal)" : "var(--text-muted)", fontWeight: 600, flexShrink: 0 }}>
+                      {savingToListId === ll.id ? "Saving…" : "→"}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* Create new list */}
+            <form
+              onSubmit={handleCreateAndSave}
+              style={{
+                display: "flex",
+                gap: 8,
+                padding: "12px 12px 14px",
+                borderTop: "1px solid var(--border)",
+                marginTop: 4,
+                alignItems: "center",
+              }}
+            >
+              <input
+                className="input"
+                style={{ flex: 1, fontSize: 13, padding: "7px 10px" }}
+                placeholder="New list name…"
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="btn btn-primary btn-sm"
+                disabled={creatingList || !newListName.trim()}
+                style={{ flexShrink: 0 }}
+              >
+                {creatingList ? "…" : "Create"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Campaign picker modal */}
       {pickerOpen && (

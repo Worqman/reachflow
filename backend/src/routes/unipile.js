@@ -207,6 +207,7 @@ router.get('/accounts', async (req, res) => {
     const filtered = all.filter(a => knownIds.includes(a.id))
     res.json({ items: filtered, object: 'AccountList' })
   } catch (err) {
+    console.error('[unipile/accounts] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -239,6 +240,7 @@ router.post('/accounts/connect', async (req, res) => {
     })
     res.json(data)
   } catch (err) {
+    console.error('[unipile/connect] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -302,6 +304,7 @@ router.post('/accounts/sync', async (req, res) => {
 
     res.json({ items: myAccounts, synced: newAccounts.length })
   } catch (err) {
+    console.error('[unipile/accounts/sync] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -333,6 +336,7 @@ router.delete('/accounts/:id', async (req, res) => {
     const data = await accounts.delete(req.params.id)
     res.json(data)
   } catch (err) {
+    console.error('[unipile/accounts/delete] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -364,6 +368,7 @@ router.get('/chats', async (req, res) => {
 
     res.json({ ...data, items: enrichedItems })
   } catch (err) {
+    console.error('[unipile/chats] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -378,6 +383,7 @@ router.get('/chats/:chatId/messages', async (req, res) => {
     })
     res.json(data)
   } catch (err) {
+    console.error('[unipile/chats/messages] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -390,6 +396,7 @@ router.post('/chats/:chatId/messages', async (req, res) => {
     const data = await chats.sendMessage(req.params.chatId, text)
     res.json(data)
   } catch (err) {
+    console.error('[unipile/chats/send] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -414,6 +421,7 @@ router.post('/invite', async (req, res) => {
     const data = await linkedin.sendInvite({ accountId, providerUserId: pid, message })
     res.json(data)
   } catch (err) {
+    console.error('[unipile/invite] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -450,6 +458,7 @@ router.get('/linkedin/profile', async (req, res) => {
     const data = await linkedin.getProfileByUrl(account_id, slug)
     res.json(data)
   } catch (err) {
+    console.error('[unipile/linkedin/profile] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -503,6 +512,7 @@ router.get('/post-engagers', async (req, res) => {
 
     res.json(data)
   } catch (err) {
+    console.error('[unipile/post-engagers] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })
@@ -612,6 +622,7 @@ router.post('/message', async (req, res) => {
     const data = await linkedin.sendMessage({ accountId, linkedinUrl, providerUserId, text })
     res.json(data)
   } catch (err) {
+    console.error('[unipile/message] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
   }
 })

@@ -15,6 +15,8 @@ export default function ForgotPassword() {
 
     try {
       const origin = window.location.origin.startsWith("http")
+
+      
         ? window.location.origin
         : `http://${window.location.origin}`;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(

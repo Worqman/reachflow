@@ -185,7 +185,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 }`
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 3000,
       messages: [{
         role: 'user',
@@ -216,7 +216,7 @@ router.post('/:id/generate-icp', async (req, res) => {
     const { targetingBrief } = req.body
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1000,
       messages: [{
         role: 'user',

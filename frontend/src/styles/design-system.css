@@ -4,31 +4,31 @@
 
 :root {
   /* ── Colours ── */
-  --ink: #080c14; /* primary background */
-  --ink-2: #0b1019; /* slightly lighter bg */
-  --surface: #0f1623; /* card / panel background */
-  --surface-2: #141d2b; /* elevated surface */
-  --border: #1e2a3a; /* subtle borders */
-  --border-2: #263548; /* slightly more visible border */
+  --ink: #f8f9fb;
+  --ink-2: #f0f2f5;
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --border: #e5e7eb;
+  --border-2: #d1d5db;
 
-  --signal: #39ff87; /* electric lime — primary accent */
-  --signal-dim: #2acc6b; /* dimmer lime for hover */
-  --signal-glow: rgba(57, 255, 135, 0.15);
-  --signal-subtle: rgba(57, 255, 135, 0.08);
+  --signal: #6366f1;
+  --signal-dim: #4f46e5;
+  --signal-glow: rgba(99, 102, 241, 0.15);
+  --signal-subtle: rgba(99, 102, 241, 0.08);
 
-  --text-primary: #f0f4f8;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-disabled: #374151;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;
 
   --danger: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.1);
+  --danger-bg: rgba(239, 68, 68, 0.08);
   --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.1);
+  --warning-bg: rgba(245, 158, 11, 0.08);
   --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.1);
+  --success-bg: rgba(16, 185, 129, 0.08);
   --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.1);
+  --info-bg: rgba(59, 130, 246, 0.08);
 
   /* ── Typography ── */
   --font-ui: "Outfit", sans-serif;
@@ -54,10 +54,10 @@
   --radius-full: 9999px;
 
   /* ── Shadows ── */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-signal: 0 0 20px rgba(57, 255, 135, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-signal: 0 0 20px rgba(99, 102, 241, 0.2);
 
   /* ── Transitions ── */
   --transition-fast: 0.12s ease;
@@ -88,7 +88,8 @@
   padding: 0;
 }
 
-html {
+html, body, #root {
+  height: 100%;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -100,7 +101,7 @@ body {
   font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.5;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 a {
@@ -186,7 +187,7 @@ select {
 .badge-signal {
   background: var(--signal-subtle);
   color: var(--signal);
-  border: 1px solid rgba(57, 255, 135, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.2);
 }
 .badge-success {
   background: var(--success-bg);
@@ -226,7 +227,7 @@ select {
 
 .btn-primary {
   background: var(--signal);
-  color: var(--ink);
+  color: #ffffff;
 }
 .btn-primary:hover {
   background: var(--signal-dim);

@@ -542,567 +542,333 @@ export default function LeadFinder() {
         ? engagersLoading
         : profileLoading;
 
+  const MODES_CLEAN = [
+    { id: "filters", label: "Search" },
+    { id: "url", label: "LinkedIn URL" },
+    { id: "engagers", label: "Post Engagers" },
+  ];
+
   return (
-    <div className="lead-finder-layout">
-      {/* Filter sidebar */}
-      <aside className="filter-sidebar">
-        <div className="filter-sidebar-header">
-          <h2 style={{ fontSize: 14, fontWeight: 700 }}>Lead Finder</h2>
-          {mode === "filters" && (
-            <button className="btn btn-ghost btn-sm" onClick={handleReset}>
-              Reset
-            </button>
-          )}
+    <div className="lf-page">
+      {/* Header */}
+      <div className="lf-header">
+        <div>
+          <div className="lf-title">Lead Finder</div>
+          <div className="lf-subtitle">Search LinkedIn and import leads into your campaigns</div>
         </div>
+      </div>
 
-        {/* Mode tabs */}
-        <div
-          style={{ display: "flex", borderBottom: "1px solid var(--border)" }}
-        >
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              style={{
-                flex: 1,
-                padding: "8px 4px",
-                fontSize: 11,
-                fontWeight: mode === m.id ? 700 : 500,
-                color: mode === m.id ? "var(--signal)" : "var(--text-muted)",
-                background: "none",
-                border: "none",
-                borderBottom:
-                  mode === m.id
-                    ? "2px solid var(--signal)"
-                    : "2px solid transparent",
-                cursor: "pointer",
-                transition: "all var(--transition-fast)",
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+      {/* Mode selector */}
+      <div className="lf-mode-tabs">
+        {MODES_CLEAN.map((m) => (
+          <button
+            key={m.id}
+            className={`lf-mode-tab${mode === m.id ? " active" : ""}`}
+            onClick={() => setMode(m.id)}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="filter-sections-scroll">
-          {/* Account selector — shown in URL and engagers modes */}
-          {(mode === "url" || mode === "engagers") && (
-            <div className="filter-section">
-              <div className="filter-label">LinkedIn Account</div>
-              {unipileAccounts.length === 0 ? (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  No accounts connected. Go to Settings → Workspace.
-                </div>
-              ) : (
-                <select
-                  className="input"
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {unipileAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name || a.username || a.id}
-                    </option>
-                  ))}
-                </select>
-              )}
+      {/* Search bar */}
+      <div className="lf-search-card">
+        {mode === "filters" && (
+          <>
+            <div className="lf-field lf-field-grow">
+              <span className="lf-label">Job Title</span>
+              <div className="tag-input">
+                {jobTitles.map((t) => (
+                  <span key={t} className="tag-chip">
+                    {t}
+                    <button type="button" className="tag-chip-remove" onClick={() => removeJobTitle(t)}>×</button>
+                  </span>
+                ))}
+                <input
+                  className="tag-input-field"
+                  placeholder={jobTitles.length ? "Add another…" : "e.g. Managing Partner"}
+                  value={jobTitleInput}
+                  onChange={(e) => setJobTitleInput(e.target.value)}
+                  onKeyDown={handleJobTitleKeyDown}
+                  onBlur={() => addJobTitle()}
+                />
+              </div>
             </div>
-          )}
+            <div className="lf-field">
+              <span className="lf-label">Location</span>
+              <input className="lf-input" placeholder="e.g. United Kingdom" value={location} onChange={(e) => setLocation(e.target.value)} />
+            </div>
+            <div className="lf-field">
+              <span className="lf-label">Industry</span>
+              <select className="lf-select" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                <option value="">Any industry</option>
+                {INDUSTRIES.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            </div>
+            <div className="lf-field">
+              <span className="lf-label">Account</span>
+              <select className="lf-select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                {unipileAccounts.length === 0
+                  ? <option value="">No accounts connected</option>
+                  : unipileAccounts.map((a) => <option key={a.id} value={a.id}>{a.name || a.username || a.id}</option>)}
+              </select>
+            </div>
+            <div className="lf-field lf-field-btns">
+              {searched && <button className="lf-reset-btn" onClick={handleReset}>Reset</button>}
+              <button className="lf-btn" onClick={handleFilterSearch} disabled={loading}>
+                {loading ? "Searching…" : "Search LinkedIn"}
+              </button>
+            </div>
+          </>
+        )}
 
-          {/* ── Filters mode ── */}
-          {mode === "filters" && (
-            <>
-              <div className="filter-section">
-                <div className="filter-label">LinkedIn Account</div>
-                {unipileAccounts.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    No accounts connected. Go to Settings → Workspace.
-                  </div>
-                ) : (
-                  <select
-                    className="input"
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    {unipileAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name || a.username || a.id}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Job Titles</div>
-                <div className="tag-input">
-                  {jobTitles.map((t) => (
-                    <span key={t} className="tag-chip">
-                      {t}
-                      <button
-                        type="button"
-                        className="tag-chip-remove"
-                        onClick={() => removeJobTitle(t)}
-                        aria-label={`Remove ${t}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    className="tag-input-field"
-                    placeholder={
-                      jobTitles.length
-                        ? "Add another…"
-                        : "e.g. Managing Partner"
-                    }
-                    value={jobTitleInput}
-                    onChange={(e) => setJobTitleInput(e.target.value)}
-                    onKeyDown={handleJobTitleKeyDown}
-                    onBlur={() => addJobTitle()}
-                  />
-                </div>
-                <div className="filter-hint">
-                  Press Enter or comma to add. Multiple titles are matched with
-                  OR.
-                </div>
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Industry</div>
-                <select
-                  className="input"
-                  value={industry}
-                  onChange={(e) => setIndustry(e.target.value)}
-                >
-                  <option value="">Any industry</option>
-                  {INDUSTRIES.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Location</div>
-                <input
-                  className="input"
-                  placeholder="e.g. United Kingdom"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Company Headcount</div>
-                <div className="size-toggles">
-                  {SIZES.map((s) => (
-                    <button
-                      key={s}
-                      className={`size-toggle ${sizes.includes(s) ? "active" : ""}`}
-                      onClick={() => toggleSize(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Seniority</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {SENIORITY.map((s) => (
-                    <button
-                      key={s}
-                      className={`size-toggle ${seniority.includes(s) ? "active" : ""}`}
-                      onClick={() => toggleSeniority(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+        {mode === "url" && (
+          <>
+            <div className="lf-field lf-field-grow">
+              <span className="lf-label">LinkedIn Profile URL</span>
+              <input
+                className="lf-input"
+                placeholder="https://www.linkedin.com/in/..."
+                value={profileUrl}
+                onChange={(e) => setProfileUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleProfileSearch()}
+              />
+            </div>
+            <div className="lf-field">
+              <span className="lf-label">Account</span>
+              <select className="lf-select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                {unipileAccounts.length === 0
+                  ? <option value="">No accounts connected</option>
+                  : unipileAccounts.map((a) => <option key={a.id} value={a.id}>{a.name || a.username || a.id}</option>)}
+              </select>
+            </div>
+            <div className="lf-field lf-field-btns">
+              <button className="lf-btn" onClick={handleProfileSearch} disabled={profileLoading || !profileUrl.trim()}>
+                {profileLoading ? "Looking up…" : "Look Up Profile"}
+              </button>
+            </div>
+          </>
+        )}
 
-          {/* ── LinkedIn URL mode ── */}
-          {mode === "url" && (
-            <>
-              <div className="filter-section">
-                <div className="filter-label">LinkedIn Search URL</div>
-                <input
-                  className="input"
-                  placeholder="Paste a LinkedIn people search URL…"
-                  value={linkedinSearchUrl}
-                  onChange={(e) => setLinkedinSearchUrl(e.target.value)}
-                />
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    marginTop: 4,
-                  }}
-                >
-                  Search on LinkedIn, copy the URL, paste here. Overrides
-                  filters in Search tab.
-                </div>
+        {mode === "engagers" && (
+          <>
+            <div className="lf-field lf-field-grow">
+              <span className="lf-label">LinkedIn Post URL</span>
+              <input
+                className="lf-input"
+                placeholder="https://www.linkedin.com/feed/update/..."
+                value={postUrl}
+                onChange={(e) => setPostUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleEngagersSearch()}
+              />
+            </div>
+            <div className="lf-field">
+              <span className="lf-label">Engagement Type</span>
+              <div style={{ display: "flex", gap: 5 }}>
+                {[{ id: "likers", label: "Likers" }, { id: "comments", label: "Comments" }].map((t) => (
+                  <button key={t.id} className={`lf-type-toggle${engagerType === t.id ? " active" : ""}`} onClick={() => setEngagerType(t.id)}>
+                    {t.label}
+                  </button>
+                ))}
               </div>
-            </>
-          )}
+            </div>
+            <div className="lf-field">
+              <span className="lf-label">Account</span>
+              <select className="lf-select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                {unipileAccounts.length === 0
+                  ? <option value="">No accounts connected</option>
+                  : unipileAccounts.map((a) => <option key={a.id} value={a.id}>{a.name || a.username || a.id}</option>)}
+              </select>
+            </div>
+            <div className="lf-field lf-field-btns">
+              <button className="lf-btn" onClick={handleEngagersSearch} disabled={engagersLoading || !postUrl.trim()}>
+                {engagersLoading ? "Fetching…" : "Get Engagers"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
-          {/* ── Post Engagers mode ── */}
-          {mode === "engagers" && (
-            <>
-              <div className="filter-section">
-                <div className="filter-label">LinkedIn Post URL</div>
-                <input
-                  className="input"
-                  placeholder="https://www.linkedin.com/feed/update/urn:li:activity:..."
-                  value={postUrl}
-                  onChange={(e) => setPostUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleEngagersSearch()}
-                />
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    marginTop: 6,
-                  }}
-                >
-                  Paste the URL of a LinkedIn post to see who engaged with it.
-                </div>
-              </div>
-              <div className="filter-section">
-                <div className="filter-label">Engagement Type</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[
-                    { id: "likers", label: "👍 Likers" },
-                    { id: "comments", label: "💬 Comments" },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      className={`size-toggle ${engagerType === t.id ? "active" : ""}`}
-                      onClick={() => setEngagerType(t.id)}
-                      style={{ flex: 1 }}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+      {/* Extra filters — company size & seniority (search mode only) */}
+      {mode === "filters" && (
+        <div className="lf-extra-filters">
+          <div className="lf-extra-row">
+            <span className="lf-extra-label">Company size</span>
+            <div className="lf-toggles">
+              {SIZES.map((s) => (
+                <button key={s} className={`lf-toggle${sizes.includes(s) ? " active" : ""}`} onClick={() => toggleSize(s)}>{s}</button>
+              ))}
+            </div>
+            {sizes.length > 0 && <button className="lf-extra-clear" onClick={() => setSizes([])}>Clear</button>}
+          </div>
+          <div className="lf-extra-row">
+            <span className="lf-extra-label">Seniority</span>
+            <div className="lf-toggles">
+              {SENIORITY.map((s) => (
+                <button key={s} className={`lf-toggle${seniority.includes(s) ? " active" : ""}`} onClick={() => toggleSeniority(s)}>{s}</button>
+              ))}
+            </div>
+            {seniority.length > 0 && <button className="lf-extra-clear" onClick={() => setSeniority([])}>Clear</button>}
+          </div>
         </div>
+      )}
 
-        <div className="filter-sidebar-footer">
-          {mode === "filters" && (
-            <button
-              className="btn btn-primary"
-              style={{ width: "100%" }}
-              onClick={handleFilterSearch}
-              disabled={loading}
-            >
-              {loading ? <span>↻</span> : "◎"} Preview People
-            </button>
-          )}
-          {mode === "url" && (
-            <button
-              className="btn btn-primary"
-              style={{ width: "100%" }}
-              onClick={handleProfileSearch}
-              disabled={profileLoading || !profileUrl.trim()}
-            >
-              {profileLoading ? "↻ Searching…" : "◈ Look Up Profile"}
-            </button>
-          )}
-          {mode === "engagers" && (
-            <button
-              className="btn btn-primary"
-              style={{ width: "100%" }}
-              onClick={handleEngagersSearch}
-              disabled={engagersLoading || !postUrl.trim()}
-            >
-              {engagersLoading ? "↻ Fetching…" : "◆ Get Engagers"}
-            </button>
-          )}
-        </div>
-      </aside>
-
-      {/* Results panel */}
-      <div className="results-panel">
-        {/* ── URL mode result ── */}
-        {mode === "url" &&
-          (profileLoading ? (
-            <div className="empty-state" style={{ height: "100%" }}>
-              <div style={{ fontSize: 32 }}>↻</div>
-              <p style={{ color: "var(--text-muted)" }}>
-                Fetching LinkedIn profile…
-              </p>
+      {/* Results */}
+      <div className="lf-results-card">
+        {/* URL mode */}
+        {mode === "url" && (
+          profileLoading ? (
+            <div className="empty-state">
+              <div className="search-radar">
+                <div className="search-radar-ring" /><div className="search-radar-ring" /><div className="search-radar-ring" />
+                <div className="search-radar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+              </div>
+              <div className="empty-title">Fetching profile…</div>
+              <div className="search-dots"><span /><span /><span /></div>
             </div>
           ) : profileError ? (
-            <div className="empty-state" style={{ height: "100%" }}>
-              <div style={{ fontSize: 32 }}>◈</div>
-              <h3>Could not fetch profile</h3>
-              <p style={{ color: "var(--text-muted)", maxWidth: 400 }}>
-                {profileError}
-              </p>
+            <div className="empty-state">
+              <div className="empty-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+              <div className="empty-title">Could not fetch profile</div>
+              <div className="empty-desc">{profileError}</div>
             </div>
           ) : profileResult ? (
             <>
               <div className="results-header">
-                <span style={{ fontWeight: 700, fontSize: 15 }}>
-                  Profile found
-                </span>
+                <span className="results-count">Profile found</span>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => openListPicker([profileResult])}
-                  >
+                  <button className="results-btn results-btn-outline" onClick={() => openListPicker([profileResult])}>
                     {savedToList ? "✓ Saved" : "Save to List"}
                   </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => openCampaignPicker([profileResult])}
-                  >
+                  <button className="results-btn results-btn-dark" onClick={() => openCampaignPicker([profileResult])}>
                     Add to Campaign
                   </button>
                 </div>
               </div>
-              <div className="card" style={{ maxWidth: 560 }}>
-                <div
-                  style={{ display: "flex", gap: 14, alignItems: "flex-start" }}
-                >
-                  <div
-                    style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: "var(--radius-md)",
-                      background: "var(--signal-subtle)",
-                      color: "var(--signal)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 900,
-                      fontSize: 18,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {profileResult.name[0]}
-                  </div>
+              <div className="profile-card">
+                <div className="profile-card-inner">
+                  {profileResult.profilePictureUrl ? (
+                    <img src={profileResult.profilePictureUrl} alt={profileResult.name} className="profile-avatar-large" />
+                  ) : (
+                    <div className="profile-avatar-placeholder-large">{profileResult.name[0]}</div>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>
-                      {profileResult.name}
-                    </div>
-                    {profileResult.title && (
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: "var(--text-secondary)",
-                          marginTop: 2,
-                        }}
-                      >
-                        {profileResult.title}
-                      </div>
-                    )}
-                    {profileResult.company && (
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: "var(--text-muted)",
-                          marginTop: 2,
-                        }}
-                      >
-                        at {profileResult.company}
-                      </div>
-                    )}
-                    {profileResult.location && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "var(--text-muted)",
-                          marginTop: 4,
-                        }}
-                      >
-                        📍 {profileResult.location}
-                      </div>
-                    )}
+                    <div className="profile-name">{profileResult.name}</div>
+                    {profileResult.title && <div className="profile-title">{profileResult.title}</div>}
+                    {profileResult.company && <div className="profile-company">at {profileResult.company}</div>}
+                    {profileResult.location && <div className="profile-location">{profileResult.location}</div>}
                     {profileResult.linkedinUrl && (
-                      <a
-                        href={profileResult.linkedinUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          fontSize: 12,
-                          color: "var(--signal)",
-                          marginTop: 6,
-                          display: "inline-block",
-                        }}
-                      >
-                        View on LinkedIn ↗
+                      <a href={profileResult.linkedinUrl} target="_blank" rel="noreferrer" className="profile-li-link">
+                        View on LinkedIn
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
                       </a>
                     )}
                   </div>
-                  <span className="badge badge-muted">Not contacted</span>
+                  <span className="table-status-badge">Not contacted</span>
                 </div>
               </div>
             </>
           ) : (
-            <div className="empty-state" style={{ height: "100%" }}>
-              <div className="empty-icon">◈</div>
-              <h3>Look up a LinkedIn profile</h3>
-              <p>
-                Paste a LinkedIn profile URL in the sidebar and click Look Up
-                Profile.
-              </p>
+            <div className="empty-state">
+              <div className="empty-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </div>
+              <div className="empty-title">Look up a LinkedIn profile</div>
+              <div className="empty-desc">Paste a LinkedIn profile URL above and click Look Up Profile.</div>
             </div>
-          ))}
+          )
+        )}
 
-        {/* ── Filters & Engagers shared table ── */}
-        {(mode === "filters" || mode === "engagers") &&
-          (!showTable && !showLoading ? (
-            <div className="empty-state" style={{ height: "100%" }}>
+        {/* Search + Engagers table */}
+        {(mode === "filters" || mode === "engagers") && (
+          !showTable && !showLoading ? (
+            <div className="empty-state">
+              <div className="empty-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </div>
               {mode === "filters" ? (
                 <>
-                  <div className="empty-icon">◎</div>
-                  <h3>Search LinkedIn</h3>
-                  <p>
-                    Enter a job title, industry, or location and search LinkedIn
-                    directly via your connected account.
-                  </p>
+                  <div className="empty-title">Search LinkedIn</div>
+                  <div className="empty-desc">Set your filters above and click Search LinkedIn to find leads.</div>
                   <div className="how-it-works">
-                    <div className="how-step">
-                      <span className="how-num">1</span> Set your filters
-                    </div>
+                    <div className="how-step"><span className="how-num">1</span> Set filters</div>
                     <div className="how-arrow">→</div>
-                    <div className="how-step">
-                      <span className="how-num">2</span> Preview matches
-                    </div>
+                    <div className="how-step"><span className="how-num">2</span> Preview matches</div>
                     <div className="how-arrow">→</div>
-                    <div className="how-step">
-                      <span className="how-num">3</span> Import to campaign
-                    </div>
+                    <div className="how-step"><span className="how-num">3</span> Import to campaign</div>
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="empty-icon">◆</div>
-                  <h3>Find post engagers</h3>
-                  <p>
-                    Paste a LinkedIn post URL to see everyone who liked or
-                    commented on it — ready to import as leads.
-                  </p>
+                  <div className="empty-title">Find post engagers</div>
+                  <div className="empty-desc">Paste a LinkedIn post URL above to see everyone who liked or commented — ready to import as leads.</div>
                   <div className="how-it-works">
-                    <div className="how-step">
-                      <span className="how-num">1</span> Paste post URL
-                    </div>
+                    <div className="how-step"><span className="how-num">1</span> Paste post URL</div>
                     <div className="how-arrow">→</div>
-                    <div className="how-step">
-                      <span className="how-num">2</span> Choose likers /
-                      comments
-                    </div>
+                    <div className="how-step"><span className="how-num">2</span> Choose likers / comments</div>
                     <div className="how-arrow">→</div>
-                    <div className="how-step">
-                      <span className="how-num">3</span> Import to campaign
-                    </div>
+                    <div className="how-step"><span className="how-num">3</span> Import to campaign</div>
                   </div>
                 </>
               )}
             </div>
           ) : showLoading ? (
-            <div className="empty-state" style={{ height: "100%" }}>
+            <div className="empty-state">
               <div className="search-radar">
-                <div className="search-radar-ring" />
-                <div className="search-radar-ring" />
-                <div className="search-radar-ring" />
-                <div className="search-radar-icon">◎</div>
+                <div className="search-radar-ring" /><div className="search-radar-ring" /><div className="search-radar-ring" />
+                <div className="search-radar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
               </div>
-              <p style={{ color: "var(--text-secondary)", fontWeight: 600, marginTop: 4 }}>
+              <div className="empty-title">
                 {mode === "filters" ? "Searching LinkedIn…" : "Fetching post engagers…"}
-              </p>
-              {mode === "filters" && loadingCount > 0 && (
-                <p style={{ color: "var(--signal)", fontSize: 13, margin: 0 }}>
-                  {loadingCount} profiles found so far
-                </p>
-              )}
-              <div className="search-dots">
-                <span /><span /><span />
               </div>
+              {mode === "filters" && loadingCount > 0 && (
+                <div style={{ color: "#6366f1", fontSize: 13 }}>{loadingCount} profiles found so far</div>
+              )}
+              <div className="search-dots"><span /><span /><span /></div>
             </div>
-          ) : engagersError && mode === "engagers" ? (
-            <div className="empty-state" style={{ height: "100%" }}>
-              <div style={{ fontSize: 32 }}>◆</div>
-              <h3>Could not fetch engagers</h3>
-              <p style={{ color: "var(--text-muted)", maxWidth: 400 }}>
-                {engagersError}
-              </p>
+          ) : (engagersError && mode === "engagers") ? (
+            <div className="empty-state">
+              <div className="empty-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+              <div className="empty-title">Could not fetch engagers</div>
+              <div className="empty-desc">{engagersError}</div>
             </div>
-          ) : filterError && mode === "filters" ? (
-            <div className="empty-state" style={{ height: "100%" }}>
-              <div style={{ fontSize: 32 }}>◎</div>
-              <h3>Search failed</h3>
-              <p style={{ color: "var(--text-muted)", maxWidth: 400 }}>
-                {filterError}
-              </p>
+          ) : (filterError && mode === "filters") ? (
+            <div className="empty-state">
+              <div className="empty-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+              <div className="empty-title">Search failed</div>
+              <div className="empty-desc">{filterError}</div>
             </div>
           ) : (
             <>
               <div className="results-header">
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
-                  <span style={{ fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
-                    {displayRows.length !== tableRows.length
-                      ? `${displayRows.length} of ${tableRows.length}`
-                      : tableRows.length}{" "}
-                    {mode === "engagers" ? `${engagerType} found` : "matches found"}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  <span className="results-count">
+                    {displayRows.length !== tableRows.length ? `${displayRows.length} of ${tableRows.length}` : tableRows.length}{" "}
+                    {mode === "engagers" ? `${engagerType} found` : "matches"}
                   </span>
-                  {mode === "filters" && !tableSearch && (
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                  {mode === "filters" && !tableSearch && filterSource && (
+                    <span className="results-source">
                       {filterSource === "connections" ? "from your connections" : "from LinkedIn"}
                     </span>
                   )}
                   {tableRows.length > 0 && (
-                    <input
-                      className="input"
-                      style={{ fontSize: 12, padding: "5px 10px", height: "auto", maxWidth: 220 }}
-                      placeholder="Filter results…"
-                      value={tableSearch}
-                      onChange={(e) => setTableSearch(e.target.value)}
-                    />
+                    <div className="results-filter-wrap">
+                      <span className="results-filter-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      </span>
+                      <input className="results-filter-input" placeholder="Filter results…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
+                    </div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  {selected.length > 0 && (
-                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                      {selected.length} selected
-                    </span>
-                  )}
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() =>
-                      setSelected(
-                        selected.length === displayRows.length
-                          ? []
-                          : displayRows.map((r) => r.id),
-                      )
-                    }
-                  >
-                    {selected.length > 0 && selected.length === displayRows.length
-                      ? "Deselect All"
-                      : "Select All"}
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  {selected.length > 0 && <span className="results-selected-count">{selected.length} selected</span>}
+                  <button className="results-btn results-btn-outline" onClick={() => setSelected(selected.length === displayRows.length ? [] : displayRows.map((r) => r.id))}>
+                    {selected.length > 0 && selected.length === displayRows.length ? "Deselect All" : "Select All"}
                   </button>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    disabled={selected.length === 0}
-                    onClick={() => openListPicker()}
-                  >
+                  <button className="results-btn results-btn-outline" disabled={selected.length === 0} onClick={() => openListPicker()}>
                     {savedToList ? "✓ Saved" : "Save to List"}
                   </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={selected.length === 0}
-                    onClick={() =>
-                      openCampaignPicker(
-                        tableRows.filter((r) => selected.includes(r.id)),
-                      )
-                    }
-                  >
+                  <button className="results-btn results-btn-dark" disabled={selected.length === 0} onClick={() => openCampaignPicker(tableRows.filter((r) => selected.includes(r.id)))}>
                     Add to Campaign ({selected.length})
                   </button>
                 </div>
@@ -1112,22 +878,20 @@ export default function LeadFinder() {
                   <thead>
                     <tr>
                       <th style={{ width: 40 }}></th>
-                      <th></th>
+                      <th style={{ width: 44 }}></th>
                       {[
                         { key: "name", label: "Name" },
                         { key: "title", label: "Job Title" },
                         { key: "company", label: "Company" },
                         { key: "location", label: "Location" },
                       ].map(({ key, label }) => (
-                        <th
-                          key={key}
-                          style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
-                          onClick={() => handleSort(key)}
-                        >
-                          {label}{" "}
-                          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
-                            {sortBy === key ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
-                          </span>
+                        <th key={key} className="sortable" onClick={() => handleSort(key)}>
+                          {label}
+                          {sortBy === key && (
+                            <svg style={{ width: 9, height: 9, marginLeft: 3 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points={sortDir === "asc" ? "18 15 12 9 6 15" : "6 9 12 15 18 9"} />
+                            </svg>
+                          )}
                         </th>
                       ))}
                       <th>Status</th>
@@ -1136,56 +900,32 @@ export default function LeadFinder() {
                   <tbody>
                     {displayRows.map((r) => (
                       <tr key={r.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(r.id)}
-                            onChange={() => toggleSelect(r.id)}
-                          />
+                        <td className="checkbox-cell">
+                          <input type="checkbox" className="table-result-checkbox" checked={selected.includes(r.id)} onChange={() => toggleSelect(r.id)} />
                         </td>
-                        <td style={{ fontSize: 12 }}>
+                        <td>
                           {r.profilePictureUrl ? (
-                            <img
-                              src={r.profilePictureUrl}
-                              alt={`${r.name} profile`}
-                              style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: "50%",
-                                objectFit: "cover",
-                                border: "1px solid var(--border)",
-                              }}
-                            />
+                            <img src={r.profilePictureUrl} alt={r.name} className="table-avatar" />
                           ) : (
-                            <span style={{ color: "var(--text-muted)" }}>
-                              —
-                            </span>
+                            <div className="table-avatar-placeholder">{r.name?.[0]?.toUpperCase() || "?"}</div>
                           )}
                         </td>
-                        <td style={{ fontWeight: 600 }}>{r.name}</td>
-                        <td style={{ color: "var(--text-secondary)" }}>
-                          {r.title}
-                        </td>
-                        <td>{r.company}</td>
-                        <td
-                          style={{ color: "var(--text-muted)", fontSize: 12 }}
-                        >
-                          {r.location}
-                        </td>
-
-                        <td>
-                          <span className="badge badge-muted">{r.status}</span>
-                        </td>
+                        <td style={{ fontWeight: 600, color: "#111827" }}>{r.name}</td>
+                        <td style={{ color: "#6b7280" }}>{r.title}</td>
+                        <td style={{ color: "#374151" }}>{r.company}</td>
+                        <td style={{ color: "#9ca3af", fontSize: 12 }}>{r.location}</td>
+                        <td><span className="table-status-badge">{r.status}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </>
-          ))}
+          )
+        )}
       </div>
 
-      {/* Import contacts modal */}
+      {/* Modals */}
       <ImportContactsModal
         open={listPickerOpen}
         onClose={() => { setListPickerOpen(false); setPendingListLeads(null); }}
@@ -1196,61 +936,26 @@ export default function LeadFinder() {
         saving={savingToList}
       />
 
-      {/* Campaign picker modal */}
       {pickerOpen && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => e.target === e.currentTarget && setPickerOpen(false)}
-        >
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setPickerOpen(false)}>
           <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
             <div className="modal-header">
               <h2 className="modal-title">Add to Campaign</h2>
-              <button
-                className="btn btn-icon btn-ghost"
-                onClick={() => setPickerOpen(false)}
-              >
-                ✕
-              </button>
+              <button className="modal-close" onClick={() => setPickerOpen(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <p
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  marginBottom: 16,
-                }}
-              >
-                Adding {pendingLeads.length} lead
-                {pendingLeads.length !== 1 ? "s" : ""} — choose a campaign:
+              <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>
+                Adding {pendingLeads.length} lead{pendingLeads.length !== 1 ? "s" : ""} — choose a campaign:
               </p>
               {campaignList.length === 0 ? (
-                <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                  No campaigns found. Create one first.
-                </div>
+                <div style={{ color: "#9ca3af", fontSize: 13 }}>No campaigns found. Create one first.</div>
               ) : (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
-                >
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {campaignList.map((c) => (
-                    <button
-                      key={c.id}
-                      className="btn btn-secondary"
-                      style={{
-                        justifyContent: "space-between",
-                        textAlign: "left",
-                      }}
-                      disabled={addingToCampaign === c.id}
-                      onClick={() => addToCampaign(c.id)}
-                    >
-                      <span style={{ fontWeight: 600 }}>{c.name}</span>
-                      <span
-                        style={{ fontSize: 12, color: "var(--text-muted)" }}
-                      >
-                        {addingToCampaign === c.id
-                          ? "Adding…"
-                          : c.status === "active"
-                            ? "● Active"
-                            : "Paused"}
+                    <button key={c.id} className="campaign-picker-row" disabled={addingToCampaign === c.id} onClick={() => addToCampaign(c.id)}>
+                      <span className="campaign-picker-name">{c.name}</span>
+                      <span className="campaign-picker-meta">
+                        {addingToCampaign === c.id ? "Adding…" : c.status === "active" ? "● Active" : "Paused"}
                       </span>
                     </button>
                   ))}

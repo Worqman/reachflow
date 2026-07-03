@@ -122,7 +122,43 @@ function messageFrom(msg) {
   return "prospect";
 }
 
+const LI_ICON = (
+  <svg viewBox="0 0 24 24" width="8" height="8" fill="#fff">
+    <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z" />
+  </svg>
+);
+
+function ConvItem({ c, active, onSelect }) {
+  const chipType = c.status === 'booked' ? 'booked' : c.status === 'review' ? 'review' : c.status === 'ai_active' ? 'ai' : c.convId ? 'lead' : null;
+  const chipLabel = chipType === 'booked' ? 'Booked' : chipType === 'review' ? 'Review' : chipType === 'ai' ? 'AI' : chipType === 'lead' ? 'Lead' : null;
+  return (
+    <div
+      className={`conv-item ${active?.id === c.id ? 'active' : ''} ${c.unread ? 'unread' : ''}`}
+      onClick={() => onSelect(c)}
+    >
+      <div className="conv-avatar" style={c.picture ? { padding: 0 } : {}}>
+        {c.picture
+          ? <img src={c.picture} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} />
+          : c.name[0]?.toUpperCase()}
+        <div className="conv-avatar-badge">{LI_ICON}</div>
+      </div>
+      <div className="conv-info">
+        <div className="conv-name-row">
+          <span className="conv-name">{c.name}</span>
+          <span className="conv-time">{c.time}</span>
+        </div>
+        {c.company && <div className="conv-company">{c.company}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 1 }}>
+          {c.preview && <div className="conv-preview" style={{ flex: 1, minWidth: 0 }}>{c.preview}</div>}
+          {chipLabel && <span className={`conv-status-chip ${chipType}`}>{chipLabel}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Inbox() {
+  const [search, setSearch] = useState("");
   const [conversations, setConversations] = useState([]);
   const [active, setActive] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -466,10 +502,9 @@ export default function Inbox() {
     }
   }
 
-  const filtered =
-    filter === "all"
-      ? conversations
-      : conversations.filter((c) => c?.status === (FILTER_STATUS[filter] || filter));
+  const filtered = conversations
+    .filter((c) => filter === "all" || c?.status === (FILTER_STATUS[filter] || filter))
+    .filter((c) => !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.preview?.toLowerCase().includes(search.toLowerCase()));
 
   const needsReview = conversations.filter(
     (c) => c?.status === "review",
@@ -481,46 +516,45 @@ export default function Inbox() {
       {/* Left: conversation list */}
       <div className="inbox-list">
         <div className="inbox-list-header">
-          <h2 style={{ fontSize: 16, fontWeight: 700 }}>Inbox</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {needsReview > 0 && (
-              <span className="badge badge-warning">
-                {needsReview} need review
-              </span>
+          <div className="inbox-list-title">Inbox</div>
+          <div className="inbox-header-actions">
+            {accounts.length > 1 && (
+              <select
+                style={{ fontSize: 12, padding: "4px 8px", border: "1.5px solid #e5e7eb", borderRadius: 8, background: "#fff", color: "#374151", cursor: "pointer", fontFamily: "inherit" }}
+                value={accountId || ""}
+                onChange={(e) => loadChatsForAccount(e.target.value)}
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name || a.username || a.id}</option>
+                ))}
+              </select>
             )}
             <button
-              className="btn btn-ghost btn-sm"
-              style={{ fontSize: 16, padding: "2px 6px" }}
+              className="inbox-refresh-btn"
               disabled={refreshing}
               onClick={() => accountId && loadConversations(accountId)}
               title="Refresh"
             >
-              {refreshing ? "…" : "↻"}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+              </svg>
             </button>
           </div>
         </div>
 
-        {accounts.length > 1 && (
-          <div style={{ padding: "0 12px 8px" }}>
-            <select
-              className="input"
-              style={{
-                fontSize: 12,
-                padding: "4px 8px",
-                height: "auto",
-                cursor: "pointer",
-              }}
-              value={accountId || ""}
-              onChange={(e) => loadChatsForAccount(e.target.value)}
-            >
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name || a.username || a.id}
-                </option>
-              ))}
-            </select>
+        {/* Search */}
+        <div className="inbox-search-wrap">
+          <div className="inbox-search-inner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              placeholder="Search messages…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-        )}
+        </div>
 
         <div className="inbox-filters">
           {["all", "ai", "review", "booked"].map((f) => (
@@ -538,58 +572,22 @@ export default function Inbox() {
           {loading ? (
             <SkeletonConvItems rows={8} />
           ) : error ? (
-            <div
-              style={{
-                padding: "16px",
-                color: "var(--text-muted)",
-                fontSize: 12,
-              }}
-            >
-              <div style={{ marginBottom: 4, color: "var(--danger, #e55)" }}>
-                {error}
-              </div>
+            <div style={{ padding: "16px", color: "#9ca3af", fontSize: 12 }}>
+              <div style={{ marginBottom: 4, color: "#ef4444" }}>{error}</div>
               <div>Add UNIPILE_API_KEY and UNIPILE_DSN to your .env file.</div>
             </div>
           ) : filtered.length === 0 ? (
-            <div
-              style={{
-                padding: "24px 16px",
-                color: "var(--text-muted)",
-                fontSize: 13,
-              }}
-            >
+            <div style={{ padding: "24px 16px", color: "var(--text-muted)", fontSize: 13 }}>
               No conversations found.
             </div>
           ) : (
-            filtered.map((c) => (
-              <div
-                key={c.id}
-                className={`conv-item ${active?.id === c.id ? "active" : ""} ${c.unread ? "unread" : ""}`}
-                onClick={() => handleSelectConv(c)}
-                style={{ position: 'relative' }}
-              >
-                {c.picture
-                  ? <img src={c.picture} alt={c.name} className="conv-avatar" style={{ objectFit: 'cover' }} />
-                  : <div className="conv-avatar">{c.name[0]?.toUpperCase()}</div>
-                }
-                <div className="conv-info">
-                  <div className="conv-name-row">
-                    <span className="conv-name">{c.name}</span>
-                    <span className="conv-time">{c.time}</span>
-                  </div>
-                  {c.company && <div className="conv-company">{c.company}</div>}
-                  {c.preview && <div className="conv-preview">{c.preview}</div>}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                  <span
-                    className={`badge ${STATUS_META[c.status]?.class || "badge-muted"}`}
-                  >
-                    {c.status === "ai_active" ? "◆" : c.status === "review" ? "!" : "✓"}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
+            <>
+              {filtered.length > 0 && <div className="conv-section-label">Conversations</div>}
+              {filtered.map((c) => (
+                <ConvItem key={c.id} c={c} active={active} onSelect={handleSelectConv} />
+              ))}
+            </>)
+          }
         </div>
       </div>
 
@@ -597,97 +595,64 @@ export default function Inbox() {
       {active ? (
         <div className="inbox-thread">
           <div className="thread-header">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
               {active.picture
-                ? <img src={active.picture} alt={active.name} className="conv-avatar" style={{ width: 40, height: 40, objectFit: 'cover' }} />
-                : <div className="conv-avatar" style={{ width: 40, height: 40, fontSize: 16 }}>{active.name[0]?.toUpperCase()}</div>
+                ? <img src={active.picture} alt={active.name} className="thread-avatar" style={{ objectFit: 'cover' }} />
+                : <div className="thread-avatar">{active.name[0]?.toUpperCase()}</div>
               }
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>
-                  {active.name}
+              <div className="thread-header-info">
+                <div className="thread-header-name">{active.name}</div>
+                <div className="thread-header-meta">
+                  {active.company && <span className="thread-header-company">{active.company}</span>}
+                  {active.company && <span className="thread-header-sep" />}
+                  {active.status === 'booked' && <span className="thread-badge booked">✓ Booked</span>}
+                  {active.status === 'ai_active' && !aiPaused && <span className="thread-badge ai">AI Active</span>}
+                  {active.status === 'review' && <span className="thread-badge review">Needs Review</span>}
+                  {active.convId && active.status !== 'booked' && active.status !== 'review' && <span className="thread-badge lead">Lead</span>}
                 </div>
-                {active.company && (
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {active.company}
-                  </div>
-                )}
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="thread-header-actions">
               {active.status !== "booked" &&
                 (aiPaused ? (
                   <button
-                    className="btn btn-sm btn-primary"
+                    className="thread-action-btn primary"
                     disabled={actionLoading}
                     onClick={() => {
                       if (agentsList.filter(a => a.status === 'active').length > 1) setAgentPicker(true);
                       else handleEnableAI(agentsList.find(a => a.status === 'active')?.id || agentsList[0]?.id);
                     }}
                   >
-                    ◆ Enable AI
+                    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 11, height: 11 }}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Enable AI
                   </button>
                 ) : (
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    disabled={actionLoading}
-                    onClick={handlePauseAI}
-                  >
-                    ⏸ Pause AI
+                  <button className="thread-action-btn secondary" disabled={actionLoading} onClick={handlePauseAI}>
+                    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 11, height: 11 }}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    Pause AI
                   </button>
                 ))}
-              {active.status !== "booked" ? (
-                <button
-                  className="btn btn-sm btn-secondary"
-                  disabled={actionLoading}
-                  onClick={handleMarkBooked}
-                >
-                  ✓ Meeting Booked
+              {active.status !== "booked" && (
+                <button className="thread-action-btn secondary" disabled={actionLoading} onClick={handleMarkBooked}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11 }}><polyline points="20 6 9 17 4 12"/></svg>
+                  Mark Booked
                 </button>
-              ) : (
-                <span className="badge badge-info">✓ Booked</span>
               )}
             </div>
           </div>
 
-          {active.status === "ai_active" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 16px",
-                background: "var(--surface-2, #1a1f2e)",
-                borderBottom: "1px solid var(--border)",
-                fontSize: 12,
-                color: "var(--text-muted)",
-              }}
-            >
-              <div className="signal-dot" style={{ width: 7, height: 7 }} />
-              <span>
-                AI Assistant is handling this conversation autonomously
-              </span>
+          {active.status === "ai_active" && !aiPaused && (
+            <div className="inbox-status-bar ai">
+              <div className="signal-dot" />
+              <span>AI Assistant is handling this conversation autonomously</span>
             </div>
           )}
 
           {active.status === "booked" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 16px",
-                background: "rgba(99,102,241,.08)",
-                borderBottom: "1px solid var(--border)",
-                fontSize: 12,
-                color: "var(--text-muted)",
-              }}
-            >
+            <div className="inbox-status-bar booked">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 13, height: 13, flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
               <span>
-                ✓ Meeting booked
-                {active.bookedAt
-                  ? ` on ${new Date(active.bookedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
-                  : ""}
-                {" — conversation complete"}
+                Meeting booked{active.bookedAt ? ` · ${new Date(active.bookedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}` : ""} — conversation complete
               </span>
             </div>
           )}
@@ -720,12 +685,7 @@ export default function Inbox() {
                 <div key={m.id} className={`message-wrap ${m.from}`}>
                   {m.from === "ai" && (
                     <div className="message-sender-label">
-                      <span
-                        className="badge badge-signal"
-                        style={{ fontSize: 10 }}
-                      >
-                        ◆ AI
-                      </span>
+                      <span className="message-ai-tag">◆ You</span>
                     </div>
                   )}
                   <div className={`message-bubble ${m.from}`}>{m.text}</div>
@@ -738,53 +698,41 @@ export default function Inbox() {
 
           <div className="thread-input">
             {aiPaused && active.status !== "booked" ? (
-              <>
+              <div className="thread-input-box">
                 <textarea
-                  className="input"
-                  placeholder="Type your reply..."
+                  className="thread-textarea"
+                  placeholder="Write a reply… (⌘↵ to send)"
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
-                  rows={3}
-                  style={{ resize: "none" }}
+                  rows={1}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
-                      handleSend();
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
                   }}
                 />
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    gap: 8,
-                    marginTop: 8,
-                  }}
+                <button
+                  className="thread-send-btn"
+                  disabled={!reply.trim() || sending}
+                  onClick={handleSend}
+                  title="Send (⌘↵)"
                 >
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => setReply("")}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={!reply.trim() || sending}
-                    onClick={handleSend}
-                  >
-                    {sending ? "Sending…" : "Send Reply"}
-                  </button>
-                </div>
-              </>
+                  {sending
+                    ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="8"/></svg>
+                    : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  }
+                </button>
+              </div>
             ) : (
               <div className="ai-handling">
-                <div className="signal-dot" />
-                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                {active.status !== "booked" && <div className="signal-dot" style={{ color: '#7c3aed' }} />}
+                <span style={{ flex: 1 }}>
                   {active.status === "booked"
                     ? "Conversation complete — meeting booked"
-                    : "AI Assistant is handling this conversation"}
+                    : "AI is handling this conversation"}
                 </span>
                 {active.status !== "booked" && (
                   <button
-                    className="btn btn-ghost btn-sm"
+                    className="thread-action-btn secondary"
+                    style={{ fontSize: 12 }}
                     disabled={actionLoading}
                     onClick={handlePauseAI}
                   >
@@ -797,10 +745,14 @@ export default function Inbox() {
         </div>
       ) : (
         <div className="inbox-empty">
-          <div className="empty-state">
-            <div className="empty-icon">✉</div>
-            <h3>Select a conversation</h3>
-            <p>Choose a conversation from the list to view the thread</p>
+          <div className="inbox-empty-inner">
+            <div className="inbox-empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div className="inbox-empty-title">No conversation selected</div>
+            <div className="inbox-empty-desc">Pick a conversation from the list to view messages</div>
           </div>
         </div>
       )}

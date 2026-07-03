@@ -5,6 +5,7 @@ import { chats } from '../services/unipile.js'
 import { getAgentById } from './agents.js'
 import { supabase } from '../services/supabase.js'
 import { isWithinSchedule, consumeDailyLimit } from '../services/limits.js'
+import { fetchAndSummarizeProfile } from './campaigns.js'
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -473,15 +474,13 @@ export async function generateAIReply(conversationId) {
 
   const profile = await getWorkspaceProfile(conv.workspaceId)
 
-  // Load cached profile summary so AI replies are also prospect-aware
+  // Lazily fetch + cache prospect profile the first time AI is about to reply.
+  // fetchAndSummarizeProfile returns the cached DB value on subsequent calls — no repeat API cost.
   let profileSummary = null
-  if (supabase && conv.prospectId) {
-    const { data: leadRow } = await supabase
-      .from('campaign_leads')
-      .select('profile_summary')
-      .eq('provider_id', conv.prospectId)
-      .maybeSingle()
-    profileSummary = leadRow?.profile_summary || null
+  if (conv.prospectId && conv.linkedinAccountId && conv.campaignId && conv.workspaceId) {
+    profileSummary = await fetchAndSummarizeProfile(
+      conv.prospectId, conv.linkedinAccountId, conv.campaignId, conv.workspaceId
+    )
   }
 
   const recentMessages = conv.messages.slice(-8) // last 4 exchanges

@@ -106,6 +106,7 @@ const STEP_TYPES = [
     ),
     label: "Send connection request",
     hasConfig: true,
+    isCondition: true,
   },
   {
     type: "message",
@@ -123,6 +124,7 @@ const STEP_TYPES = [
     ),
     label: "Send message",
     hasConfig: true,
+    isCondition: true,
   },
   {
     type: "voice_note",
@@ -174,6 +176,7 @@ const STEP_TYPES = [
     ),
     label: "LinkedIn InMail",
     hasConfig: true,
+    isCondition: true,
   },
   {
     type: "add_tag",
@@ -225,6 +228,7 @@ const STEP_TYPES = [
     ),
     label: "Send message to open profile",
     hasConfig: true,
+    isCondition: true,
   },
   // Conditions
   {
@@ -635,6 +639,19 @@ function waitLabel(config) {
   return `Wait ${n} ${unitLabel}`;
 }
 
+function getBranchLabels(nodeType) {
+  switch (nodeType) {
+    case 'connection_request': return { no: 'Not Accepted Yet', yes: 'Accepted' }
+    case 'message': case 'message_open': case 'inmail': return { no: 'Not Replied', yes: 'Replied' }
+    case 'cond_has_linkedin': return { no: 'No LinkedIn', yes: 'Has LinkedIn' }
+    case 'cond_1st_level': return { no: 'Not 1st Level', yes: '1st Level' }
+    case 'cond_opened_message': return { no: 'Not Opened', yes: 'Opened' }
+    case 'cond_check_column': return { no: 'No Match', yes: 'Matches' }
+    case 'cond_open_profile': return { no: 'Not Open Profile', yes: 'Open Profile' }
+    default: return { no: 'No', yes: 'Yes' }
+  }
+}
+
 function nodeLabel(node) {
   if (node.type === "wait") return waitLabel(node.config);
   return stepMeta(node.type).label;
@@ -680,6 +697,25 @@ const IMPORT_SOURCES = [
     ),
     label: "Lead Finder",
     desc: "Search Apollo's 300M+ contact database",
+  },
+  {
+    id: "list",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+      </svg>
+    ),
+    label: "My Leads",
+    desc: "Add leads from your saved lead database",
   },
   {
     id: "csv",
@@ -1049,13 +1085,6 @@ export default function CampaignDetail() {
     return created;
   }
 
-  // Auto-open import modal on first load in setup mode
-  useEffect(() => {
-    if (isSetup && !loading && campaign) {
-      setShowImport(true);
-    }
-  }, [isSetup, loading, campaign?.id]);
-
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -1110,27 +1139,17 @@ export default function CampaignDetail() {
   if (loading) {
     return (
       <div className="campaign-detail animate-fade-in">
-        <div
-          style={{
-            padding: "24px 32px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 20,
-          }}
-        >
-          <Sk w="40%" h={28} r={6} />
-          <Sk w="25%" h={14} r={4} />
-          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Sk key={i} w={80} h={32} r={6} />
-            ))}
+        <div style={{ padding: "20px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Sk w={80} h={14} r={4} />
+            <Sk w={180} h={20} r={6} />
+            <Sk w={64} h={22} r={99} />
           </div>
-          <div className="table-wrap" style={{ marginTop: 8 }}>
-            <table>
-              <tbody>
-                <SkeletonTableRows rows={6} cols={6} />
-              </tbody>
-            </table>
+          <div style={{ display: "flex", gap: 8 }}>
+            {Array.from({ length: 5 }).map((_, i) => <Sk key={i} w={80} h={28} r={6} />)}
+          </div>
+          <div className="table-wrap" style={{ marginTop: 4 }}>
+            <table><tbody><SkeletonTableRows rows={6} cols={6} /></tbody></table>
           </div>
         </div>
       </div>
@@ -1140,16 +1159,14 @@ export default function CampaignDetail() {
   if (!campaign) {
     return (
       <div className="campaign-detail animate-fade-in">
-        <div style={{ padding: 32 }}>
-          <Link
-            to="/campaigns"
-            style={{ color: "var(--text-muted)", fontSize: 13 }}
-          >
-            ← Campaigns
+        <div style={{ padding: "20px 28px" }}>
+          <Link to="/campaigns" className="detail-back-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Campaigns
           </Link>
-          <div style={{ marginTop: 24, color: "var(--text-muted)" }}>
-            Campaign not found.
-          </div>
+          <div style={{ marginTop: 24, color: "#9ca3af", fontSize: 13 }}>Campaign not found.</div>
         </div>
       </div>
     );
@@ -1162,40 +1179,61 @@ export default function CampaignDetail() {
     <div className="campaign-detail animate-fade-in">
       {/* Top bar */}
       <div className="detail-topbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link
-            to="/campaigns"
-            style={{ color: "var(--text-muted)", fontSize: 13 }}
-          >
-            ← Campaigns
+        <div className="detail-topbar-left">
+          <Link to="/campaigns" className="detail-back-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Campaigns
           </Link>
-          <span style={{ color: "var(--border-2)" }}>/</span>
-          <h1 style={{ fontSize: 16, fontWeight: 700 }}>{campaign.name}</h1>
-          <span
-            className={`badge ${campaign.status === "active" ? "badge-signal" : "badge-muted"}`}
-          >
-            {campaign.status === "active" ? "active" : "paused"}
+          <span className="detail-breadcrumb-sep">/</span>
+          <span className="detail-campaign-name">{campaign.name}</span>
+          <span className={`detail-status-pill ${campaign.status === "active" ? "active" : "paused"}`}>
+            <span className="detail-status-dot" />
+            {campaign.status === "active" ? "Active" : "Paused"}
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+
+        <div className="detail-topbar-right">
           {!isSetup && selectedAgent && (
-            <span className="chip">◆ {selectedAgent.name}</span>
+            <span className="detail-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/>
+                <path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>
+              </svg>
+              {selectedAgent.name}
+            </span>
           )}
           {!isSetup && campaign.settings?.linkedinAccountName && (
-            <span className="chip">
-              ◎ {campaign.settings.linkedinAccountName}
+            <span className="detail-chip">
+              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 12, height: 12, color: '#0a66c2' }}>
+                <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+              </svg>
+              {campaign.settings.linkedinAccountName}
             </span>
           )}
           {isSetup ? (
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              Complete each step to launch your campaign
-            </span>
+            <span className="detail-setup-hint">Complete each step to launch</span>
           ) : (
             <button
-              className={`btn ${campaign.status === "active" ? "btn-secondary" : "btn-primary"} btn-sm`}
+              className={`detail-run-btn ${campaign.status === "active" ? "pausing" : ""}`}
               onClick={handleToggleStatus}
             >
-              {campaign.status === "active" ? "⏸ Pause" : "▶ Run"}
+              {campaign.status === "active" ? (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                  </svg>
+                  Pause
+                </>
+              ) : (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Run Campaign
+                </>
+              )}
             </button>
           )}
         </div>
@@ -1204,14 +1242,19 @@ export default function CampaignDetail() {
       {/* Tabs / Setup stepper */}
       <div className="detail-tabs">
         {isSetup
-          ? ["leads", "builder", "persona", "settings"].map((t, i) => (
+          ? [
+              { key: "leads",    label: "Leads" },
+              { key: "accounts", label: "LinkedIn Accounts" },
+              { key: "builder",  label: "Sequences" },
+              { key: "schedule", label: "Schedule" },
+            ].map(({ key, label }, i) => (
               <button
-                key={t}
-                className={`detail-tab setup-wizard-tab ${tab === t ? "active" : ""}`}
-                onClick={() => setTab(t)}
+                key={key}
+                className={`detail-tab setup-wizard-tab ${tab === key ? "active" : ""}`}
+                onClick={() => setTab(key)}
               >
                 <span className="setup-step-num">{i + 1}</span>
-                {t === "leads" ? "Import Leads" : t.charAt(0).toUpperCase() + t.slice(1)}
+                {label}
               </button>
             ))
           : ["leads", "builder", "persona", "analytics", "settings"].map((t) => (
@@ -1293,7 +1336,7 @@ export default function CampaignDetail() {
             onRefreshLeads={refreshLeads}
             onSetupImportDone={isSetup ? handleSetupImportDone : undefined}
             isSetup={isSetup}
-            onSetupNext={() => setTab("builder")}
+            onSetupNext={() => setTab("accounts")}
             linkedinAccounts={linkedinAccounts}
             campaign={campaign}
             onSaveCampaign={setCampaign}
@@ -1307,43 +1350,57 @@ export default function CampaignDetail() {
             leads={leads}
             onSaved={(updated) => {
               setCampaign((prev) => ({ ...prev, sequence: updated }));
-              if (isSetup) setTab("persona");
+              if (isSetup) setTab("schedule");
             }}
             toast={toast}
             campaignStatus={campaign.status}
             onToggleStatus={handleToggleStatus}
             isSetup={isSetup}
-            onSetupNext={() => setTab("persona")}
+            onSetupNext={() => setTab("schedule")}
           />
         )}
-        {tab === "persona" && (
+        {tab === "accounts" && isSetup && (
+          <AccountsSetupTab
+            campaignId={id}
+            campaign={campaign}
+            linkedinAccounts={linkedinAccounts}
+            agents={agents}
+            onSaved={(updated) => {
+              setCampaign(updated);
+              setTab("builder");
+            }}
+            toast={toast}
+          />
+        )}
+        {tab === "persona" && !isSetup && (
           <PersonaTab
             campaignId={id}
             campaign={campaign}
             agents={agents}
-            onSaved={(updated) => {
-              setCampaign(updated);
-              if (isSetup) setTab("settings");
-            }}
+            onSaved={(updated) => { setCampaign(updated) }}
             toast={toast}
-            isSetup={isSetup}
+            isSetup={false}
           />
         )}
         {tab === "analytics" && !isSetup && <AnalyticsTab campaignId={id} />}
-        {tab === "settings" && (
+        {tab === "settings" && !isSetup && (
           <SettingsTab
             campaign={campaign}
             agents={agents}
             linkedinAccounts={linkedinAccounts}
+            onSaved={(updated) => { setCampaign(updated) }}
+            toast={toast}
+            isSetup={false}
+          />
+        )}
+        {tab === "schedule" && isSetup && (
+          <ScheduleSetupTab
+            campaign={campaign}
             onSaved={(updated) => {
               setCampaign(updated);
-              if (isSetup) {
-                navigate(`/campaigns/${id}`, { replace: true });
-                setTab("leads");
-              }
+              navigate(`/campaigns/${id}`, { replace: true });
             }}
             toast={toast}
-            isSetup={isSetup}
           />
         )}
       </div>
@@ -1353,39 +1410,69 @@ export default function CampaignDetail() {
 
 // ── My Leads Picker Modal ────────────────────────────────────
 function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
-  const [list, setList] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState([]);
+  const [lists, setLists] = useState([]);
+  const [activeListId, setActiveListId] = useState(null);
+  const [leadsMap, setLeadsMap] = useState({}); // listId → leads[]
+  const [loadingLists, setLoadingLists] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [selected, setSelected] = useState([]); // lead ids
   const [importing, setImporting] = useState(false);
+  const [search, setSearch] = useState('');
 
+  // Load lists on open
   useEffect(() => {
-    if (!open) {
-      setSelected([]);
-      return;
-    }
-    setLoading(true);
-    leadsApi
-      .list()
-      .then((data) => setList(Array.isArray(data) ? data : []))
-      .catch(() => setList([]))
-      .finally(() => setLoading(false));
+    if (!open) { setSelected([]); setActiveListId(null); setLeadsMap({}); setSearch(''); return; }
+    setLoadingLists(true);
+    leadListsApi.list()
+      .then((data) => {
+        const rows = Array.isArray(data) ? data : [];
+        setLists(rows);
+        if (rows.length > 0) setActiveListId(rows[0].id);
+      })
+      .catch(() => setLists([]))
+      .finally(() => setLoadingLists(false));
   }, [open]);
 
+  // Load leads when active list changes
+  useEffect(() => {
+    if (!activeListId) return;
+    if (leadsMap[activeListId]) return; // already fetched
+    setLoadingLeads(true);
+    leadsApi.list(activeListId)
+      .then((data) => setLeadsMap((prev) => ({ ...prev, [activeListId]: Array.isArray(data) ? data : [] })))
+      .catch(() => setLeadsMap((prev) => ({ ...prev, [activeListId]: [] })))
+      .finally(() => setLoadingLeads(false));
+  }, [activeListId]);
+
+  const activeLeads = (leadsMap[activeListId] || []).filter((l) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (l.name || '').toLowerCase().includes(q) || (l.company || '').toLowerCase().includes(q) || (l.title || '').toLowerCase().includes(q);
+  });
+
   function toggle(id) {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  function toggleAll() {
+    const ids = activeLeads.map((l) => l.id);
+    const allChecked = ids.every((id) => selected.includes(id));
+    setSelected((prev) => allChecked ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
+  }
+
+  function initials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(' ');
+    return (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
   }
 
   async function handleImport() {
-    const toAdd = list.filter((l) => selected.includes(l.id));
+    const allLeads = Object.values(leadsMap).flat();
+    const toAdd = allLeads.filter((l) => selected.includes(l.id));
     if (!toAdd.length) return;
     setImporting(true);
     try {
-      await campaignsApi.importLeads(campaignId, {
-        leads: toAdd,
-        source: "list",
-      });
+      await campaignsApi.importLeads(campaignId, { leads: toAdd, source: 'list' });
       onImported();
       onClose();
     } catch {}
@@ -1393,160 +1480,414 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
   }
 
   if (!open) return null;
+
+  const allActiveIds = activeLeads.map((l) => l.id);
+  const allActiveChecked = allActiveIds.length > 0 && allActiveIds.every((id) => selected.includes(id));
+
   return (
-    <div
-      className="modal-overlay"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="modal-box animate-fade-in"
-        style={{
-          maxWidth: 560,
-          display: "flex",
-          flexDirection: "column",
-          maxHeight: "80vh",
-        }}
-      >
-        <div className="modal-header">
-          <h2 className="modal-title">Add from My Leads</h2>
-          <button className="btn btn-icon btn-ghost" onClick={onClose}>
-            ✕
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box animate-fade-in mlp-modal">
+        {/* Header */}
+        <div className="mlp-header">
+          <div>
+            <div className="mlp-title">Add from My Leads</div>
+            <div className="mlp-subtitle">Select a list, then choose leads to add to this campaign</div>
+          </div>
+          <button className="mlp-close" onClick={onClose}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div className="modal-body" style={{ flex: 1, overflowY: "auto" }}>
-          {loading ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                padding: "8px 0",
-              }}
-            >
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    opacity: 1 - i * 0.15,
-                  }}
-                >
-                  <Sk w={32} h={32} r={999} />
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 5,
-                    }}
-                  >
-                    <Sk w="50%" h={13} />
-                    <Sk w="70%" h={11} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : list.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                color: "var(--text-muted)",
-                fontSize: 13,
-                padding: "24px 0",
-              }}
-            >
-              No saved leads yet. Use Lead Finder → Save to List first.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 8,
-                }}
-              >
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {list.length} saved leads
-                </span>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() =>
-                    setSelected(
-                      selected.length === list.length
-                        ? []
-                        : list.map((l) => l.id),
-                    )
-                  }
-                >
-                  {selected.length === list.length
-                    ? "Deselect All"
-                    : "Select All"}
-                </button>
+
+        {/* Body: two-pane */}
+        <div className="mlp-body">
+          {/* Left: list sidebar */}
+          <div className="mlp-sidebar">
+            <div className="mlp-sidebar-label">Lists</div>
+            {loadingLists ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
+                {[1,2,3].map(i => <Sk key={i} w="90%" h={36} r={8} />)}
               </div>
-              {list.map((lead) => (
-                <div
-                  key={lead.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 12px",
-                    background: "var(--surface)",
-                    cursor: "pointer",
-                    border: `1px solid ${selected.includes(lead.id) ? "var(--signal)" : "var(--border)"}`,
-                    borderRadius: "var(--radius)",
-                  }}
-                  onClick={() => toggle(lead.id)}
-                >
+            ) : lists.length === 0 ? (
+              <div className="mlp-empty-sidebar">No lists yet</div>
+            ) : (
+              lists.map((lst) => {
+                const lstLeads = leadsMap[lst.id] || [];
+                const selCount = lstLeads.filter((l) => selected.includes(l.id)).length;
+                return (
+                  <button
+                    key={lst.id}
+                    className={`mlp-list-item ${activeListId === lst.id ? 'active' : ''}`}
+                    onClick={() => { setActiveListId(lst.id); setSearch(''); }}
+                  >
+                    <div className="mlp-list-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    </div>
+                    <div className="mlp-list-info">
+                      <span className="mlp-list-name">{lst.name}</span>
+                      {selCount > 0 && <span className="mlp-list-sel-badge">{selCount}</span>}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Right: leads */}
+          <div className="mlp-leads-pane">
+            {/* Search + select-all bar */}
+            {!loadingLists && lists.length > 0 && (
+              <div className="mlp-leads-toolbar">
+                <div className="mlp-search-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   <input
-                    type="checkbox"
-                    checked={selected.includes(lead.id)}
-                    onChange={() => toggle(lead.id)}
-                    onClick={(e) => e.stopPropagation()}
+                    className="mlp-search"
+                    placeholder="Search leads…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
                   />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      {lead.name || "—"}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: "var(--text-muted)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {lead.title}
-                      {lead.company ? ` · ${lead.company}` : ""}
-                    </div>
-                  </div>
                 </div>
-              ))}
+                {activeLeads.length > 0 && (
+                  <button className="mlp-sel-all" onClick={toggleAll}>
+                    {allActiveChecked ? 'Deselect all' : `Select all (${activeLeads.length})`}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="mlp-leads-list">
+              {loadingLeads ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Sk w={36} h={36} r={999} />
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        <Sk w="45%" h={13} />
+                        <Sk w="65%" h={11} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : lists.length === 0 ? (
+                <div className="mlp-empty-pane">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
+                  <div className="mlp-empty-title">No lists yet</div>
+                  <div className="mlp-empty-desc">Go to My Leads and save leads to a list first.</div>
+                </div>
+              ) : activeLeads.length === 0 && search ? (
+                <div className="mlp-empty-pane">
+                  <div className="mlp-empty-title">No matches</div>
+                  <div className="mlp-empty-desc">Try a different search term.</div>
+                </div>
+              ) : activeLeads.length === 0 ? (
+                <div className="mlp-empty-pane">
+                  <div className="mlp-empty-title">This list is empty</div>
+                  <div className="mlp-empty-desc">Add leads to this list from Lead Finder or My Leads.</div>
+                </div>
+              ) : (
+                activeLeads.map((lead) => {
+                  const isChecked = selected.includes(lead.id);
+                  return (
+                    <div
+                      key={lead.id}
+                      className={`mlp-lead-row ${isChecked ? 'checked' : ''}`}
+                      onClick={() => toggle(lead.id)}
+                    >
+                      <div className={`mlp-checkbox ${isChecked ? 'checked' : ''}`}>
+                        {isChecked && <svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <div className="mlp-avatar">{initials(lead.name).toUpperCase()}</div>
+                      <div className="mlp-lead-info">
+                        <div className="mlp-lead-name">{lead.name || '—'}</div>
+                        <div className="mlp-lead-meta">
+                          {[lead.title, lead.company].filter(Boolean).join(' · ') || <span style={{ color: '#d1d5db' }}>No details</span>}
+                        </div>
+                      </div>
+                      {lead.linkedinUrl && (
+                        <a
+                          href={lead.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mlp-li-btn"
+                          onClick={(e) => e.stopPropagation()}
+                          title="View LinkedIn profile"
+                        >
+                          <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z"/>
+                          </svg>
+                        </a>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
-          )}
+          </div>
         </div>
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={selected.length === 0 || importing}
-            onClick={handleImport}
-          >
-            {importing
-              ? "Adding…"
-              : `Add ${selected.length > 0 ? selected.length : ""} to Campaign`}
-          </button>
+
+        {/* Footer */}
+        <div className="mlp-footer">
+          <span className="mlp-footer-count">
+            {selected.length > 0 ? `${selected.length} lead${selected.length !== 1 ? 's' : ''} selected` : 'No leads selected'}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="mlp-btn-cancel" onClick={onClose}>Cancel</button>
+            <button className="mlp-btn-primary" disabled={selected.length === 0 || importing} onClick={handleImport}>
+              {importing ? 'Adding…' : `Add ${selected.length > 0 ? selected.length : ''} to Campaign`}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+// ── CSV field-type definitions for column mapping ─────────────
+const CSV_FIELD_TYPES = [
+  { value: '',              label: 'Skip this column' },
+  { value: 'linkedin_url',  label: 'LinkedIn URL (Required)' },
+  { value: 'first_name',    label: 'First Name' },
+  { value: 'last_name',     label: 'Last Name' },
+  { value: 'full_name',     label: 'Full Name' },
+  { value: 'job_title',     label: 'Job Title' },
+  { value: 'company',       label: 'Company' },
+  { value: 'location',      label: 'Location' },
+  { value: 'email',         label: 'Email' },
+  { value: 'website',       label: 'Website' },
+  { value: 'headline',      label: 'Headline' },
+  { value: 'summary',       label: 'Summary' },
+  { value: 'industry',      label: 'Industry' },
+]
+
+function detectFieldType(header) {
+  const h = header.toLowerCase().replace(/[^a-z0-9]/g, '_')
+  if (h.includes('linkedin') || h === 'profile_url') return 'linkedin_url'
+  if (h === 'first_name' || h === 'firstname' || h === 'first') return 'first_name'
+  if (h === 'last_name' || h === 'lastname' || h === 'last' || h === 'surname') return 'last_name'
+  if (h === 'full_name' || h === 'fullname' || h === 'name' || h === 'contact_name') return 'full_name'
+  if (h.includes('job_title') || h === 'title' || h.includes('jobtitle') || h.includes('position') || h === 'role') return 'job_title'
+  if (h.includes('company') || h.includes('organization') || h === 'employer') return 'company'
+  if (h.includes('location') || h === 'city' || h === 'country' || h === 'region') return 'location'
+  if (h.includes('email') || h.includes('mail')) return 'email'
+  if (h === 'website' || h === 'web' || h === 'url') return 'website'
+  if (h.includes('headline') || h === 'bio') return 'headline'
+  if (h.includes('summary') || h.includes('about')) return 'summary'
+  if (h.includes('industry') || h.includes('sector')) return 'industry'
+  return ''
+}
+
+function parseCsvRaw(text) {
+  function splitRow(row) {
+    const cells = []; let cur = '', inQ = false
+    for (const ch of row) {
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    cells.push(cur.trim())
+    return cells
+  }
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
+  if (lines.length < 2) return { headers: [], sampleRows: [], allRows: [] }
+  const rawHeaders = splitRow(lines[0])
+  const headers = rawHeaders.map(h => h.replace(/^"|"$/g, '').trim())
+  const allRows = []
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitRow(lines[i]).map(c => c.replace(/^"|"$/g, '').trim())
+    if (cells.every(c => !c)) continue
+    allRows.push(cells)
+  }
+  return { headers, sampleRows: allRows.slice(0, 3), allRows }
+}
+
+function applyColumnMapping(allRows, headers, mapping) {
+  return allRows.map((cells, i) => {
+    const lead = { id: `csv_${i}` }
+    let firstName = '', lastName = ''
+    headers.forEach((h, colIdx) => {
+      const type = mapping[h] || ''
+      const val = cells[colIdx] || ''
+      if (type === 'linkedin_url') lead.linkedinUrl = val
+      else if (type === 'first_name') firstName = val
+      else if (type === 'last_name') lastName = val
+      else if (type === 'full_name') lead.name = val
+      else if (type === 'job_title') lead.title = val
+      else if (type === 'company') lead.company = val
+      else if (type === 'location') lead.location = val
+    })
+    if (!lead.name && (firstName || lastName)) lead.name = [firstName, lastName].filter(Boolean).join(' ')
+    if (!lead.name) lead.name = `Row ${i + 1}`
+    return lead
+  })
+}
+
+// ── CSV Setup Wizard steps ─────────────────────────────────────
+function CsvSourceStep({ onSelectCsv, onSelectMyLeads }) {
+  const cardStyle = { width: 320, border: '1px solid var(--border)', borderRadius: 12, padding: 28, cursor: 'pointer', background: 'var(--surface)', transition: 'border-color 0.15s' }
+  const hover = e => e.currentTarget.style.borderColor = 'var(--signal)'
+  const unhover = e => e.currentTarget.style.borderColor = 'var(--border)'
+  return (
+    <div>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Select Leads Source</h2>
+      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 32 }}>Choose where you want to get your leads from</p>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <div style={cardStyle} onClick={onSelectMyLeads} onMouseEnter={hover} onMouseLeave={unhover}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 32, height: 32, marginBottom: 14, color: 'var(--signal)' }}>
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12c0 1.657-4.03 3-9 3s-9-1.343-9-3" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 5v14c0 1.657 4.03 3 9 3s9-1.343 9-3V5" />
+          </svg>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>My Leads</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+            Add leads from your saved lead database. Pick and choose who to include in this campaign.
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => { e.stopPropagation(); onSelectMyLeads() }}>
+            Select →
+          </button>
+        </div>
+        <div style={cardStyle} onClick={onSelectCsv} onMouseEnter={hover} onMouseLeave={unhover}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 32, height: 32, marginBottom: 14, color: 'var(--signal)' }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+          </svg>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Upload CSV</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+            Import leads from a CSV file. The file should include LinkedIn URLs and other optional information.
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => { e.stopPropagation(); onSelectCsv() }}>
+            Select →
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CsvUploadStep({ onFile, onBack }) {
+  const fileRef = React.useRef()
+  const [dragOver, setDragOver] = useState(false)
+  const [error, setError] = useState('')
+
+  function processFile(file) {
+    if (!file || !file.name.toLowerCase().endsWith('.csv')) { setError('Please upload a .csv file'); return }
+    const reader = new FileReader()
+    reader.onload = e => {
+      const { headers, sampleRows, allRows } = parseCsvRaw(e.target.result)
+      if (!headers.length) { setError('No columns detected — check your CSV format'); return }
+      if (!allRows.length) { setError('No data rows found — CSV must have at least one row after the header'); return }
+      onFile(file, headers, sampleRows, allRows)
+    }
+    reader.readAsText(file)
+  }
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <button className="btn btn-ghost btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>← Back</button>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Upload CSV File</h2>
+      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>LinkedIn URL is required. LinkedIn URLs and other optional information.</p>
+      <div
+        style={{ border: `2px dashed ${dragOver ? 'var(--signal)' : 'var(--border)'}`, borderRadius: 12, padding: '48px 24px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'var(--surface-2)' : 'var(--surface)', transition: 'all 0.15s' }}
+        onClick={() => fileRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); processFile(e.dataTransfer.files[0]) }}
+      >
+        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => processFile(e.target.files[0])} />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 40, height: 40, color: 'var(--text-muted)', margin: '0 auto 14px' }}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+        </svg>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Click to choose a CSV file</div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>or drag and drop here</div>
+      </div>
+      {error && <div style={{ marginTop: 12, fontSize: 13, color: 'var(--danger)' }}>{error}</div>}
+    </div>
+  )
+}
+
+function CsvMappingStep({ file, headers, sampleData, allRows, mapping, onMappingChange, onImport, importing, error, onBack }) {
+  const fileSizeKb = file ? Math.round(file.size / 1024) : 0
+
+  function setFieldType(header, value) {
+    // If assigning a unique field (like linkedin_url), clear it from other headers first
+    const unique = ['linkedin_url', 'full_name']
+    const updated = { ...mapping }
+    if (unique.includes(value)) {
+      Object.keys(updated).forEach(k => { if (updated[k] === value) updated[k] = '' })
+    }
+    updated[header] = value
+    onMappingChange(updated)
+  }
+
+  const hasLinkedinUrl = Object.values(mapping).includes('linkedin_url')
+
+  return (
+    <div>
+      <button className="btn btn-ghost btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>← Back</button>
+      <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>
+        Match your CSV columns to the appropriate fields. <strong>LinkedIn URL is required.</strong>
+      </p>
+
+      {file && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 24, width: 'fit-content' }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 20, height: 20, color: 'var(--text-muted)', flexShrink: 0 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+          </svg>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{file.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>({fileSizeKb} KB) · {headers.length} columns detected · {allRows.length} rows</div>
+          </div>
+        </div>
+      )}
+
+      <div className="table-wrap" style={{ marginBottom: 24 }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: '28%' }}>CSV Column</th>
+              <th style={{ width: '36%' }}>Select Type</th>
+              <th>Sample Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {headers.map((header, hi) => {
+              const sample = sampleData.map(row => row[hi] || '').filter(Boolean).slice(0, 3).join(', ')
+              return (
+                <tr key={header}>
+                  <td style={{ fontWeight: 500, fontSize: 13 }}>{header}</td>
+                  <td>
+                    <select
+                      className="input"
+                      style={{ fontSize: 13, padding: '5px 10px', height: 'auto' }}
+                      value={mapping[header] || ''}
+                      onChange={e => setFieldType(header, e.target.value)}
+                    >
+                      {CSV_FIELD_TYPES.map(ft => (
+                        <option key={ft.value} value={ft.value}>{ft.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sample}>{sample || '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {!hasLinkedinUrl && (
+        <div style={{ fontSize: 13, color: 'var(--warning, #f59e0b)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⚠ Please map a column to "LinkedIn URL (Required)" before importing
+        </div>
+      )}
+      {error && <div style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
+
+      <button
+        className="btn btn-primary"
+        disabled={!hasLinkedinUrl || importing}
+        onClick={onImport}
+      >
+        {importing ? 'Importing…' : `Import ${allRows.length} Contacts →`}
+      </button>
+    </div>
+  )
 }
 
 // ── CSV Import Modal ─────────────────────────────────────────
@@ -1932,13 +2273,89 @@ function LeadsTab({
   const [leadsSearch, setLeadsSearch] = useState("");
   const [retryingFor, setRetryingFor] = useState(null);
 
-  // Setup mode state
-  const [setupAccountId, setSetupAccountId] = useState(campaign?.settings?.linkedinAccountId || "");
+  // Setup mode CSV wizard state
+  const [csvPhase, setCsvPhase] = useState(() => leads.length > 0 ? 'done' : 'select');
+  const [csvFile, setCsvFile] = useState(null);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvSampleData, setCsvSampleData] = useState([]);
+  const [csvAllRows, setCsvAllRows] = useState([]);
+  const [csvMapping, setCsvMapping] = useState({});
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportError, setCsvImportError] = useState('');
+
+  // (always declared — hooks must not be conditional)
   const [showSaveList, setShowSaveList] = useState(false);
   const [listName, setListName] = useState("");
   const [savingList, setSavingList] = useState(false);
   const [savedListId, setSavedListId] = useState(null);
   const [nextLoading, setNextLoading] = useState(false);
+
+  // Advance past wizard once leads are loaded (e.g. on page refresh after import)
+  React.useEffect(() => {
+    if (leads.length > 0 && csvPhase !== 'done') setCsvPhase('done');
+  }, [leads.length]);
+
+  // Setup mode: show CSV wizard phases inline (not the old list/import-panel flow)
+  if (isSetup && csvPhase !== 'done') {
+    return (
+      <div style={{ padding: '24px 32px', maxWidth: 900 }}>
+        <MyLeadsPickerModal
+          open={myLeadsOpen}
+          onClose={() => setMyLeadsOpen(false)}
+          campaignId={campaignId}
+          onImported={() => { setMyLeadsOpen(false); onSetupImportDone?.(); }}
+        />
+        {csvPhase === 'select' && (
+          <CsvSourceStep
+            onSelectCsv={() => setCsvPhase('upload')}
+            onSelectMyLeads={() => setMyLeadsOpen(true)}
+          />
+        )}
+        {csvPhase === 'upload' && (
+          <CsvUploadStep
+            onFile={(file, headers, sampleRows, allRows) => {
+              setCsvFile(file);
+              setCsvHeaders(headers);
+              setCsvSampleData(sampleRows);
+              setCsvAllRows(allRows);
+              const autoMap = {};
+              headers.forEach(h => { autoMap[h] = detectFieldType(h); });
+              setCsvMapping(autoMap);
+              setCsvPhase('map');
+            }}
+            onBack={() => setCsvPhase('select')}
+          />
+        )}
+        {csvPhase === 'map' && (
+          <CsvMappingStep
+            file={csvFile}
+            headers={csvHeaders}
+            sampleData={csvSampleData}
+            allRows={csvAllRows}
+            mapping={csvMapping}
+            onMappingChange={setCsvMapping}
+            importing={csvImporting}
+            error={csvImportError}
+            onBack={() => setCsvPhase('upload')}
+            onImport={async () => {
+              setCsvImporting(true);
+              setCsvImportError('');
+              try {
+                const mappedLeads = applyColumnMapping(csvAllRows, csvHeaders, csvMapping);
+                await campaignsApi.importLeads(campaignId, { leads: mappedLeads, source: 'csv' });
+                await onRefreshLeads?.();
+                setCsvPhase('done');
+              } catch (e) {
+                setCsvImportError(e.message || 'Import failed');
+              } finally {
+                setCsvImporting(false);
+              }
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   async function handleSaveAsMyList() {
     if (!listName.trim()) return;
@@ -1962,28 +2379,6 @@ function LeadsTab({
     } finally {
       setSavingList(false);
     }
-  }
-
-  async function handleNextToBuilder() {
-    setNextLoading(true);
-    try {
-      if (setupAccountId && setupAccountId !== campaign?.settings?.linkedinAccountId) {
-        const acc = linkedinAccounts.find((a) => a.id === setupAccountId);
-        const updated = await campaignsApi.update(campaignId, {
-          settings: {
-            ...campaign?.settings,
-            linkedinAccountId: setupAccountId,
-            linkedinAccountName: acc?.name || "",
-          },
-        });
-        onSaveCampaign?.(updated);
-      }
-    } catch {
-      /* silent — don't block navigation */
-    } finally {
-      setNextLoading(false);
-    }
-    onSetupNext?.();
   }
 
   const handleRetry = async (leadId) => {
@@ -2066,23 +2461,6 @@ function LeadsTab({
         </div>
       </div>
 
-      {isSetup && linkedinAccounts.length > 0 && (
-        <div className="setup-account-picker">
-          <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>LinkedIn Account to use for this campaign</label>
-          <select
-            className="input"
-            style={{ maxWidth: 320 }}
-            value={setupAccountId}
-            onChange={e => setSetupAccountId(e.target.value)}
-          >
-            <option value="">Select account…</option>
-            {linkedinAccounts.map(a => (
-              <option key={a.id} value={a.id}>{a.name || a.email || a.id}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
       {leads.length === 0 ? (
         <div
           style={{
@@ -2121,22 +2499,24 @@ function LeadsTab({
               {visibleLeads.map((l) => (
                 <tr key={l.id || l.name}>
                   <td style={{ fontWeight: 600 }}>
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 6 }}
-                    >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {l.name || l.firstName + " " + l.lastName || "—"}
                       {l.profileSummary && (
-                        <span
-                          title={l.profileSummary}
-                          style={{
-                            fontSize: 10,
-                            color: "var(--signal)",
-                            cursor: "help",
-                            flexShrink: 0,
-                          }}
+                        <span title={l.profileSummary} style={{ fontSize: 10, color: "var(--signal)", cursor: "help", flexShrink: 0 }}>◆</span>
+                      )}
+                      {l.linkedinUrl && (
+                        <a
+                          href={l.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="cl-li-btn"
+                          onClick={(e) => e.stopPropagation()}
+                          title="View LinkedIn profile"
                         >
-                          ◆
-                        </span>
+                          <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z"/>
+                          </svg>
+                        </a>
                       )}
                     </div>
                   </td>
@@ -2239,11 +2619,11 @@ function LeadsTab({
           )}
           <button
             className="btn btn-primary"
-            disabled={nextLoading || leads.length === 0}
-            onClick={handleNextToBuilder}
+            disabled={leads.length === 0}
+            onClick={onSetupNext}
             style={{ marginLeft: 'auto' }}
           >
-            {nextLoading ? 'Saving…' : 'Next: Builder →'}
+            Next: LinkedIn Accounts →
           </button>
         </div>
       )}
@@ -2415,6 +2795,10 @@ function BuilderTab({
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const isDraggingRef = React.useRef(false);
   const [openStatsId, setOpenStatsId] = useState(null);
+  const [transform, setTransform] = useState({ zoom: 1, x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const canvasRef = useRef(null);
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, startPx: 0, startPy: 0, moved: false });
 
   // Close stats popup on outside click
   React.useEffect(() => {
@@ -2423,6 +2807,14 @@ function BuilderTab({
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, [openStatsId]);
+
+  // Non-passive wheel listener so preventDefault() works for zoom
+  React.useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleCanvasWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleCanvasWheel);
+  });
 
   function getNodeLeadStats(nodeType) {
     if (!leads?.length) return { inProgress: 0, finished: 0, failed: 0 };
@@ -2572,10 +2964,58 @@ function BuilderTab({
     if (selectedId === id) setSelectedId(null);
   }
 
+  function handleCanvasMouseDown(e) {
+    if (e.button !== 0) return;
+    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, startPx: transform.x, startPy: transform.y, moved: false };
+    setPanning(true);
+  }
+  function handleCanvasMouseMove(e) {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      dragRef.current.moved = true;
+      setTransform(t => ({ ...t, x: dragRef.current.startPx + dx, y: dragRef.current.startPy + dy }));
+    }
+  }
+  function handleCanvasMouseUp() {
+    if (!dragRef.current.active) return;
+    if (!dragRef.current.moved) setSelectedId(null);
+    dragRef.current.active = false;
+    setPanning(false);
+  }
+  function handleCanvasWheel(e) {
+    e.preventDefault();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    setTransform(t => {
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newZoom = Math.min(2.5, Math.max(0.2, t.zoom * factor));
+      const scale = newZoom / t.zoom;
+      return { zoom: newZoom, x: mx - scale * (mx - t.x), y: my - scale * (my - t.y) };
+    });
+  }
+  function zoomIn() { setTransform(t => ({ ...t, zoom: Math.min(2.5, parseFloat((t.zoom + 0.1).toFixed(1))) })); }
+  function zoomOut() { setTransform(t => ({ ...t, zoom: Math.max(0.2, parseFloat((t.zoom - 0.1).toFixed(1))) })); }
+  function resetView() { setTransform({ zoom: 1, x: 0, y: 0 }); }
+
   return (
     <div className="builder-wrap">
       {/* Canvas */}
-      <div className="builder-canvas" onClick={() => setSelectedId(null)}>
+      <div
+        className="builder-canvas"
+        ref={canvasRef}
+        onMouseDown={handleCanvasMouseDown}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+        onMouseLeave={handleCanvasMouseUp}
+        style={{ cursor: panning ? 'grabbing' : 'grab' }}
+      >
+        <div
+          className="builder-inner"
+          style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`, transformOrigin: '0 0' }}
+        >
         {/* Start node */}
         <div
           className={`builder-entry-node ${isSetup ? "builder-entry-node--setup" : campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
@@ -2584,21 +3024,19 @@ function BuilderTab({
             if (isSetup) onSetupNext?.();
             else onToggleStatus?.();
           }}
-          title={isSetup ? "Save & continue to Persona" : campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
+          title={isSetup ? "Save & continue to Schedule" : campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
           style={{ cursor: "pointer" }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {isSetup
-              ? <><span>→</span> Next: Persona</>
-              : campaignStatus === "active"
-                ? <><span>⏸</span> Running</>
-                : <><span>▶</span> Start the campaign</>
-            }
-          </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16, flexShrink: 0 }}>
+            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+          <span>
+            {isSetup ? "Next: Schedule" : campaignStatus === "active" ? "Running" : "Start"}
+          </span>
           {!isSetup && leads?.length > 0 && (
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {leads.length.toLocaleString()} contacts
-            </div>
+            <span style={{ fontSize: 11, color: "inherit", opacity: 0.65, fontWeight: 400 }}>
+              · {leads.length.toLocaleString()}
+            </span>
           )}
         </div>
 
@@ -2736,13 +3174,22 @@ function BuilderTab({
                 const mainNodesAfter = nodes.filter((n) => !n._nobranchOf && !n._yesbranchOf);
                 const condMainIdx = mainNodesAfter.findIndex((n) => n._id === node._id);
                 const hasNextMain = condMainIdx < mainNodesAfter.length - 1;
+                const labels = getBranchLabels(node.type);
+                const StopNode = () => (
+                  <div className="builder-stop-node">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" /><line x1="4.9" y1="4.9" x2="19.1" y2="19.1" />
+                    </svg>
+                    Stop
+                  </div>
+                );
                 return (
                   <div className="builder-branch-wrap">
                     <div className="builder-connector" />
+                    <div className="builder-dot" />
                     <div className="builder-branch-fork">
-                      {/* ── No column ── */}
+                      {/* ── No column (left) ── */}
                       <div className="builder-branch-col branch-col-no">
-                        <span className="branch-label branch-label-no">No</span>
                         {noBranchNodes.map((nb) => {
                           const nbMeta = stepMeta(nb.type);
                           const nbOk = nodeConfigured(nb);
@@ -2756,30 +3203,25 @@ function BuilderTab({
                                 <div className="node-icon">{nbMeta.icon}</div>
                                 <div className="node-content">
                                   <div className="node-label">{nodeLabel(nb)}</div>
-                                  {!nbOk && <div className="node-error">Configure required</div>}
+                                  {!nbOk && <div className="node-error">Action required</div>}
                                 </div>
-                                <button
-                                  className="btn btn-icon btn-ghost"
-                                  style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }}
-                                  onClick={(e) => { e.stopPropagation(); deleteNode(nb._id); }}
-                                  title="Remove"
-                                >✕</button>
+                                <button className="btn btn-icon btn-ghost" style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); deleteNode(nb._id); }} title="Remove">✕</button>
                               </div>
                             </React.Fragment>
                           );
                         })}
                         <div className="branch-nb-connector" />
-                        <button
-                          className="add-node-btn"
-                          onClick={(e) => { e.stopPropagation(); setAddingToNoBranch(node._id); setAddingToYesBranch(null); setAddingAt(null); }}
-                          title="Add step to No branch"
-                        >+</button>
+                        <span className="branch-label branch-label-no">{labels.no}</span>
+                        <div className="branch-nb-connector" />
+                        <button className="add-node-btn" onClick={(e) => { e.stopPropagation(); setAddingToNoBranch(node._id); setAddingToYesBranch(null); setAddingAt(null); }} title="Add step to No branch">+</button>
+                        <div className="branch-nb-connector" />
+                        <StopNode />
                         <div className="branch-col-fill" />
                       </div>
 
-                      {/* ── Yes column ── */}
+                      {/* ── Yes column (right) ── */}
                       <div className="builder-branch-col branch-col-yes">
-                        <span className="branch-label branch-label-yes">Yes</span>
+                        <span className="branch-label branch-label-yes">{labels.yes}</span>
                         {yesBranchNodes.map((yb) => {
                           const ybMeta = stepMeta(yb.type);
                           const ybOk = nodeConfigured(yb);
@@ -2793,40 +3235,22 @@ function BuilderTab({
                                 <div className="node-icon">{ybMeta.icon}</div>
                                 <div className="node-content">
                                   <div className="node-label">{nodeLabel(yb)}</div>
-                                  {!ybOk && <div className="node-error">Configure required</div>}
+                                  {!ybOk && <div className="node-error">Action required</div>}
                                 </div>
-                                <button
-                                  className="btn btn-icon btn-ghost"
-                                  style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }}
-                                  onClick={(e) => { e.stopPropagation(); deleteNode(yb._id); }}
-                                  title="Remove"
-                                >✕</button>
+                                <button className="btn btn-icon btn-ghost" style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); deleteNode(yb._id); }} title="Remove">✕</button>
                               </div>
                             </React.Fragment>
                           );
                         })}
-                        {yesBranchNodes.length === 0 ? (
-                          <button
-                            className="branch-yes-add-placeholder"
-                            onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }}
-                          >
-                            <span style={{ fontSize: 16, marginRight: 6 }}>⊕</span> Add Action
-                          </button>
-                        ) : (
-                          <>
-                            <div className="branch-nb-connector branch-nb-connector-yes" />
-                            <button
-                              className="add-node-btn"
-                              onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }}
-                              title="Add step to Yes branch"
-                            >+</button>
-                          </>
-                        )}
+                        <div className="branch-nb-connector branch-nb-connector-yes" />
+                        <button className="add-node-btn" onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }} title="Add step to Yes branch">+</button>
+                        <div className="branch-nb-connector branch-nb-connector-yes" />
+                        <StopNode />
                         <div className="branch-col-fill" />
                       </div>
                     </div>
 
-                    {/* Merge: connector + add button for main sequence */}
+                    <div className="builder-dot" />
                     <div className="builder-connector" />
                     <button
                       className="add-node-btn"
@@ -2868,6 +3292,22 @@ function BuilderTab({
         >
           {saving ? "Saving…" : "Save Sequence"}
         </button>
+        </div>{/* /builder-inner */}
+
+        {/* Zoom controls */}
+        <div className="builder-zoom-controls" onMouseDown={e => e.stopPropagation()}>
+          <button className="builder-zoom-btn" onClick={zoomOut} title="Zoom out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <span className="builder-zoom-pct">{Math.round(transform.zoom * 100)}%</span>
+          <button className="builder-zoom-btn" onClick={zoomIn} title="Zoom in">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <div className="builder-zoom-divider" />
+          <button className="builder-zoom-btn" onClick={resetView} title="Reset view (100%)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+        </div>
       </div>
 
       {/* Right: step config panel */}
@@ -4481,6 +4921,201 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast, isSet
       </div>
     </div>
   );
+}
+
+// ── AccountsSetupTab (wizard step 2) ─────────────────────────
+function AccountsSetupTab({ campaignId, campaign, linkedinAccounts, agents, onSaved, toast }) {
+  const [accountId, setAccountId] = useState(campaign.settings?.linkedinAccountId || '')
+  const [agentId, setAgentId] = useState(campaign.settings?.agentId || '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleNext() {
+    if (!accountId) { toast?.('Please select a LinkedIn account', 'danger'); return }
+    setSaving(true)
+    try {
+      const acc = linkedinAccounts.find(a => a.id === accountId)
+      const updated = await campaignsApi.update(campaignId, {
+        settings: {
+          ...campaign.settings,
+          linkedinAccountId: accountId,
+          linkedinAccountName: acc?.name || acc?.email || '',
+          agentId: agentId || campaign.settings?.agentId || '',
+        }
+      })
+      onSaved(updated)
+    } catch (err) {
+      toast?.(err.message || 'Could not save', 'danger')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>LinkedIn Account</h2>
+      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 32 }}>Select the LinkedIn account to use for outreach on this campaign.</p>
+
+      {linkedinAccounts.length === 0 ? (
+        <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 24, marginBottom: 10 }}>◎</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>No LinkedIn accounts connected</div>
+          <div style={{ fontSize: 13, marginBottom: 16 }}>Connect a LinkedIn account in Settings → LinkedIn Accounts first.</div>
+          <a href="/settings" className="btn btn-secondary btn-sm">Go to Settings →</a>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
+          {linkedinAccounts.map(acc => (
+            <div
+              key={acc.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', border: `1px solid ${accountId === acc.id ? 'var(--signal)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: accountId === acc.id ? 'var(--surface-2)' : 'var(--surface)', transition: 'all 0.15s' }}
+              onClick={() => setAccountId(acc.id)}
+            >
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
+                {(acc.name || acc.email || '?')[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{acc.name || acc.email || acc.id}</div>
+                {acc.email && acc.name && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{acc.email}</div>}
+              </div>
+              <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${accountId === acc.id ? 'var(--signal)' : 'var(--border)'}`, background: accountId === acc.id ? 'var(--signal)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {accountId === acc.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {agents.length > 0 && (
+        <div className="input-group" style={{ marginBottom: 32 }}>
+          <label className="input-label">AI Assistant (optional)</label>
+          <select className="input" value={agentId} onChange={e => setAgentId(e.target.value)}>
+            <option value="">No agent — I'll reply manually</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      <button
+        className="btn btn-primary"
+        disabled={!accountId || saving}
+        onClick={handleNext}
+      >
+        {saving ? 'Saving…' : 'Next: Sequences →'}
+      </button>
+    </div>
+  )
+}
+
+// ── ScheduleSetupTab (wizard step 4) ─────────────────────────
+function ScheduleSetupTab({ campaign, onSaved, toast }) {
+  const [schedule, setSchedule] = useState(campaign.settings?.schedule || DEFAULT_SCHEDULE)
+  const [timezone, setTimezone] = useState(campaign.settings?.timezone || 'Europe/London')
+  const [frequency, setFrequency] = useState({
+    ...DEFAULT_FREQUENCY,
+    ...(campaign.settings?.frequency || {}),
+    connectionRequests: campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? DEFAULT_FREQUENCY.connectionRequests,
+    messages: campaign.settings?.frequency?.messages ?? campaign.settings?.dailyMessageLimit ?? DEFAULT_FREQUENCY.messages,
+  })
+  const [saving, setSaving] = useState(false)
+
+  const [now, setNow] = useState(() => new Date())
+  React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
+  let tzClock = ''
+  try { tzClock = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(now) } catch {}
+
+  function updateDay(idx, patch) {
+    setSchedule(prev => prev.map((d, i) => i === idx ? { ...d, ...patch } : d))
+  }
+
+  function adjustFreq(key, delta) {
+    setFrequency(prev => ({ ...prev, [key]: Math.max(0, (prev[key] ?? 0) + delta) }))
+  }
+
+  async function handleFinish() {
+    setSaving(true)
+    try {
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: {
+          ...campaign.settings,
+          timezone,
+          schedule,
+          frequency,
+          dailyConnectionLimit: frequency.connectionRequests,
+          dailyMessageLimit: frequency.messages,
+        }
+      })
+      onSaved(updated)
+    } catch (err) {
+      toast?.(err.message || 'Could not save schedule', 'danger')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 640 }}>
+      <div className="card">
+        <h3 style={{ fontWeight: 700, marginBottom: 4 }}>Schedule</h3>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Set which days and hours your campaign is active. All times are in the selected timezone.</p>
+
+        <div className="input-group">
+          <label className="input-label">Timezone</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <select className="input" value={timezone} onChange={e => setTimezone(e.target.value)} style={{ flex: 1, minWidth: 220 }}>
+              {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+            </select>
+            {tzClock && <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Current time: <strong style={{ color: 'var(--text-primary)' }}>{tzClock}</strong></span>}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+          {schedule.map((row, idx) => (
+            <div key={row.day} style={{ display: 'grid', gridTemplateColumns: '120px 56px 16px 1fr', alignItems: 'center', gap: 10, opacity: row.enabled ? 1 : 0.45 }}>
+              <span style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}>{row.day}</span>
+              <label className="toggle" style={{ margin: 0 }}>
+                <input type="checkbox" checked={row.enabled} onChange={e => updateDay(idx, { enabled: e.target.checked })} />
+                <span className="toggle-track" />
+              </label>
+              <span style={{ borderTop: '1px solid var(--border)', width: '100%' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input className="input time-picker" type="time" value={row.start} disabled={!row.enabled} onChange={e => updateDay(idx, { start: e.target.value })} onClick={e => e.currentTarget.showPicker?.()} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
+                <input className="input time-picker" type="time" value={row.end} disabled={!row.enabled} onChange={e => updateDay(idx, { end: e.target.value })} onClick={e => e.currentTarget.showPicker?.()} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+          <div style={{ flex: '0 0 200px' }}>
+            <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Frequency</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>Daily limits per action. Leave as default to stay within LinkedIn limits.</p>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {FREQUENCY_ITEMS.map(({ key, label, icon }) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 6, background: 'var(--surface-2, #1a1f2e)' }}>
+                <span style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexShrink: 0 }}>
+                  {React.cloneElement(icon, { style: { width: 20, height: 20 } })}
+                </span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }} onClick={() => adjustFreq(key, -1)}>−</button>
+                  <span style={{ width: 32, textAlign: 'center', fontWeight: 600, fontSize: 14 }}>{frequency[key] ?? DEFAULT_FREQUENCY[key]}</span>
+                  <button className="btn btn-ghost btn-sm" style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }} onClick={() => adjustFreq(key, 1)}>+</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 32 }}>
+        <button className="btn btn-primary" style={{ fontSize: 15, padding: '10px 28px' }} onClick={handleFinish} disabled={saving}>
+          {saving ? 'Saving…' : 'Launch Campaign →'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ── Connection Note Editor ─────────────────────────────────────

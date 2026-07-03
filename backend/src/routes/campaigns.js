@@ -910,6 +910,15 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
         default:
           console.log(`[sequence] unknown post-connection step type: ${node.type}`)
       }
+
+      // Add a minimum delay between consecutive message nodes so they don't fire simultaneously
+      const MESSAGE_TYPES = ['message', 'message_open', 'inmail']
+      const nextNode = postNodes[i + 1]
+      if (MESSAGE_TYPES.includes(node.type) && nextNode && MESSAGE_TYPES.includes(nextNode.type)) {
+        const delayMs = (2 + Math.floor(Math.random() * 3)) * 60 * 1000
+        console.log(`[sequence] waiting ${Math.round(delayMs / 60000)} min before next message for ${providerUserId}`)
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
     }
   } catch (err) {
     console.error('[sequence] post-connection steps error:', err.message)

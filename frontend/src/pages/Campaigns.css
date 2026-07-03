@@ -1,21 +1,474 @@
-.campaigns-stats {
+/* ── Page ── */
+.campaigns-page {
+  padding: 32px;
+  max-width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* ── Page header ── */
+.camp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.camp-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.camp-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.camp-btn-new {
+  height: 36px;
+  padding: 0 16px;
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px 32px;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.15s;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.camp-btn-new:hover {
+  background: #1f2937;
+}
+
+/* ── Stats strip ── */
+.camp-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
   margin-bottom: 20px;
 }
 
-.cstat { flex: 1; text-align: center; }
-.cstat .stat-value { font-size: 28px; }
-
-.cstat-divider {
-  width: 1px;
-  height: 40px;
-  background: var(--border);
+.camp-stat {
+  background: #fff;
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  overflow: hidden;
 }
 
-.campaign-row { cursor: pointer; }
+.camp-stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+.camp-stat-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.camp-stat-icon.indigo {
+  background: #eef2ff;
+  color: #6366f1;
+}
+.camp-stat-icon.green {
+  background: #f0fdf4;
+  color: #10b981;
+}
+.camp-stat-icon.amber {
+  background: #fffbeb;
+  color: #f59e0b;
+}
+.camp-stat-icon.blue {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+.camp-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.camp-stat-value.good {
+  color: #10b981;
+}
+
+.camp-stat-label {
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 500;
+  margin-top: 5px;
+}
+
+.camp-stat-context {
+  font-size: 11.5px;
+  color: #d1d5db;
+  margin-top: 3px;
+  font-weight: 400;
+}
+
+/* ── Table card ── */
+.camp-table-card {
+  background: #f9fafb;
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.camp-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f3f4f6;
+  gap: 12px;
+}
+
+.camp-table-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.camp-table-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.camp-count-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f4f5f7;
+  padding: 3px 9px;
+  border-radius: 99px;
+}
+
+/* Search */
+.camp-search-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.camp-search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  display: flex;
+  pointer-events: none;
+}
+.camp-search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.camp-search-input {
+  height: 32px;
+  padding: 0 10px 0 30px;
+  background: #f4f5f7;
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  color: #111827;
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+  width: 200px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.camp-search-input:focus {
+  background: #fff;
+  border-color: #6366f1;
+}
+.camp-search-input::placeholder {
+  color: #9ca3af;
+}
+
+/* ── Camp table ── */
+.camp-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.camp-table thead tr {
+  background: transparent;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.camp-table thead th {
+  padding: 9px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.camp-table tbody tr {
+  border-bottom: 1px solid #f0f1f3;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.camp-table tbody tr:last-child {
+  border-bottom: none;
+}
+.camp-table tbody tr:hover {
+  background: #f3f4f6;
+}
+
+.camp-table tbody td {
+  padding: 13px 16px;
+  font-size: 13px;
+  color: #111827;
+  vertical-align: middle;
+}
+
+/* ── Toggle ── */
+.camp-toggle-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.camp-toggle-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.camp-toggle-label.active {
+  color: #6366f1;
+}
+.camp-toggle-label.paused {
+  color: #d1d5db;
+}
+
+.camp-toggle {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+}
+.camp-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+.camp-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.camp-toggle-track::before {
+  content: "";
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.camp-toggle input:checked + .camp-toggle-track {
+  background: #6366f1;
+}
+.camp-toggle input:checked + .camp-toggle-track::before {
+  transform: translateX(15px);
+}
+
+/* ── Campaign name cell ── */
+.camp-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.3;
+}
+
+.camp-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.camp-name-sub {
+  font-size: 11.5px;
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+/* ── Agent chip ── */
+.camp-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: #f4f5f7;
+  border: 1px solid #e5e7eb;
+  border-radius: 99px;
+  font-size: 12px;
+  color: #374151;
+  font-weight: 500;
+}
+.camp-agent-chip svg {
+  width: 11px;
+  height: 11px;
+  color: #6366f1;
+}
+
+.camp-no-agent {
+  font-size: 12px;
+  color: #d1d5db;
+}
+
+/* ── Metric cell (acceptance, reply rate, date) ── */
+.camp-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.camp-metric-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: #374151;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.camp-metric-val.good {
+  color: #10b981;
+}
+
+.camp-metric-sub {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* ── Date cell ── */
+.camp-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+
+/* ── Arrow ── */
+.camp-arrow {
+  color: #d1d5db;
+  display: flex;
+  align-items: center;
+}
+.camp-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Empty state ── */
+.camp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  gap: 10px;
+  text-align: center;
+}
+
+.camp-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: #f4f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+.camp-empty-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.camp-empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.camp-empty-desc {
+  font-size: 13px;
+  color: #9ca3af;
+  max-width: 280px;
+  line-height: 1.6;
+}
+
+.camp-empty-btn {
+  margin-top: 8px;
+  height: 36px;
+  padding: 0 18px;
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.camp-empty-btn:hover {
+  background: #1f2937;
+}
+
+/* ── No results (filtered) ── */
+.camp-no-results {
+  padding: 40px 24px;
+  text-align: center;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+@media (max-width: 900px) {
+  .camp-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}

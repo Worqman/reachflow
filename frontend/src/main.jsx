@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import Sidebar from './components/Sidebar'
+import TopBar from './components/TopBar'
 import { supabase } from './lib/supabase'
 import { companyProfiles } from './lib/api'
 import { getActiveWorkspaceId, setActiveWorkspaceId } from './lib/workspaceState'
@@ -22,9 +23,11 @@ const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const LinkedInAccounts = lazy(() => import('./pages/LinkedInAccounts'))
 const Workspaces = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Workspaces })))
 const Members = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Members })))
 const Billing = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Billing })))
+const Profile = lazy(() => import('./pages/Profile'))
 
 const PageLoader = () => (
   <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
@@ -235,12 +238,33 @@ function RequireAuth({ children }) {
 function AppLayout({ children }) {
   const location = useLocation()
   const hideSidebar = location.pathname === '/onboarding'
+  const [workspaceName, setWorkspaceName] = useState('')
+
+  useEffect(() => {
+    if (!supabase || hideSidebar) return
+    supabase.auth.getUser().then(async ({ data }) => {
+      const uid = data?.user?.id
+      if (!uid) return
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('name')
+        .eq('owner_id', uid)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (ws?.name) setWorkspaceName(ws.name)
+    }).catch(() => {})
+  }, [hideSidebar])
+
   return (
     <div className="app-layout">
       {!hideSidebar && <Sidebar />}
-      <main className="app-main">
-        {children}
-      </main>
+      <div className="app-main-wrap">
+        {!hideSidebar && <TopBar workspaceName={workspaceName} />}
+        <main className="app-main">
+          {children}
+        </main>
+      </div>
     </div>
   )
 }
@@ -266,6 +290,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/"              element={<Dashboard />} />
         <Route path="/campaigns"     element={<Campaigns />} />
+        <Route path="/linkedin-accounts" element={<LinkedInAccounts />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
         <Route path="/inbox"         element={<Inbox />} />
         <Route path="/leads"         element={<LeadFinder />} />
@@ -276,6 +301,7 @@ function AppRoutes() {
         <Route path="/invite"        element={<Navigate to={`/members${location.search || ''}`} replace />} />
         <Route path="/billing"       element={<Billing />} />
         <Route path="/settings"      element={<Settings />} />
+        <Route path="/profile"       element={<Profile />} />
         <Route path="/onboarding"    element={<Onboarding />} />
         <Route path="/login"            element={<Login />} />
         <Route path="/register"         element={<Register />} />

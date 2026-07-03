@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { conversationStore } from '../services/store.js'
 import { scheduleAIReply, scheduleOpeningMessage } from '../routes/conversations.js'
-import { executePostConnectionSteps, fetchAndSummarizeProfile } from '../routes/campaigns.js'
+import { executePostConnectionSteps } from '../routes/campaigns.js'
 import { supabase } from '../services/supabase.js'
 
 const router = Router()
@@ -56,14 +56,9 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
     await executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId)
   }
 
-  // Fetch and summarise prospect's LinkedIn profile for AI context
-  let profileSummary = null
-  if (campaignId) {
-    profileSummary = await fetchAndSummarizeProfile(providerUserId, accountId, campaignId, workspaceId)
-  }
-
   // Trigger AI opening message only if no sequence message nodes would also fire
   // (avoids the prospect receiving two messages simultaneously after connecting)
+  // Profile analysis is NOT done here — it happens lazily when the prospect replies.
   const agentId = await findAgentForProspect(providerUserId)
   if (!agentId) {
     console.log(`[Connection] No active agent found for ${providerUserId} — skipping AI opening message`)
@@ -73,7 +68,7 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
       console.log(`[Connection] Skipping AI opening for ${providerUserId} — campaign has sequence message nodes`)
     } else {
       console.log(`[Connection] Scheduling AI opening message for ${providerUserId} (agentId=${agentId})`)
-      scheduleOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId, profileSummary })
+      scheduleOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId })
     }
   }
 }
@@ -90,7 +85,8 @@ async function sequenceHasPostConnectionMessages(campaignId) {
       .maybeSingle()
     const nodes = data?.sequence?.nodes || []
     const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
-    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : []
+    // Mirror the same fallback as executePostConnectionSteps: no connection_request → treat all nodes as post-connection
+    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : nodes
     return postNodes.some(n => ['message', 'message_open', 'inmail'].includes(n.type))
   } catch {
     return false

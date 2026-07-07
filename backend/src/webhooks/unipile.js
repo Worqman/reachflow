@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { conversationStore } from '../services/store.js'
 import { scheduleAIReply, scheduleOpeningMessage } from '../routes/conversations.js'
-import { executePostConnectionSteps } from '../routes/campaigns.js'
+import { executePostConnectionSteps, resumeReplyBranch } from '../routes/campaigns.js'
 import { supabase } from '../services/supabase.js'
 
 const router = Router()
@@ -73,8 +73,19 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
   }
 }
 
-// Returns true if the campaign sequence has any message nodes after connection_request.
-// Used to avoid sending both a sequence message AND an AI opening message simultaneously.
+// Depth-first search for any message-type node anywhere in the tree
+// (root, or nested inside a No/Yes branch at any depth).
+function treeHasMessageNode(nodeList) {
+  return (nodeList || []).some(n =>
+    ['message', 'message_open', 'inmail'].includes(n.type) ||
+    treeHasMessageNode(n.config?.noBranch) ||
+    treeHasMessageNode(n.config?.yesBranch)
+  )
+}
+
+// Returns true if the campaign sequence has any message nodes anywhere in
+// the tree. Used to avoid sending both a sequence message AND an AI opening
+// message simultaneously.
 async function sequenceHasPostConnectionMessages(campaignId) {
   if (!supabase || !campaignId) return false
   try {
@@ -83,11 +94,7 @@ async function sequenceHasPostConnectionMessages(campaignId) {
       .select('sequence')
       .eq('id', campaignId)
       .maybeSingle()
-    const nodes = data?.sequence?.nodes || []
-    const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
-    // Mirror the same fallback as executePostConnectionSteps: no connection_request → treat all nodes as post-connection
-    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : nodes
-    return postNodes.some(n => ['message', 'message_open', 'inmail'].includes(n.type))
+    return treeHasMessageNode(data?.sequence?.nodes)
   } catch {
     return false
   }
@@ -237,6 +244,12 @@ router.post('/unipile', async (req, res) => {
             .eq('status', 'connected')
           if (conv.campaignId) q = q.eq('campaign_id', conv.campaignId)
           await q
+        }
+
+        // Resume any sequence paused on this lead's Replied/Not Replied branch
+        if (senderId && conv.campaignId) {
+          resumeReplyBranch(senderId, conv.campaignId, 'replied')
+            .catch(err => console.error('[Webhook] resumeReplyBranch error:', err.message))
         }
 
         // Use scheduleAIReply (45-min delay) — same as the polling path

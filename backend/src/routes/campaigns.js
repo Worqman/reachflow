@@ -101,9 +101,13 @@ export async function fetchAndSummarizeProfile(providerUserId, accountId, campai
   }
 }
 
-// Interpolate message variables with lead + workspace profile data
-function interpolateVars(text, lead, profile = {}) {
+// Interpolate message variables with lead + workspace profile data.
+// profile is explicitly `null` (not just undefined) whenever a workspace
+// has no company profile filled in yet — the default param alone doesn't
+// catch that, so normalize it here.
+function interpolateVars(text, lead, profile) {
   if (!text) return text
+  profile = profile || {}
   const nameParts = (lead.name || '').trim().split(/\s+/)
   const firstName = nameParts[0] || ''
   const lastName  = nameParts.slice(1).join(' ') || ''
@@ -441,242 +445,561 @@ async function resolveProviderId(lead, accountId) {
   return pid || null
 }
 
-// Execute pre-connection sequence steps for one lead:
-//   visit_profile → (wait ignored) → connection_request
-// Returns 'invited' on success, throws on failure.
-async function executePreConnectionSteps(lead, sequence, accountId, workspaceId, campaignId, frequency = {}) {
-  const nodes = sequence?.nodes || []
+// ── Sequence tree walk ───────────────────────────────────────────
+// The sequence is a real tree: a node's children live at
+// node.config.noBranch / node.config.yesBranch, at any depth. runTree walks
+// a sibling list depth-first; runNode executes exactly one node. Together
+// they replace the old flat pre/post-connection split — a single recursive
+// walk now handles both, distinguished by ctx.connected rather than by
+// which function you're in.
+//
+// ctx fields: providerUserId, accountId, campaignId, workspaceId, lead,
+// frequency, profile, connected (mutated: false until we know the lead is
+// 1st-level, e.g. via a real cond_1st_level pass), invited (mutated: true
+// once connection_request actually sends), halted (mutated: true once
+// something pauses the walk — wait / connection_request / a message
+// awaiting reply — the caller must stop recursing once this is set).
 
-  // Find connection_request step index (we stop there)
-  const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
-  const stepsToRun = connectIdx >= 0 ? nodes.slice(0, connectIdx + 1) : []
+function treeHasType(nodeList, type) {
+  return (nodeList || []).some(n =>
+    n.type === type ||
+    treeHasType(n.config?.noBranch, type) ||
+    treeHasType(n.config?.yesBranch, type)
+  )
+}
 
-  // If no connection_request step, fall back to just sending invite
-  if (stepsToRun.length === 0) {
-    stepsToRun.push({ type: 'connection_request', config: {} })
-  }
+// Mirrors the frontend's nodeHasBranches (CampaignDetail.jsx) — every node
+// gets a Yes/No fork except wait/stop/voice_note.
+function nodeHasBranches(type) {
+  return type !== 'wait' && type !== 'stop' && type !== 'voice_note'
+}
 
-  const providerUserId = await resolveProviderId(lead, accountId)
-  if (!providerUserId) throw new Error('Cannot resolve provider_id for lead')
-
-  for (const node of stepsToRun) {
-    switch (node.type) {
-      case 'visit_profile': {
-        const allowed = consumeDailyLimit(campaignId, 'profileVisits', frequency.profileVisits)
-        if (!allowed) {
-          console.log(`[sequence] visit_profile skipped for ${lead.name} — daily limit (${frequency.profileVisits}) reached`)
-          break
-        }
-        try {
-          console.log(`[sequence] visiting profile of ${lead.name} (today: ${getDailyCount(campaignId, 'profileVisits')}/${frequency.profileVisits || '∞'})`)
-          await linkedin.visitProfile(accountId, providerUserId)
-        } catch (err) {
-          console.error(`[sequence] visit_profile error for ${lead.name}: ${err.message}`)
-        }
-        break
+// Sequences saved before the branch-tree schema existed are a flat array —
+// e.g. [cond_1st_level, connection_request, message, wait]. Walking that
+// with runTree's branch dispatch mostly no-ops harmlessly (an undefined
+// noBranch/yesBranch just does nothing), but cond_1st_level hard-disqualifies
+// the lead (throws CONDITION_FAILED) when it fails pre-connection with no
+// noBranch configured — exactly the shape legacy data has. Normalizing once
+// before every read avoids that false disqualification and keeps execution
+// consistent with what the builder now displays. Idempotent: nodes that
+// already have a noBranch/yesBranch (real authored trees) pass through
+// untouched. Mirrors normalizeLegacyFlatSequence in CampaignDetail.jsx.
+const LEGACY_CONTINUE_BRANCH = {
+  cond_1st_level: 'noBranch', // "Not Connected" is what used to just fall through
+}
+function normalizeLegacyFlatSequence(list) {
+  const arr = list || []
+  const out = []
+  for (let i = 0; i < arr.length; i++) {
+    const node = { ...arr[i] }
+    const alreadyTree = !!(node.config?.noBranch || node.config?.yesBranch)
+    if (nodeHasBranches(node.type) && !alreadyTree && i < arr.length - 1) {
+      const rest = normalizeLegacyFlatSequence(arr.slice(i + 1))
+      const continueBranch = LEGACY_CONTINUE_BRANCH[node.type] || 'yesBranch'
+      const giveUpBranch = continueBranch === 'yesBranch' ? 'noBranch' : 'yesBranch'
+      // The give-up branch never existed in flat data — give it a default
+      // wait (same as any freshly-added node gets on both branches, see
+      // addNode in CampaignDetail.jsx) rather than an immediate, wait-less Stop.
+      node.config = {
+        ...node.config,
+        [continueBranch]: rest,
+        [giveUpBranch]: [{ id: randomUUID(), type: 'wait', config: { days: 1, unit: 'days' } }],
       }
-      case 'like_post': {
-        if (!consumeDailyLimit(campaignId, 'likesToPosts', frequency.likesToPosts)) {
-          console.log(`[sequence] like_post skipped for ${lead.name} — daily limit reached`)
-          break
-        }
-        try {
-          const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
-          const posts = postsData?.items || postsData?.objects || []
-          if (!posts.length) { console.log(`[sequence] like_post — no posts found for ${lead.name}`); break }
-          const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
-          await linkedin.likePost(accountId, postId)
-          console.log(`[sequence] liked post ${postId} for ${lead.name}`)
-        } catch (err) {
-          console.error(`[sequence] like_post error for ${lead.name}: ${err.message}`)
-        }
-        break
-      }
-      case 'follow': {
-        if (!consumeDailyLimit(campaignId, 'followLead', frequency.followLead)) {
-          console.log(`[sequence] follow skipped for ${lead.name} — daily limit reached`)
-          break
-        }
-        try {
-          await linkedin.followUser(accountId, providerUserId)
-          console.log(`[sequence] followed ${lead.name}`)
-        } catch (err) {
-          console.error(`[sequence] follow error for ${lead.name}: ${err.message}`)
-        }
-        break
-      }
-      case 'comment_post': {
-        if (!consumeDailyLimit(campaignId, 'aiComments', frequency.aiComments)) {
-          console.log(`[sequence] comment_post skipped for ${lead.name} — daily limit reached`)
-          break
-        }
-        const commentText = node.config?.text?.trim()
-        if (!commentText) break
-        try {
-          const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
-          const posts = postsData?.items || postsData?.objects || []
-          if (!posts.length) { console.log(`[sequence] comment_post — no posts found for ${lead.name}`); break }
-          const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
-          const profile = await getWorkspaceProfile(workspaceId)
-          const text = interpolateVars(commentText, lead, profile)
-          await linkedin.commentOnPost(accountId, postId, text)
-          console.log(`[sequence] commented on post ${postId} for ${lead.name}`)
-        } catch (err) {
-          console.error(`[sequence] comment_post error for ${lead.name}: ${err.message}`)
-        }
-        break
-      }
-      case 'wait':
-        // Wait is skipped in pre-connection — delay is handled in post-connection phase
-        console.log(`[sequence] wait ${node.config?.days}d skipped in pre-connection phase`)
-        break
-      // ── Conditions ──────────────────────────────────────────────
-      case 'cond_has_linkedin': {
-        if (!lead.linkedin_url) {
-          console.log(`[sequence] cond_has_linkedin FAILED for ${lead.name}`)
-          await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId, lead, frequency })
-          if (!node.config?.noBranch?.length) throw new Error(`CONDITION_FAILED:cond_has_linkedin`)
-          return
-        }
-        break
-      }
-      case 'cond_1st_level': {
-        try {
-          const data = await unipileRelations.list({ accountId, limit: 1000 })
-          const relations = data?.items || data?.objects || data?.relations || []
-          const isConnected = relations.some(r => r.provider_id === providerUserId || r.id === providerUserId)
-          if (!isConnected) {
-            console.log(`[sequence] cond_1st_level FAILED for ${lead.name} — not yet connected`)
-            await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId, lead, frequency })
-            if (!node.config?.noBranch?.length) throw new Error(`CONDITION_FAILED:cond_1st_level`)
-            return
-          }
-        } catch (err) {
-          if (err.message?.startsWith('CONDITION_FAILED')) throw err
-          console.log(`[sequence] cond_1st_level check error: ${err.message}`)
-        }
-        break
-      }
-      case 'cond_check_column': {
-        const field = node.config?.field
-        const expected = (node.config?.value || '').toLowerCase()
-        const actual = String(lead[field] || lead[field?.toLowerCase()] || '').toLowerCase()
-        if (field && expected && !actual.includes(expected)) {
-          console.log(`[sequence] cond_check_column FAILED for ${lead.name} — ${field} !contains "${expected}"`)
-          await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId, lead, frequency })
-          if (!node.config?.noBranch?.length) throw new Error(`CONDITION_FAILED:cond_check_column`)
-          return
-        }
-        break
-      }
-      case 'cond_open_profile': {
-        try {
-          const profileData = await linkedin.visitProfile(accountId, providerUserId)
-          const isOpen = profileData?.is_open_profile || profileData?.open_profile || profileData?.openProfile || false
-          if (!isOpen) {
-            console.log(`[sequence] cond_open_profile FAILED for ${lead.name} — not an open profile`)
-            await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId, lead, frequency })
-            if (!node.config?.noBranch?.length) throw new Error(`CONDITION_FAILED:cond_open_profile`)
-            return
-          }
-          console.log(`[sequence] cond_open_profile PASSED for ${lead.name}`)
-        } catch (err) {
-          if (err.message?.startsWith('CONDITION_FAILED')) throw err
-          console.log(`[sequence] cond_open_profile check error — passing through: ${err.message}`)
-        }
-        break
-      }
-      case 'cond_opened_message':
-        // Cannot be meaningfully checked pre-connection — pass through
-        console.log(`[sequence] cond_opened_message cannot be evaluated pre-connection — passing through`)
-        break
-      case 'connection_request': {
-        const profile = await getWorkspaceProfile(workspaceId)
-        const rawNote = node.config?.note || undefined
-        let note = rawNote ? interpolateVars(rawNote, lead, profile) : undefined
-        // LinkedIn hard-limits connection request notes to 300 characters
-        if (note && note.length > 300) {
-          console.warn(`[sequence] connection request note truncated from ${note.length} to 300 chars for ${lead.name}`)
-          note = note.slice(0, 297) + '...'
-        }
-        console.log(`[sequence] sending connection request to ${lead.name}`)
-        await linkedin.sendInvite({ accountId, providerUserId, message: note })
-        break
-      }
-      default:
-        console.log(`[sequence] unknown step type: ${node.type}`)
+      out.push(node)
+      break // `rest` has been absorbed — nothing left to iterate
     }
+    if (node.config?.noBranch) node.config = { ...node.config, noBranch: normalizeLegacyFlatSequence(node.config.noBranch) }
+    if (node.config?.yesBranch) node.config = { ...node.config, yesBranch: normalizeLegacyFlatSequence(node.config.yesBranch) }
+    out.push(node)
   }
+  return out
 }
 
-// Execute the No-branch nodes of a failed condition.
-async function executeNoBranchNodes(noBranch, { providerUserId, accountId, campaignId, workspaceId, lead, frequency }) {
-  if (!noBranch?.length) return
-  const profile = workspaceId ? await getWorkspaceProfile(workspaceId) : null
-  for (const node of noBranch) {
-    try {
-      switch (node.type) {
-        case 'message':
-        case 'message_open': {
-          if (!node.config?.text?.trim()) break
-          if (!consumeDailyLimit(campaignId, 'messages', frequency?.messages)) break
-          const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
-          await linkedin.sendMessage({ accountId, providerUserId, text })
-          console.log(`[noBranch] sent message to ${providerUserId}`)
-          break
-        }
-        case 'inmail': {
-          if (!node.config?.body?.trim()) break
-          const body    = interpolateVars(node.config.body.trim(), lead || {}, profile)
-          const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
-          await linkedin.sendMessage({ accountId, providerUserId, text: subject ? `${subject}\n\n${body}` : body })
-          console.log(`[noBranch] sent inmail to ${providerUserId}`)
-          break
-        }
-        default:
-          console.log(`[noBranch] skipping node type in No branch: ${node.type}`)
-      }
-    } catch (err) {
-      console.error(`[noBranch] error executing ${node.type}:`, err.message)
+// Persists where a lead is paused, as a path of {nodeId, branch} steps from
+// the tree root — branch says which of *that* node's branches to descend
+// into to reach the next step (irrelevant/omitted on the last step, since
+// that's the paused node itself). kind: 'wait' | 'reply' | 'connect'.
+// claimId is a random token used to atomically claim this exact pending
+// state later (see resumeFromPendingStep) — comparing via a JSONB path
+// operator (`pending_step->>claimId`) rather than whole-object equality,
+// which PostgREST doesn't handle reliably for jsonb columns.
+async function persistPendingStep(ctx, { kind, path, deadline }) {
+  if (!supabase) return
+  const claimId = randomUUID()
+  await supabase.from('campaign_leads')
+    .update({ pending_step: { kind, path, deadline, claimId } })
+    .eq('provider_id', ctx.providerUserId)
+    .eq('campaign_id', ctx.campaignId)
+    .catch(() => {}) // ignore if column not yet migrated
+}
+
+// Finds the paused node (the last step in `path`) anywhere in `rootNodes`,
+// returning it plus its index and the sibling list it lives in (so the
+// caller can continue with the nodes after it) — or null if it no longer
+// exists (the sequence was edited while this lead was paused, or its id was
+// dropped). Searches by id rather than re-walking `path`'s branch hops: a
+// pending_step persisted before normalizeLegacyFlatSequence nested a flat
+// sequence can have its target node move to a different depth once
+// normalized, and node ids are unique, so a plain search is both simpler and
+// robust to that reshaping.
+function resolveFromPath(rootNodes, path) {
+  const targetId = path?.[path.length - 1]?.nodeId
+  if (!targetId) return null
+  function search(list) {
+    const l = list || []
+    const idx = l.findIndex(n => n.id === targetId)
+    if (idx !== -1) return { node: l[idx], index: idx, containingList: l }
+    for (const n of l) {
+      const inNo = search(n.config?.noBranch)
+      if (inNo) return inNo
+      const inYes = search(n.config?.yesBranch)
+      if (inYes) return inYes
     }
+    return null
   }
+  return search(rootNodes)
 }
 
-// Same as executeNoBranchNodes but for the Yes branch (condition passed).
-async function executeYesBranchNodes(yesBranch, ctx) {
-  if (!yesBranch?.length) return
-  await executeNoBranchNodes(yesBranch, ctx) // same node types, reuse helper
-}
+async function runTree(nodeList, ctx, pathToList = []) {
+  const list = nodeList || []
+  for (let idx = 0; idx < list.length; idx++) {
+    const node = list[idx]
+    if (node.type === 'stop') return
 
-// Execute post-connection sequence steps (nodes after connection_request).
-// startFromIndex: resume from a specific node (used by wait scheduling).
-export async function executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, startFromIndex = 0) {
-  try {
-    const { data: campaign } = await supabase
-      .from('campaigns').select('sequence, settings, workspace_id').eq('id', campaignId).single()
-    if (!campaign?.sequence?.nodes) return
+    const pathToNode = [...pathToList, { nodeId: node.id, branch: null }]
+    const outcome = await runNode(node, ctx, pathToNode)
+    if (ctx.halted) return
 
-    const nodes = campaign.sequence.nodes
-    const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
-    // If no connection_request node, treat all nodes as post-connection steps
-    const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : nodes
-    const frequency = campaign.settings?.frequency || {}
-
-    // Respect campaign schedule for post-connection outreach
-    const schedule = campaign.settings?.schedule
-    const timezone = campaign.settings?.timezone || 'UTC'
-    if (startFromIndex === 0 && schedule?.length && !isWithinSchedule(schedule, timezone)) {
-      console.log(`[sequence] post-connection steps skipped — outside active schedule (${timezone})`)
+    if (outcome?.pauseForReply) {
+      const timeoutCfg = node.config?.replyTimeout || {}
+      const tn = timeoutCfg.days || 3
+      const tunit = timeoutCfg.unit || 'days'
+      const msPerUnit = tunit === 'minutes' ? 60 * 1000 : tunit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+      const deadline = new Date(Date.now() + tn * msPerUnit).toISOString()
+      console.log(`[sequence] ${node.type} sent — pausing for reply (timeout ${deadline}) for ${ctx.providerUserId}`)
+      await persistPendingStep(ctx, { kind: 'reply', path: pathToNode, deadline })
+      ctx.halted = true
       return
     }
 
-    // Clear persisted wait state now that we're resuming
-    if (startFromIndex > 0) {
-      await supabase.from('campaign_leads')
-        .update({ sequence_step: null, sequence_resume_at: null })
-        .eq('provider_id', providerUserId)
-        .eq('campaign_id', campaignId)
-        .catch(() => {})
+    if (outcome && !outcome.skipped) {
+      const branchKey = outcome.ok ? 'yesBranch' : 'noBranch'
+      const pathIntoBranch = [...pathToList, { nodeId: node.id, branch: branchKey }]
+      await runTree(node.config?.[branchKey], ctx, pathIntoBranch)
+      if (ctx.halted) return
+    }
+
+    // Stagger consecutive message sends so they don't fire simultaneously.
+    const MESSAGE_TYPES = ['message', 'message_open', 'inmail']
+    const nextNode = list[idx + 1]
+    if (MESSAGE_TYPES.includes(node.type) && nextNode && MESSAGE_TYPES.includes(nextNode.type)) {
+      const delayMs = (2 + Math.floor(Math.random() * 3)) * 60 * 1000
+      console.log(`[sequence] waiting ${Math.round(delayMs / 60000)} min before next message for ${ctx.providerUserId}`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+}
+
+// Executes exactly one node. Returns:
+//   { ok: true }                  — succeeded / condition passed → Yes branch
+//   { ok: false, error }          — failed / condition failed → No branch
+//   { ok: true, skipped: true }   — nothing to branch on, just continue
+//   { ok: true, pauseForReply: true } — message sent, awaiting Replied/Not Replied
+//   undefined                     — node itself paused the walk (sets ctx.halted)
+async function runNode(node, ctx, pathToNode) {
+  const { providerUserId, accountId, campaignId, lead, frequency = {}, profile } = ctx
+
+  // connection_request — errors must propagate uncaught so the invite-send
+  // loop (runCampaignInvites) can classify pending/failed/rate-limited.
+  if (node.type === 'connection_request') {
+    const rawNote = node.config?.note || undefined
+    let note = rawNote ? interpolateVars(rawNote, lead, profile) : undefined
+    if (note && note.length > 300) {
+      console.warn(`[sequence] connection request note truncated from ${note.length} to 300 chars for ${lead?.name}`)
+      note = note.slice(0, 297) + '...'
+    }
+    console.log(`[sequence] sending connection request to ${lead?.name}`)
+    await linkedin.sendInvite({ accountId, providerUserId, message: note })
+    ctx.invited = true
+    await persistPendingStep(ctx, { kind: 'connect', path: pathToNode, deadline: null })
+    ctx.halted = true
+    return
+  }
+
+  // wait — no-op pre-connection (matches original: delay is only meaningful
+  // once we're sending real post-connection outreach), else pause+resume.
+  if (node.type === 'wait') {
+    if (!ctx.connected) {
+      console.log(`[sequence] wait ${node.config?.days}d skipped — not connected yet`)
+      return { ok: true, skipped: true }
+    }
+    const n = node.config?.days || 1
+    const unit = node.config?.unit || 'days'
+    const msPerUnit = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+    const delayMs = n * msPerUnit
+    const deadline = new Date(Date.now() + delayMs).toISOString()
+    console.log(`[sequence] wait ${n} ${unit} for ${providerUserId} (resume at ${deadline})`)
+    await persistPendingStep(ctx, { kind: 'wait', path: pathToNode, deadline })
+    setTimeout(() => resumeFromPendingStep(providerUserId, campaignId), delayMs)
+    ctx.halted = true
+    return
+  }
+
+  // ── Conditions — each returns {ok}; runTree handles branch dispatch.
+  // A hard-fail (condition failed, no noBranch configured) only disqualifies
+  // the lead while we're still pre-connection (ctx.connected === false) —
+  // once connected, a failed check just means "don't take that path", same
+  // as the old post-connection behavior.
+  switch (node.type) {
+    case 'cond_has_linkedin': {
+      const passed = !!lead?.linkedin_url
+      if (!passed) console.log(`[sequence] cond_has_linkedin FAILED for ${lead?.name}`)
+      if (!passed && !ctx.connected && !node.config?.noBranch?.length)
+        throw new Error('CONDITION_FAILED:cond_has_linkedin')
+      return { ok: passed }
+    }
+    case 'cond_1st_level': {
+      if (ctx.connected) return { ok: true } // already connected — always passes
+      try {
+        const data = await unipileRelations.list({ accountId, limit: 1000 })
+        const relations = data?.items || data?.objects || data?.relations || []
+        const isConnected = relations.some(r => r.provider_id === providerUserId || r.id === providerUserId)
+        if (isConnected) {
+          console.log(`[sequence] cond_1st_level PASSED for ${lead?.name} — already connected`)
+          ctx.connected = true
+        } else {
+          console.log(`[sequence] cond_1st_level FAILED for ${lead?.name} — not yet connected`)
+          if (!node.config?.noBranch?.length) throw new Error('CONDITION_FAILED:cond_1st_level')
+        }
+        return { ok: isConnected }
+      } catch (err) {
+        if (err.message?.startsWith('CONDITION_FAILED')) throw err
+        console.log(`[sequence] cond_1st_level check error: ${err.message}`)
+        return { ok: true, skipped: true }
+      }
+    }
+    case 'cond_check_column': {
+      const field = node.config?.field
+      const expected = (node.config?.value || '').toLowerCase()
+      const actual = String(lead?.[field] || lead?.[field?.toLowerCase()] || '').toLowerCase()
+      const passed = !field || !expected || actual.includes(expected)
+      if (!passed) console.log(`[sequence] cond_check_column FAILED for ${lead?.name} — ${field} !contains "${expected}"`)
+      if (!passed && !ctx.connected && !node.config?.noBranch?.length)
+        throw new Error('CONDITION_FAILED:cond_check_column')
+      return { ok: passed }
+    }
+    case 'cond_open_profile': {
+      try {
+        const profileData = await linkedin.visitProfile(accountId, providerUserId)
+        const isOpen = profileData?.is_open_profile || profileData?.open_profile || profileData?.openProfile || false
+        if (!isOpen) {
+          console.log(`[sequence] cond_open_profile FAILED for ${lead?.name} — not an open profile`)
+          if (!ctx.connected && !node.config?.noBranch?.length) throw new Error('CONDITION_FAILED:cond_open_profile')
+        } else {
+          console.log(`[sequence] cond_open_profile PASSED for ${lead?.name}`)
+        }
+        return { ok: isOpen }
+      } catch (err) {
+        if (err.message?.startsWith('CONDITION_FAILED')) throw err
+        console.log(`[sequence] cond_open_profile check error — passing through: ${err.message}`)
+        return { ok: true, skipped: true }
+      }
+    }
+    case 'cond_opened_message': {
+      if (!ctx.connected) {
+        console.log(`[sequence] cond_opened_message cannot be evaluated pre-connection — passing through`)
+        return { ok: true, skipped: true }
+      }
+      try {
+        const chatId = lead?.chat_id
+        if (!chatId) {
+          console.log(`[sequence] cond_opened_message — no chat found for ${providerUserId}, passing through`)
+          return { ok: true, skipped: true }
+        }
+        const messagesData = await unipileChats.getMessages(chatId, { limit: 50 })
+        const messages = messagesData?.items || messagesData?.objects || []
+        const hasBeenOpened = messages.some(m =>
+          (m.is_sender === 1 || m.is_sender === true) &&
+          (m.is_read || m.seen || m.read_at || m.seen_at)
+        )
+        console.log(`[sequence] cond_opened_message ${hasBeenOpened ? 'PASSED' : 'FAILED'} for ${providerUserId}`)
+        return { ok: hasBeenOpened }
+      } catch (err) {
+        console.log(`[sequence] cond_opened_message check error — continuing: ${err.message}`)
+        return { ok: true, skipped: true }
+      }
+    }
+    case 'icp_score_check':
+      // No real scoring implemented yet — deliberate no-op, not a fallthrough.
+      return { ok: true, skipped: true }
+    case 'voice_note':
+      console.log(`[sequence] voice_note not supported via Unipile — skipping`)
+      return { ok: true, skipped: true }
+    default:
+      break // fall through to leaf actions below
+  }
+
+  // ── Leaf actions + message sends — shared try/catch; failures return
+  // {ok:false} (take the No/Failed branch) rather than throwing.
+  try {
+    switch (node.type) {
+      case 'visit_profile': {
+        if (!consumeDailyLimit(campaignId, 'profileVisits', frequency.profileVisits)) {
+          console.log(`[sequence] visit_profile skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        await linkedin.visitProfile(accountId, providerUserId)
+        console.log(`[sequence] visited profile of ${providerUserId}`)
+        return { ok: true }
+      }
+      case 'like_post': {
+        if (!consumeDailyLimit(campaignId, 'likesToPosts', frequency.likesToPosts)) {
+          console.log(`[sequence] like_post skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+        const posts = postsData?.items || postsData?.objects || []
+        if (!posts.length) {
+          console.log(`[sequence] like_post — no posts found for ${providerUserId}`)
+          return { ok: false, error: 'no_posts' }
+        }
+        const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+        await linkedin.likePost(accountId, postId)
+        console.log(`[sequence] liked post ${postId} for ${providerUserId}`)
+        return { ok: true }
+      }
+      case 'follow': {
+        if (!consumeDailyLimit(campaignId, 'followLead', frequency.followLead)) {
+          console.log(`[sequence] follow skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        await linkedin.followUser(accountId, providerUserId)
+        console.log(`[sequence] followed ${providerUserId}`)
+        return { ok: true }
+      }
+      case 'comment_post':
+      case 'reply_comment': {
+        if (!consumeDailyLimit(campaignId, 'aiComments', frequency.aiComments)) {
+          console.log(`[sequence] ${node.type} skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        const commentText = node.config?.text?.trim()
+        if (!commentText) return { ok: false, error: 'missing_text' }
+        const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
+        const posts = postsData?.items || postsData?.objects || []
+        if (!posts.length) {
+          console.log(`[sequence] ${node.type} — no posts found for ${providerUserId}`)
+          return { ok: false, error: 'no_posts' }
+        }
+        const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
+        const text = interpolateVars(commentText, lead || {}, profile)
+        await linkedin.commentOnPost(accountId, postId, text)
+        console.log(`[sequence] ${node.type} on post ${postId} for ${providerUserId}`)
+        return { ok: true }
+      }
+      case 'add_tag': {
+        if (node.config?.tag && lead?.id) {
+          const { data: existingLead } = await supabase
+            .from('campaign_leads').select('tags').eq('id', lead.id).single()
+          const existingTags = existingLead?.tags || []
+          if (!existingTags.includes(node.config.tag)) {
+            await supabase.from('campaign_leads')
+              .update({ tags: [...existingTags, node.config.tag] })
+              .eq('id', lead.id)
+          }
+          console.log(`[sequence] tagged ${lead?.name || providerUserId} with "${node.config.tag}"`)
+        }
+        return { ok: true }
+      }
+      case 'message':
+      case 'message_open': {
+        if (!node.config?.text?.trim()) return { ok: false, error: 'missing_text' }
+        if (!consumeDailyLimit(campaignId, 'messages', frequency.messages)) {
+          console.log(`[sequence] ${node.type} skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
+        const attachments = node.config?.attachments || []
+        await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
+        console.log(`[sequence] sent ${node.type} to ${providerUserId}`)
+        const hasBranches = node.config?.yesBranch?.length || node.config?.noBranch?.length
+        return hasBranches ? { ok: true, pauseForReply: true } : { ok: true, skipped: true }
+      }
+      case 'inmail': {
+        if (!node.config?.body?.trim()) return { ok: false, error: 'missing_body' }
+        if (!consumeDailyLimit(campaignId, 'inmails', frequency.inmails)) {
+          console.log(`[sequence] inmail skipped for ${providerUserId} — daily limit reached`)
+          return { ok: true, skipped: true }
+        }
+        const body    = interpolateVars(node.config.body.trim(), lead || {}, profile)
+        const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
+        const text    = subject ? `${subject}\n\n${body}` : body
+        const attachments = node.config?.attachments || []
+        await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
+        console.log(`[sequence] sent inmail to ${providerUserId}`)
+        const hasBranches = node.config?.yesBranch?.length || node.config?.noBranch?.length
+        return hasBranches ? { ok: true, pauseForReply: true } : { ok: true, skipped: true }
+      }
+      default:
+        console.log(`[sequence] runNode — unhandled type: ${node.type}`)
+        return { ok: true, skipped: true }
+    }
+  } catch (err) {
+    console.error(`[sequence] ${node.type} error for ${providerUserId}: ${err.message}`)
+    // A failed send has nothing to reply to — take the Failed/Not-Replied
+    // branch immediately rather than pausing.
+    return { ok: false, error: err.message }
+  }
+}
+
+// Runs the invite-sending walk for one lead, from the tree root. Throws on
+// hard failure (provider_id unresolvable, a disqualifying condition with no
+// fallback branch, or the connection_request API call itself failing) — the
+// caller (runCampaignInvites) classifies the error into a lead status.
+// Returns { invited, connected } — connected-without-invited means the walk
+// found the lead already connected (e.g. "If Connected → Yes") and never
+// needed to send a request at all.
+async function executePreConnectionSteps(lead, sequence, accountId, workspaceId, campaignId, frequency = {}) {
+  const providerUserId = await resolveProviderId(lead, accountId)
+  if (!providerUserId) throw new Error('Cannot resolve provider_id for lead')
+
+  const profile = await getWorkspaceProfile(workspaceId)
+  const ctx = {
+    providerUserId, accountId, campaignId, workspaceId, lead, frequency, profile,
+    connected: false, invited: false, halted: false,
+  }
+
+  const nodes = normalizeLegacyFlatSequence(sequence?.nodes || [])
+  if (!treeHasType(nodes, 'connection_request')) {
+    // No connection_request anywhere in the sequence — fall back to just
+    // sending the invite directly (matches the pre-nesting fallback).
+    await runNode({ type: 'connection_request', config: {} }, ctx, [{ nodeId: '__implicit_connect__', branch: null }])
+    return { invited: ctx.invited, connected: ctx.connected }
+  }
+
+  await runTree(nodes, ctx, [])
+  return { invited: ctx.invited, connected: ctx.connected }
+}
+
+// Resumes a walk that's paused anywhere in the tree (wait / connect / reply).
+// `outcome` only matters for 'reply' (replied vs timeout) and 'connect'
+// (always 'connected' — this is only ever called once we know they accepted).
+// The claim is atomic: the update is guarded by matching the exact
+// pending_step we read, so a webhook and a timeout/poll racing for the same
+// lead only resolve once.
+// Returns true if a pending step was found and resumed, false if there was
+// nothing pending for this lead (caller may then fall back to something else).
+export async function resumeFromPendingStep(providerUserId, campaignId, outcome = null) {
+  if (!supabase || !providerUserId || !campaignId) return false
+  try {
+    const { data: leadRow } = await supabase
+      .from('campaign_leads')
+      .select('*')
+      .eq('provider_id', providerUserId)
+      .eq('campaign_id', campaignId)
+      .maybeSingle()
+
+    const pending = leadRow?.pending_step
+    if (!pending?.path?.length || !pending.claimId) return false
+
+    const { data: claimed } = await supabase
+      .from('campaign_leads')
+      .update({ pending_step: null })
+      .eq('provider_id', providerUserId)
+      .eq('campaign_id', campaignId)
+      .eq('pending_step->>claimId', pending.claimId) // atomic: only clears if still this exact pending state
+      .select('id')
+
+    if (!claimed?.length) return true // already claimed by a race (webhook vs. poll) — still "handled"
+
+    const { data: campaign } = await supabase
+      .from('campaigns')
+      .select('sequence, settings, workspace_id')
+      .eq('id', campaignId)
+      .single()
+    if (!campaign?.sequence?.nodes) return true
+    const sequenceNodes = normalizeLegacyFlatSequence(campaign.sequence.nodes)
+
+    const loc = resolveFromPath(sequenceNodes, pending.path)
+    if (!loc) {
+      console.warn(`[sequence] resumeFromPendingStep — node in path no longer exists for ${providerUserId}, dropping pending state`)
+      return true
+    }
+
+    const accountId = campaign.settings?.linkedinAccountId || campaign.settings?.accountId
+    const effectiveWsId = campaign.workspace_id
+    const frequency = campaign.settings?.frequency || {}
+    const profile = await getWorkspaceProfile(effectiveWsId)
+    const ctx = {
+      providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead: leadRow,
+      frequency, profile, connected: true, invited: leadRow?.status !== 'pending', halted: false,
+    }
+
+    console.log(`[sequence] resuming ${pending.kind} for ${providerUserId} — outcome: ${outcome || 'n/a'}`)
+
+    if (pending.kind === 'reply' || pending.kind === 'connect') {
+      const branchKey = outcome === 'replied' || outcome === 'connected' ? 'yesBranch' : 'noBranch'
+      // pending.path's last entry already points at loc.node (with branch:
+      // null, since it was the halt target) — replace that entry's branch
+      // rather than appending a duplicate for the same node.
+      const pathIntoBranch = [...pending.path.slice(0, -1), { nodeId: loc.node.id, branch: branchKey }]
+      await runTree(loc.node.config?.[branchKey], ctx, pathIntoBranch)
+      if (ctx.halted) return true
+    }
+    // 'wait' just continues — nothing to resolve, fall through.
+
+    await runTree(loc.containingList.slice(loc.index + 1), ctx, pending.path.slice(0, -1))
+    return true
+  } catch (err) {
+    console.error('[sequence] resumeFromPendingStep error:', err.message)
+    return true // treat as handled — don't let the caller double-run on error
+  }
+}
+
+// Backwards-compatible name for the reply-specific resume path — kept so
+// webhooks/scheduler call sites read clearly at their call site.
+export async function resumeReplyBranch(providerUserId, campaignId, outcome) {
+  return resumeFromPendingStep(providerUserId, campaignId, outcome)
+}
+
+// Depth-first search for the first node of `type` anywhere in the tree.
+// Returns { node, index, containingList } (same shape as resolveFromPath) or
+// null. Used only as a fallback when there's no persisted pending_step to
+// resume from (e.g. a lead invited before this column existed).
+function locateNodeByType(nodeList, type) {
+  const list = nodeList || []
+  const index = list.findIndex(n => n.type === type)
+  if (index !== -1) return { node: list[index], index, containingList: list }
+  for (const n of list) {
+    const inNo = locateNodeByType(n.config?.noBranch, type)
+    if (inNo) return inNo
+    const inYes = locateNodeByType(n.config?.yesBranch, type)
+    if (inYes) return inYes
+  }
+  return null
+}
+
+// Entry point once a lead is known to be connected (new_relation webhook, or
+// a fresh manual sync). Prefers resuming from the exact point where
+// connection_request paused (persisted via pending_step) — this correctly
+// skips whatever pre-connection actions already ran. Falls back to locating
+// connection_request fresh (for leads invited before pending_step existed)
+// or, if the sequence has none, running the whole tree with connected=true.
+export async function executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId) {
+  try {
+    const resumed = await resumeFromPendingStep(providerUserId, campaignId, 'connected')
+    if (resumed) return
+
+    const { data: campaign } = await supabase
+      .from('campaigns').select('sequence, settings, workspace_id').eq('id', campaignId).single()
+    if (!campaign?.sequence?.nodes) return
+    const sequenceNodes = normalizeLegacyFlatSequence(campaign.sequence.nodes)
+
+    const schedule = campaign.settings?.schedule
+    const timezone = campaign.settings?.timezone || 'UTC'
+    if (schedule?.length && !isWithinSchedule(schedule, timezone)) {
+      console.log(`[sequence] post-connection steps skipped — outside active schedule (${timezone})`)
+      return
     }
 
     const { data: lead } = await supabase
@@ -695,231 +1018,26 @@ export async function executePostConnectionSteps(providerUserId, accountId, camp
 
     const effectiveWsId = workspaceId || campaign?.workspace_id
     const profile = await getWorkspaceProfile(effectiveWsId)
-
-    for (let i = startFromIndex; i < postNodes.length; i++) {
-      const node = postNodes[i]
-      switch (node.type) {
-
-        // ── Messages ──────────────────────────────────────────────
-        case 'message': {
-          if (!node.config?.text?.trim()) break
-          if (!consumeDailyLimit(campaignId, 'messages', frequency.messages)) {
-            console.log(`[sequence] message skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
-          const attachments = node.config?.attachments || []
-          console.log(`[sequence] sending message to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
-          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
-          break
-        }
-        case 'message_open': {
-          if (!node.config?.text?.trim()) break
-          if (!consumeDailyLimit(campaignId, 'messages', frequency.messages)) {
-            console.log(`[sequence] message_open skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
-          const attachments = node.config?.attachments || []
-          console.log(`[sequence] sending open-profile message to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
-          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
-          break
-        }
-        case 'inmail': {
-          if (!node.config?.body?.trim()) break
-          if (!consumeDailyLimit(campaignId, 'inmails', frequency.inmails)) {
-            console.log(`[sequence] inmail skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          const body    = interpolateVars(node.config.body.trim(), lead || {}, profile)
-          const subject = interpolateVars(node.config.subject || '', lead || {}, profile)
-          const text    = subject ? `${subject}\n\n${body}` : body
-          const attachments = node.config?.attachments || []
-          console.log(`[sequence] sending InMail to ${providerUserId}${attachments.length ? ` +${attachments.length} attachment(s)` : ''}`)
-          await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
-          break
-        }
-        case 'voice_note':
-          console.log(`[sequence] voice_note not supported via Unipile — skipping`)
-          break
-
-        // ── Engagement actions ─────────────────────────────────────
-        case 'visit_profile': {
-          if (!consumeDailyLimit(campaignId, 'profileVisits', frequency.profileVisits)) {
-            console.log(`[sequence] visit_profile skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          await linkedin.visitProfile(accountId, providerUserId)
-          console.log(`[sequence] visited profile of ${providerUserId}`)
-          break
-        }
-        case 'like_post': {
-          if (!consumeDailyLimit(campaignId, 'likesToPosts', frequency.likesToPosts)) {
-            console.log(`[sequence] like_post skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          try {
-            const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
-            const posts = postsData?.items || postsData?.objects || []
-            if (!posts.length) { console.log(`[sequence] like_post — no posts found for ${providerUserId}`); break }
-            const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
-            await linkedin.likePost(accountId, postId)
-            console.log(`[sequence] liked post ${postId} for ${providerUserId}`)
-          } catch (err) {
-            console.error(`[sequence] like_post error: ${err.message}`)
-          }
-          break
-        }
-        case 'follow': {
-          if (!consumeDailyLimit(campaignId, 'followLead', frequency.followLead)) {
-            console.log(`[sequence] follow skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          try {
-            await linkedin.followUser(accountId, providerUserId)
-            console.log(`[sequence] followed ${providerUserId}`)
-          } catch (err) {
-            console.error(`[sequence] follow error: ${err.message}`)
-          }
-          break
-        }
-        case 'comment_post':
-        case 'reply_comment': {
-          if (!consumeDailyLimit(campaignId, 'aiComments', frequency.aiComments)) {
-            console.log(`[sequence] ${node.type} skipped for ${providerUserId} — daily limit reached`)
-            break
-          }
-          const commentText = node.config?.text?.trim()
-          if (!commentText) break
-          try {
-            const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
-            const posts = postsData?.items || postsData?.objects || []
-            if (!posts.length) { console.log(`[sequence] ${node.type} — no posts found for ${providerUserId}`); break }
-            const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
-            const text = interpolateVars(commentText, lead || {}, profile)
-            await linkedin.commentOnPost(accountId, postId, text)
-            console.log(`[sequence] ${node.type} on post ${postId} for ${providerUserId}`)
-          } catch (err) {
-            console.error(`[sequence] ${node.type} error: ${err.message}`)
-          }
-          break
-        }
-        case 'add_tag': {
-          if (node.config?.tag && lead?.id) {
-            const { data: existingLead } = await supabase
-              .from('campaign_leads').select('tags').eq('id', lead.id).single()
-            const existingTags = existingLead?.tags || []
-            if (!existingTags.includes(node.config.tag)) {
-              await supabase.from('campaign_leads')
-                .update({ tags: [...existingTags, node.config.tag] })
-                .eq('id', lead.id)
-            }
-            console.log(`[sequence] tagged ${lead?.name || providerUserId} with "${node.config.tag}"`)
-          }
-          break
-        }
-
-        // ── Wait — schedule resume from the next node ──────────────
-        case 'wait': {
-          const n = node.config?.days || 1
-          const unit = node.config?.unit || 'days'
-          const msPerUnit = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
-          const delayMs = n * msPerUnit
-          const resumeAt = new Date(Date.now() + delayMs).toISOString()
-          console.log(`[sequence] wait ${n} ${unit} — scheduling resume at node ${i + 1} for ${providerUserId} (resume at ${resumeAt})`)
-          // Persist so the resume survives a server restart
-          if (supabase) {
-            await supabase.from('campaign_leads')
-              .update({ sequence_step: i + 1, sequence_resume_at: resumeAt })
-              .eq('provider_id', providerUserId)
-              .eq('campaign_id', campaignId)
-              .catch(() => {}) // ignore if columns not yet migrated
-          }
-          setTimeout(
-            () => executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId, i + 1),
-            delayMs
-          )
-          return // stop current run; will resume after delay
-        }
-
-        // ── Conditions ────────────────────────────────────────────
-        case 'cond_has_linkedin':
-          if (!lead?.linkedin_url) {
-            console.log(`[sequence] cond_has_linkedin FAILED post-connection`)
-            await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-            return
-          }
-          await executeYesBranchNodes(node.config?.yesBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-          break
-        case 'cond_1st_level':
-          await executeYesBranchNodes(node.config?.yesBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-          break // post-connection = they ARE connected, always passes
-        case 'cond_check_column': {
-          const field = node.config?.field
-          const expected = (node.config?.value || '').toLowerCase()
-          const actual = String(lead?.[field] || '').toLowerCase()
-          if (field && expected && !actual.includes(expected)) {
-            console.log(`[sequence] cond_check_column FAILED post-connection`)
-            await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-            return
-          }
-          await executeYesBranchNodes(node.config?.yesBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-          break
-        }
-        case 'cond_open_profile': {
-          try {
-            const profileData = await linkedin.visitProfile(accountId, providerUserId)
-            const isOpen = profileData?.is_open_profile || profileData?.open_profile || profileData?.openProfile || false
-            if (!isOpen) {
-              console.log(`[sequence] cond_open_profile FAILED for ${providerUserId} — not an open profile`)
-              await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-              return
-            }
-            console.log(`[sequence] cond_open_profile PASSED for ${providerUserId}`)
-            await executeYesBranchNodes(node.config?.yesBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-          } catch (err) {
-            console.log(`[sequence] cond_open_profile check error — continuing: ${err.message}`)
-          }
-          break
-        }
-        case 'cond_opened_message': {
-          try {
-            const chatId = lead?.chat_id
-            if (!chatId) {
-              console.log(`[sequence] cond_opened_message — no chat found for ${providerUserId}, passing through`)
-              break
-            }
-            const messagesData = await unipileChats.getMessages(chatId, { limit: 50 })
-            const messages = messagesData?.items || messagesData?.objects || []
-            const hasBeenOpened = messages.some(m =>
-              (m.is_sender === 1 || m.is_sender === true) &&
-              (m.is_read || m.seen || m.read_at || m.seen_at)
-            )
-            if (!hasBeenOpened) {
-              console.log(`[sequence] cond_opened_message FAILED for ${providerUserId} — message not opened yet`)
-              await executeNoBranchNodes(node.config?.noBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-              return
-            }
-            console.log(`[sequence] cond_opened_message PASSED for ${providerUserId}`)
-            await executeYesBranchNodes(node.config?.yesBranch, { providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead, frequency })
-          } catch (err) {
-            console.log(`[sequence] cond_opened_message check error — continuing: ${err.message}`)
-          }
-          break
-        }
-        default:
-          console.log(`[sequence] unknown post-connection step type: ${node.type}`)
-      }
-
-      // Add a minimum delay between consecutive message nodes so they don't fire simultaneously
-      const MESSAGE_TYPES = ['message', 'message_open', 'inmail']
-      const nextNode = postNodes[i + 1]
-      if (MESSAGE_TYPES.includes(node.type) && nextNode && MESSAGE_TYPES.includes(nextNode.type)) {
-        const delayMs = (2 + Math.floor(Math.random() * 3)) * 60 * 1000
-        console.log(`[sequence] waiting ${Math.round(delayMs / 60000)} min before next message for ${providerUserId}`)
-        await new Promise(resolve => setTimeout(resolve, delayMs))
-      }
+    const frequency = campaign.settings?.frequency || {}
+    const ctx = {
+      providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead,
+      frequency, profile, connected: true, invited: true, halted: false,
     }
+
+    const connectLoc = locateNodeByType(sequenceNodes, 'connection_request')
+    if (connectLoc) {
+      // Run the Accepted/yes branch of connection_request, then continue
+      // with whatever comes after it in the same list — skipping anything
+      // before it (already executed pre-connection).
+      await runTree(connectLoc.node.config?.yesBranch, ctx, [{ nodeId: connectLoc.node.id, branch: 'yesBranch' }])
+      if (ctx.halted) return
+      await runTree(connectLoc.containingList.slice(connectLoc.index + 1), ctx, [])
+      return
+    }
+
+    // No connection_request anywhere in the sequence — treat the whole tree
+    // as post-connection (matches the pre-nesting fallback).
+    await runTree(sequenceNodes, ctx, [])
   } catch (err) {
     console.error('[sequence] post-connection steps error:', err.message)
   }
@@ -1099,8 +1217,11 @@ export async function runCampaignInvites(campaignId, workspaceId) {
     for (let i = 0; i < pendingLeads.length; i++) {
       const lead = pendingLeads[i]
       try {
-        await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
-        await updateLeadStatus(lead.id, 'invited')
+        const result = await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
+        // Nested branching can reach "already connected" without ever sending
+        // a request (e.g. an "If Connected → Yes" path) — mark accordingly
+        // instead of always assuming an invite went out.
+        await updateLeadStatus(lead.id, result?.connected && !result?.invited ? 'connected' : 'invited')
         consumeDailyLimit(campaignId, 'connectionRequests', 0) // track without enforcing (limit enforced above)
         console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
       } catch (err) {

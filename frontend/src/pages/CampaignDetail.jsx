@@ -106,7 +106,6 @@ const STEP_TYPES = [
     ),
     label: "Send connection request",
     hasConfig: true,
-    isCondition: true,
   },
   {
     type: "message",
@@ -124,7 +123,6 @@ const STEP_TYPES = [
     ),
     label: "Send message",
     hasConfig: true,
-    isCondition: true,
   },
   {
     type: "voice_note",
@@ -176,7 +174,6 @@ const STEP_TYPES = [
     ),
     label: "LinkedIn InMail",
     hasConfig: true,
-    isCondition: true,
   },
   {
     type: "add_tag",
@@ -228,7 +225,6 @@ const STEP_TYPES = [
     ),
     label: "Send message to open profile",
     hasConfig: true,
-    isCondition: true,
   },
   // Conditions
   {
@@ -247,7 +243,6 @@ const STEP_TYPES = [
     ),
     label: "Has LinkedIn URL",
     hasConfig: false,
-    isCondition: true,
   },
   {
     type: "cond_1st_level",
@@ -265,9 +260,8 @@ const STEP_TYPES = [
         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
       </svg>
     ),
-    label: "Lead is 1st level",
+    label: "Is Connected",
     hasConfig: false,
-    isCondition: true,
   },
   {
     type: "cond_opened_message",
@@ -285,7 +279,6 @@ const STEP_TYPES = [
     ),
     label: "Opened LinkedIn Message",
     hasConfig: false,
-    isCondition: true,
   },
   {
     type: "cond_check_column",
@@ -305,7 +298,6 @@ const STEP_TYPES = [
     ),
     label: "Check data in column",
     hasConfig: true,
-    isCondition: true,
   },
   {
     type: "cond_open_profile",
@@ -323,13 +315,32 @@ const STEP_TYPES = [
     ),
     label: "Lead is Open Profile",
     hasConfig: false,
-    isCondition: true,
+  },
+  {
+    type: "stop",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <line x1="15" y1="9" x2="9" y2="15" />
+        <line x1="9" y1="9" x2="15" y2="15" />
+      </svg>
+    ),
+    label: "Stop",
+    hasConfig: false,
   },
 ];
 
-const ACTION_STEPS = [
+// Simplified builder menu — only these actions are shown in the + dropdown
+const BUILDER_MENU_ACTIONS = [
   {
     type: "connection_request",
+    label: "Send Connection",
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -344,10 +355,57 @@ const ACTION_STEPS = [
         <line x1="16" y1="11" x2="22" y2="11" />
       </svg>
     ),
-    label: "Send connection request",
+  },
+  {
+    type: "cond_1st_level",
+    label: "If Connected",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+  },
+  {
+    type: "like_post",
+    label: "Like Post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+  },
+  {
+    type: "visit_profile",
+    label: "View Profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
   },
   {
     type: "message",
+    label: "Send Message",
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -360,10 +418,130 @@ const ACTION_STEPS = [
         <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
       </svg>
     ),
-    label: "Send message",
+  },
+];
+
+// Actions available in the No branch (pre-connection: warmup steps)
+const NO_BRANCH_ACTIONS = [
+  {
+    type: "connection_request",
+    label: "Send Connection",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <line x1="19" y1="8" x2="19" y2="14" />
+        <line x1="16" y1="11" x2="22" y2="11" />
+      </svg>
+    ),
+  },
+  {
+    type: "like_post",
+    label: "Like Post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+  },
+  {
+    type: "visit_profile",
+    label: "View Profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+  {
+    type: "message",
+    label: "Send Message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+    ),
+  },
+];
+
+// Actions available in the Yes branch (post-connection: messaging steps)
+const YES_BRANCH_ACTIONS = [
+  {
+    type: "message",
+    label: "Send Message",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+    ),
+  },
+  {
+    type: "like_post",
+    label: "Like Post",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
+    ),
+  },
+  {
+    type: "visit_profile",
+    label: "View Profile",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
   },
   {
     type: "voice_note",
+    label: "Send Voice Note",
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -377,237 +555,6 @@ const ACTION_STEPS = [
         <line x1="12" y1="19" x2="12" y2="22" />
       </svg>
     ),
-    label: "Send voice note",
-  },
-  {
-    type: "comment_post",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-    label: "Comment last post",
-  },
-  {
-    type: "like_post",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-      </svg>
-    ),
-    label: "Like last post",
-  },
-  {
-    type: "visit_profile",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-    ),
-    label: "Visit profile",
-  },
-  {
-    type: "inmail",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-      </svg>
-    ),
-    label: "LinkedIn InMail",
-  },
-  {
-    type: "add_tag",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-        <line x1="7" y1="7" x2="7.01" y2="7" />
-      </svg>
-    ),
-    label: "Add tag",
-  },
-  {
-    type: "reply_comment",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="9 14 4 9 9 4" />
-        <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-      </svg>
-    ),
-    label: "Reply Comment",
-  },
-  {
-    type: "message_open",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <line x1="22" y1="2" x2="11" y2="13" />
-        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-      </svg>
-    ),
-    label: "Send message to open profile",
-  },
-  {
-    type: "follow",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <polyline points="16 11 18 13 22 9" />
-      </svg>
-    ),
-    label: "Follow Lead",
-  },
-  {
-    type: "wait",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
-    label: "Wait x days",
-  },
-];
-
-const CONDITION_STEPS = [
-  {
-    type: "cond_has_linkedin",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-      </svg>
-    ),
-    label: "Has LinkedIn URL",
-  },
-  {
-    type: "cond_1st_level",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-    label: "Lead is 1st level",
-  },
-  {
-    type: "cond_opened_message",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="9 11 12 14 22 4" />
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-      </svg>
-    ),
-    label: "Opened LinkedIn Message",
-  },
-  {
-    type: "cond_check_column",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <line x1="3" y1="9" x2="21" y2="9" />
-        <line x1="3" y1="15" x2="21" y2="15" />
-        <line x1="9" y1="3" x2="9" y2="21" />
-      </svg>
-    ),
-    label: "Check data in column",
-  },
-  {
-    type: "cond_open_profile",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    ),
-    label: "Lead is Open Profile",
   },
 ];
 
@@ -639,16 +586,89 @@ function waitLabel(config) {
   return `Wait ${n} ${unitLabel}`;
 }
 
+// Every node type gets a positive/negative branch fork by default, except
+// wait/stop (no outcome to branch on) and voice_note (no real API support,
+// so there's no meaningful success/failure signal to fork on).
+function nodeHasBranches(type) {
+  return type !== "wait" && type !== "stop" && type !== "voice_note";
+}
+
+// Sequences saved before the branch-tree schema existed are a flat array —
+// e.g. [cond_1st_level, connection_request, message, wait]. Every node in
+// that list now renders as a Yes/No fork, so without this repair the
+// "next" flat sibling renders as an orphaned node floating below an empty
+// fork instead of continuing it. This walks a flat (or partially-flat)
+// list once and nests whatever follows a forking node into the branch
+// that means "keep going" for that node type — idempotent, so a node that
+// already has a noBranch/yesBranch (real authored trees) passes through
+// untouched.
+const LEGACY_CONTINUE_BRANCH = {
+  cond_1st_level: "noBranch", // "Not Connected" is what used to just fall through
+};
+function normalizeLegacyFlatSequence(list) {
+  const arr = list || [];
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    const node = { ...arr[i] };
+    const alreadyTree = !!(node.config?.noBranch || node.config?.yesBranch);
+    if (nodeHasBranches(node.type) && !alreadyTree && i < arr.length - 1) {
+      const rest = normalizeLegacyFlatSequence(arr.slice(i + 1));
+      const continueBranch = LEGACY_CONTINUE_BRANCH[node.type] || "yesBranch";
+      const giveUpBranch =
+        continueBranch === "yesBranch" ? "noBranch" : "yesBranch";
+      // The give-up branch never existed in flat data — give it a default
+      // wait (same as any freshly-added node gets on both branches, see
+      // addNode) rather than an immediate, wait-less Stop.
+      node.config = {
+        ...node.config,
+        [continueBranch]: rest,
+        [giveUpBranch]: [{ type: "wait", config: { days: 1, unit: "days" } }],
+      };
+      out.push(node);
+      break; // `rest` has been absorbed — nothing left to iterate
+    }
+    if (node.config?.noBranch)
+      node.config = {
+        ...node.config,
+        noBranch: normalizeLegacyFlatSequence(node.config.noBranch),
+      };
+    if (node.config?.yesBranch)
+      node.config = {
+        ...node.config,
+        yesBranch: normalizeLegacyFlatSequence(node.config.yesBranch),
+      };
+    out.push(node);
+  }
+  return out;
+}
+
 function getBranchLabels(nodeType) {
   switch (nodeType) {
-    case 'connection_request': return { no: 'Not Accepted Yet', yes: 'Accepted' }
-    case 'message': case 'message_open': case 'inmail': return { no: 'Not Replied', yes: 'Replied' }
-    case 'cond_has_linkedin': return { no: 'No LinkedIn', yes: 'Has LinkedIn' }
-    case 'cond_1st_level': return { no: 'Not 1st Level', yes: '1st Level' }
-    case 'cond_opened_message': return { no: 'Not Opened', yes: 'Opened' }
-    case 'cond_check_column': return { no: 'No Match', yes: 'Matches' }
-    case 'cond_open_profile': return { no: 'Not Open Profile', yes: 'Open Profile' }
-    default: return { no: 'No', yes: 'Yes' }
+    case "connection_request":
+      return { no: "Not Accepted Yet", yes: "Accepted" };
+    case "message":
+    case "message_open":
+    case "inmail":
+      return { no: "Not Replied", yes: "Replied" };
+    case "cond_has_linkedin":
+      return { no: "No LinkedIn", yes: "Has LinkedIn" };
+    case "cond_1st_level":
+      return { no: "Not Connected", yes: "Already Connected" };
+    case "cond_opened_message":
+      return { no: "Not Opened", yes: "Opened" };
+    case "cond_check_column":
+      return { no: "No Match", yes: "Matches" };
+    case "cond_open_profile":
+      return { no: "Not Open Profile", yes: "Open Profile" };
+    case "visit_profile":
+    case "like_post":
+    case "follow":
+    case "comment_post":
+    case "add_tag":
+    case "reply_comment":
+      return { no: "Failed", yes: "Success" };
+    default:
+      return { no: "No", yes: "Yes" };
   }
 }
 
@@ -677,6 +697,144 @@ function nodeConfigured(node) {
   if (node.type === "add_tag") return !!node.config?.tag?.trim();
   if (node.type === "cond_check_column") return !!node.config?.field?.trim();
   return true;
+}
+
+// ── Sequence tree helpers ────────────────────────────────────────
+// Nodes form a real tree: a node's children live at node.config.noBranch /
+// node.config.yesBranch (arrays of nodes, which may themselves have their
+// own noBranch/yesBranch — arbitrary depth). These helpers operate on that
+// tree by node id, immutably, and work at any depth.
+
+function mapBranch(children, fn) {
+  return (children || []).map(fn);
+}
+
+function findNodeById(tree, id) {
+  for (const node of tree || []) {
+    if (node.id === id) return node;
+    const inNo = findNodeById(node.config?.noBranch, id);
+    if (inNo) return inNo;
+    const inYes = findNodeById(node.config?.yesBranch, id);
+    if (inYes) return inYes;
+  }
+  return null;
+}
+
+// Returns a new tree with the node matching `id` replaced by `updater(node)`.
+function mapNodeById(tree, id, updater) {
+  return mapBranch(tree, (node) => {
+    if (node.id === id) return updater(node);
+    if (!node.config?.noBranch && !node.config?.yesBranch) return node;
+    return {
+      ...node,
+      config: {
+        ...node.config,
+        ...(node.config?.noBranch
+          ? { noBranch: mapNodeById(node.config.noBranch, id, updater) }
+          : {}),
+        ...(node.config?.yesBranch
+          ? { yesBranch: mapNodeById(node.config.yesBranch, id, updater) }
+          : {}),
+      },
+    };
+  });
+}
+
+// Returns a new tree with the node matching `id` (and its whole subtree) removed.
+function deleteNodeById(tree, id) {
+  return (tree || [])
+    .filter((node) => node.id !== id)
+    .map((node) => {
+      if (!node.config?.noBranch && !node.config?.yesBranch) return node;
+      return {
+        ...node,
+        config: {
+          ...node.config,
+          ...(node.config?.noBranch
+            ? { noBranch: deleteNodeById(node.config.noBranch, id) }
+            : {}),
+          ...(node.config?.yesBranch
+            ? { yesBranch: deleteNodeById(node.config.yesBranch, id) }
+            : {}),
+        },
+      };
+    });
+}
+
+// Appends newNode to parentId's `branch` ('noBranch' | 'yesBranch') array,
+// creating the array if it doesn't exist yet.
+function insertChildNode(tree, parentId, branch, newNode) {
+  return mapNodeById(tree, parentId, (parent) => ({
+    ...parent,
+    config: {
+      ...parent.config,
+      [branch]: [...(parent.config?.[branch] || []), newNode],
+    },
+  }));
+}
+
+// Inserts newNode immediately after the node matching siblingId, in whichever
+// list (root or a branch array) that node currently lives in.
+function insertSiblingAfter(tree, siblingId, newNode) {
+  const idx = (tree || []).findIndex((n) => n.id === siblingId);
+  if (idx !== -1) {
+    const next = [...tree];
+    next.splice(idx + 1, 0, newNode);
+    return next;
+  }
+  return mapBranch(tree, (node) => {
+    if (!node.config?.noBranch && !node.config?.yesBranch) return node;
+    return {
+      ...node,
+      config: {
+        ...node.config,
+        ...(node.config?.noBranch
+          ? {
+              noBranch: insertSiblingAfter(
+                node.config.noBranch,
+                siblingId,
+                newNode,
+              ),
+            }
+          : {}),
+        ...(node.config?.yesBranch
+          ? {
+              yesBranch: insertSiblingAfter(
+                node.config.yesBranch,
+                siblingId,
+                newNode,
+              ),
+            }
+          : {}),
+      },
+    };
+  });
+}
+
+// True if `id` is the given node or lives anywhere in its subtree — used to
+// clear selection when deleting a node that contains the selected one.
+function isNodeOrDescendant(node, id) {
+  if (!node) return false;
+  if (node.id === id) return true;
+  return (
+    !!findNodeById(node.config?.noBranch, id) ||
+    !!findNodeById(node.config?.yesBranch, id)
+  );
+}
+
+// Locates where a node lives in the tree: which sibling list it's in, its
+// index there, and (if it's a branch child) its parent id + which branch.
+// Returns null if not found; parentId/branch are null for a root-level node.
+function findNodeLocation(tree, id, parentId = null, branch = null) {
+  const idx = (tree || []).findIndex((n) => n.id === id);
+  if (idx !== -1) return { list: tree, index: idx, parentId, branch };
+  for (const n of tree || []) {
+    const inNo = findNodeLocation(n.config?.noBranch, id, n.id, "noBranch");
+    if (inNo) return inNo;
+    const inYes = findNodeLocation(n.config?.yesBranch, id, n.id, "yesBranch");
+    if (inYes) return inYes;
+  }
+  return null;
 }
 
 const IMPORT_SOURCES = [
@@ -1030,12 +1188,18 @@ export default function CampaignDetail() {
 
   // Load LinkedIn accounts + lead lists for ImportContactsModal
   useEffect(() => {
-    unipile.getAccounts().then((data) => {
-      setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
-    }).catch(() => {});
-    leadListsApi.list().then((data) => {
-      setCampaignLeadLists(Array.isArray(data) ? data : []);
-    }).catch(() => {});
+    unipile
+      .getAccounts()
+      .then((data) => {
+        setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
+      })
+      .catch(() => {});
+    leadListsApi
+      .list()
+      .then((data) => {
+        setCampaignLeadLists(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {});
   }, []);
 
   // Called after any import modal completes in setup mode
@@ -1051,13 +1215,16 @@ export default function CampaignDetail() {
       if (userId) {
         const acc = workspaceMembers.find((a) => a.id === userId);
         saves.push(
-          campaignsApi.update(id, {
-            settings: {
-              ...campaign?.settings,
-              linkedinAccountId: userId,
-              linkedinAccountName: acc?.name || acc?.username || "",
-            },
-          }).then((updated) => setCampaign(updated)).catch(() => {})
+          campaignsApi
+            .update(id, {
+              settings: {
+                ...campaign?.settings,
+                linkedinAccountId: userId,
+                linkedinAccountName: acc?.name || acc?.username || "",
+              },
+            })
+            .then((updated) => setCampaign(updated))
+            .catch(() => {}),
         );
       }
       if (listId) {
@@ -1139,17 +1306,30 @@ export default function CampaignDetail() {
   if (loading) {
     return (
       <div className="campaign-detail animate-fade-in">
-        <div style={{ padding: "20px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+        <div
+          style={{
+            padding: "20px 28px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 18,
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Sk w={80} h={14} r={4} />
             <Sk w={180} h={20} r={6} />
             <Sk w={64} h={22} r={99} />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {Array.from({ length: 5 }).map((_, i) => <Sk key={i} w={80} h={28} r={6} />)}
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Sk key={i} w={80} h={28} r={6} />
+            ))}
           </div>
           <div className="table-wrap" style={{ marginTop: 4 }}>
-            <table><tbody><SkeletonTableRows rows={6} cols={6} /></tbody></table>
+            <table>
+              <tbody>
+                <SkeletonTableRows rows={6} cols={6} />
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1161,12 +1341,22 @@ export default function CampaignDetail() {
       <div className="campaign-detail animate-fade-in">
         <div style={{ padding: "20px 28px" }}>
           <Link to="/campaigns" className="detail-back-link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-              <polyline points="15 18 9 12 15 6"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ width: 14, height: 14 }}
+            >
+              <polyline points="15 18 9 12 15 6" />
             </svg>
             Campaigns
           </Link>
-          <div style={{ marginTop: 24, color: "#9ca3af", fontSize: 13 }}>Campaign not found.</div>
+          <div style={{ marginTop: 24, color: "#9ca3af", fontSize: 13 }}>
+            Campaign not found.
+          </div>
         </div>
       </div>
     );
@@ -1181,14 +1371,23 @@ export default function CampaignDetail() {
       <div className="detail-topbar">
         <div className="detail-topbar-left">
           <Link to="/campaigns" className="detail-back-link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
             </svg>
             Campaigns
           </Link>
           <span className="detail-breadcrumb-sep">/</span>
           <span className="detail-campaign-name">{campaign.name}</span>
-          <span className={`detail-status-pill ${campaign.status === "active" ? "active" : "paused"}`}>
+          <span
+            className={`detail-status-pill ${campaign.status === "active" ? "active" : "paused"}`}
+          >
             <span className="detail-status-dot" />
             {campaign.status === "active" ? "Active" : "Paused"}
           </span>
@@ -1197,23 +1396,37 @@ export default function CampaignDetail() {
         <div className="detail-topbar-right">
           {!isSetup && selectedAgent && (
             <span className="detail-chip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/>
-                <path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="10" r="3" />
+                <path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662" />
               </svg>
               {selectedAgent.name}
             </span>
           )}
           {!isSetup && campaign.settings?.linkedinAccountName && (
             <span className="detail-chip">
-              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 12, height: 12, color: '#0a66c2' }}>
-                <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                style={{ width: 12, height: 12, color: "#0a66c2" }}
+              >
+                <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
               </svg>
               {campaign.settings.linkedinAccountName}
             </span>
           )}
           {isSetup ? (
-            <span className="detail-setup-hint">Complete each step to launch</span>
+            <span className="detail-setup-hint">
+              Complete each step to launch
+            </span>
           ) : (
             <button
               className={`detail-run-btn ${campaign.status === "active" ? "pausing" : ""}`}
@@ -1221,15 +1434,26 @@ export default function CampaignDetail() {
             >
               {campaign.status === "active" ? (
                 <>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <rect x="6" y="4" width="4" height="16" />
+                    <rect x="14" y="4" width="4" height="16" />
                   </svg>
                   Pause
                 </>
               ) : (
                 <>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <polygon points="5 3 19 12 5 21 5 3" />
                   </svg>
                   Run Campaign
                 </>
@@ -1243,9 +1467,9 @@ export default function CampaignDetail() {
       <div className="detail-tabs">
         {isSetup
           ? [
-              { key: "leads",    label: "Leads" },
+              { key: "leads", label: "Leads" },
               { key: "accounts", label: "LinkedIn Accounts" },
-              { key: "builder",  label: "Sequences" },
+              { key: "builder", label: "Sequences" },
               { key: "schedule", label: "Schedule" },
             ].map(({ key, label }, i) => (
               <button
@@ -1257,16 +1481,17 @@ export default function CampaignDetail() {
                 {label}
               </button>
             ))
-          : ["leads", "builder", "persona", "analytics", "settings"].map((t) => (
-              <button
-                key={t}
-                className={`detail-tab ${tab === t ? "active" : ""}`}
-                onClick={() => setTab(t)}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))
-        }
+          : ["leads", "builder", "persona", "analytics", "settings"].map(
+              (t) => (
+                <button
+                  key={t}
+                  className={`detail-tab ${tab === t ? "active" : ""}`}
+                  onClick={() => setTab(t)}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ),
+            )}
       </div>
 
       <LeadFinderModal
@@ -1377,7 +1602,9 @@ export default function CampaignDetail() {
             campaignId={id}
             campaign={campaign}
             agents={agents}
-            onSaved={(updated) => { setCampaign(updated) }}
+            onSaved={(updated) => {
+              setCampaign(updated);
+            }}
             toast={toast}
             isSetup={false}
           />
@@ -1388,7 +1615,9 @@ export default function CampaignDetail() {
             campaign={campaign}
             agents={agents}
             linkedinAccounts={linkedinAccounts}
-            onSaved={(updated) => { setCampaign(updated) }}
+            onSaved={(updated) => {
+              setCampaign(updated);
+            }}
             toast={toast}
             isSetup={false}
           />
@@ -1417,13 +1646,20 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [selected, setSelected] = useState([]); // lead ids
   const [importing, setImporting] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
 
   // Load lists on open
   useEffect(() => {
-    if (!open) { setSelected([]); setActiveListId(null); setLeadsMap({}); setSearch(''); return; }
+    if (!open) {
+      setSelected([]);
+      setActiveListId(null);
+      setLeadsMap({});
+      setSearch("");
+      return;
+    }
     setLoadingLists(true);
-    leadListsApi.list()
+    leadListsApi
+      .list()
       .then((data) => {
         const rows = Array.isArray(data) ? data : [];
         setLists(rows);
@@ -1438,8 +1674,14 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
     if (!activeListId) return;
     if (leadsMap[activeListId]) return; // already fetched
     setLoadingLeads(true);
-    leadsApi.list(activeListId)
-      .then((data) => setLeadsMap((prev) => ({ ...prev, [activeListId]: Array.isArray(data) ? data : [] })))
+    leadsApi
+      .list(activeListId)
+      .then((data) =>
+        setLeadsMap((prev) => ({
+          ...prev,
+          [activeListId]: Array.isArray(data) ? data : [],
+        })),
+      )
       .catch(() => setLeadsMap((prev) => ({ ...prev, [activeListId]: [] })))
       .finally(() => setLoadingLeads(false));
   }, [activeListId]);
@@ -1447,23 +1689,33 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
   const activeLeads = (leadsMap[activeListId] || []).filter((l) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (l.name || '').toLowerCase().includes(q) || (l.company || '').toLowerCase().includes(q) || (l.title || '').toLowerCase().includes(q);
+    return (
+      (l.name || "").toLowerCase().includes(q) ||
+      (l.company || "").toLowerCase().includes(q) ||
+      (l.title || "").toLowerCase().includes(q)
+    );
   });
 
   function toggle(id) {
-    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   }
 
   function toggleAll() {
     const ids = activeLeads.map((l) => l.id);
     const allChecked = ids.every((id) => selected.includes(id));
-    setSelected((prev) => allChecked ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
+    setSelected((prev) =>
+      allChecked
+        ? prev.filter((id) => !ids.includes(id))
+        : [...new Set([...prev, ...ids])],
+    );
   }
 
   function initials(name) {
-    if (!name) return '?';
-    const parts = name.trim().split(' ');
-    return (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
+    if (!name) return "?";
+    const parts = name.trim().split(" ");
+    return (parts[0]?.[0] || "") + (parts[1]?.[0] || "");
   }
 
   async function handleImport() {
@@ -1472,7 +1724,10 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
     if (!toAdd.length) return;
     setImporting(true);
     try {
-      await campaignsApi.importLeads(campaignId, { leads: toAdd, source: 'list' });
+      await campaignsApi.importLeads(campaignId, {
+        leads: toAdd,
+        source: "list",
+      });
       onImported();
       onClose();
     } catch {}
@@ -1482,19 +1737,34 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
   if (!open) return null;
 
   const allActiveIds = activeLeads.map((l) => l.id);
-  const allActiveChecked = allActiveIds.length > 0 && allActiveIds.every((id) => selected.includes(id));
+  const allActiveChecked =
+    allActiveIds.length > 0 &&
+    allActiveIds.every((id) => selected.includes(id));
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="modal-box animate-fade-in mlp-modal">
         {/* Header */}
         <div className="mlp-header">
           <div>
             <div className="mlp-title">Add from My Leads</div>
-            <div className="mlp-subtitle">Select a list, then choose leads to add to this campaign</div>
+            <div className="mlp-subtitle">
+              Select a list, then choose leads to add to this campaign
+            </div>
           </div>
           <button className="mlp-close" onClick={onClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
@@ -1504,27 +1774,51 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
           <div className="mlp-sidebar">
             <div className="mlp-sidebar-label">Lists</div>
             {loadingLists ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
-                {[1,2,3].map(i => <Sk key={i} w="90%" h={36} r={8} />)}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  padding: "4px 0",
+                }}
+              >
+                {[1, 2, 3].map((i) => (
+                  <Sk key={i} w="90%" h={36} r={8} />
+                ))}
               </div>
             ) : lists.length === 0 ? (
               <div className="mlp-empty-sidebar">No lists yet</div>
             ) : (
               lists.map((lst) => {
                 const lstLeads = leadsMap[lst.id] || [];
-                const selCount = lstLeads.filter((l) => selected.includes(l.id)).length;
+                const selCount = lstLeads.filter((l) =>
+                  selected.includes(l.id),
+                ).length;
                 return (
                   <button
                     key={lst.id}
-                    className={`mlp-list-item ${activeListId === lst.id ? 'active' : ''}`}
-                    onClick={() => { setActiveListId(lst.id); setSearch(''); }}
+                    className={`mlp-list-item ${activeListId === lst.id ? "active" : ""}`}
+                    onClick={() => {
+                      setActiveListId(lst.id);
+                      setSearch("");
+                    }}
                   >
                     <div className="mlp-list-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M9 11l3 3L22 4" />
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                      </svg>
                     </div>
                     <div className="mlp-list-info">
                       <span className="mlp-list-name">{lst.name}</span>
-                      {selCount > 0 && <span className="mlp-list-sel-badge">{selCount}</span>}
+                      {selCount > 0 && (
+                        <span className="mlp-list-sel-badge">{selCount}</span>
+                      )}
                     </div>
                   </button>
                 );
@@ -1538,7 +1832,15 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
             {!loadingLists && lists.length > 0 && (
               <div className="mlp-leads-toolbar">
                 <div className="mlp-search-wrap">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
                   <input
                     className="mlp-search"
                     placeholder="Search leads…"
@@ -1548,7 +1850,9 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
                 </div>
                 {activeLeads.length > 0 && (
                   <button className="mlp-sel-all" onClick={toggleAll}>
-                    {allActiveChecked ? 'Deselect all' : `Select all (${activeLeads.length})`}
+                    {allActiveChecked
+                      ? "Deselect all"
+                      : `Select all (${activeLeads.length})`}
                   </button>
                 )}
               </div>
@@ -1556,11 +1860,28 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
 
             <div className="mlp-leads-list">
               {loadingLeads ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
-                  {[1,2,3,4,5].map(i => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    padding: "8px 0",
+                  }}
+                >
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div
+                      key={i}
+                      style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    >
                       <Sk w={36} h={36} r={999} />
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 5,
+                        }}
+                      >
                         <Sk w="45%" h={13} />
                         <Sk w="65%" h={11} />
                       </div>
@@ -1569,19 +1890,36 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
                 </div>
               ) : lists.length === 0 ? (
                 <div className="mlp-empty-pane">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"
+                    />
+                  </svg>
                   <div className="mlp-empty-title">No lists yet</div>
-                  <div className="mlp-empty-desc">Go to My Leads and save leads to a list first.</div>
+                  <div className="mlp-empty-desc">
+                    Go to My Leads and save leads to a list first.
+                  </div>
                 </div>
               ) : activeLeads.length === 0 && search ? (
                 <div className="mlp-empty-pane">
                   <div className="mlp-empty-title">No matches</div>
-                  <div className="mlp-empty-desc">Try a different search term.</div>
+                  <div className="mlp-empty-desc">
+                    Try a different search term.
+                  </div>
                 </div>
               ) : activeLeads.length === 0 ? (
                 <div className="mlp-empty-pane">
                   <div className="mlp-empty-title">This list is empty</div>
-                  <div className="mlp-empty-desc">Add leads to this list from Lead Finder or My Leads.</div>
+                  <div className="mlp-empty-desc">
+                    Add leads to this list from Lead Finder or My Leads.
+                  </div>
                 </div>
               ) : (
                 activeLeads.map((lead) => {
@@ -1589,17 +1927,35 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
                   return (
                     <div
                       key={lead.id}
-                      className={`mlp-lead-row ${isChecked ? 'checked' : ''}`}
+                      className={`mlp-lead-row ${isChecked ? "checked" : ""}`}
                       onClick={() => toggle(lead.id)}
                     >
-                      <div className={`mlp-checkbox ${isChecked ? 'checked' : ''}`}>
-                        {isChecked && <svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      <div
+                        className={`mlp-checkbox ${isChecked ? "checked" : ""}`}
+                      >
+                        {isChecked && (
+                          <svg viewBox="0 0 12 12" fill="none">
+                            <polyline
+                              points="2,6 5,9 10,3"
+                              stroke="#fff"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
                       </div>
-                      <div className="mlp-avatar">{initials(lead.name).toUpperCase()}</div>
+                      <div className="mlp-avatar">
+                        {initials(lead.name).toUpperCase()}
+                      </div>
                       <div className="mlp-lead-info">
-                        <div className="mlp-lead-name">{lead.name || '—'}</div>
+                        <div className="mlp-lead-name">{lead.name || "—"}</div>
                         <div className="mlp-lead-meta">
-                          {[lead.title, lead.company].filter(Boolean).join(' · ') || <span style={{ color: '#d1d5db' }}>No details</span>}
+                          {[lead.title, lead.company]
+                            .filter(Boolean)
+                            .join(" · ") || (
+                            <span style={{ color: "#d1d5db" }}>No details</span>
+                          )}
                         </div>
                       </div>
                       {lead.linkedinUrl && (
@@ -1612,7 +1968,7 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
                           title="View LinkedIn profile"
                         >
                           <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z"/>
+                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z" />
                           </svg>
                         </a>
                       )}
@@ -1627,12 +1983,22 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
         {/* Footer */}
         <div className="mlp-footer">
           <span className="mlp-footer-count">
-            {selected.length > 0 ? `${selected.length} lead${selected.length !== 1 ? 's' : ''} selected` : 'No leads selected'}
+            {selected.length > 0
+              ? `${selected.length} lead${selected.length !== 1 ? "s" : ""} selected`
+              : "No leads selected"}
           </span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="mlp-btn-cancel" onClick={onClose}>Cancel</button>
-            <button className="mlp-btn-primary" disabled={selected.length === 0 || importing} onClick={handleImport}>
-              {importing ? 'Adding…' : `Add ${selected.length > 0 ? selected.length : ''} to Campaign`}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="mlp-btn-cancel" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="mlp-btn-primary"
+              disabled={selected.length === 0 || importing}
+              onClick={handleImport}
+            >
+              {importing
+                ? "Adding…"
+                : `Add ${selected.length > 0 ? selected.length : ""} to Campaign`}
             </button>
           </div>
         </div>
@@ -1643,196 +2009,436 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
 
 // ── CSV field-type definitions for column mapping ─────────────
 const CSV_FIELD_TYPES = [
-  { value: '',              label: 'Skip this column' },
-  { value: 'linkedin_url',  label: 'LinkedIn URL (Required)' },
-  { value: 'first_name',    label: 'First Name' },
-  { value: 'last_name',     label: 'Last Name' },
-  { value: 'full_name',     label: 'Full Name' },
-  { value: 'job_title',     label: 'Job Title' },
-  { value: 'company',       label: 'Company' },
-  { value: 'location',      label: 'Location' },
-  { value: 'email',         label: 'Email' },
-  { value: 'website',       label: 'Website' },
-  { value: 'headline',      label: 'Headline' },
-  { value: 'summary',       label: 'Summary' },
-  { value: 'industry',      label: 'Industry' },
-]
+  { value: "", label: "Skip this column" },
+  { value: "linkedin_url", label: "LinkedIn URL (Required)" },
+  { value: "first_name", label: "First Name" },
+  { value: "last_name", label: "Last Name" },
+  { value: "full_name", label: "Full Name" },
+  { value: "job_title", label: "Job Title" },
+  { value: "company", label: "Company" },
+  { value: "location", label: "Location" },
+  { value: "email", label: "Email" },
+  { value: "website", label: "Website" },
+  { value: "headline", label: "Headline" },
+  { value: "summary", label: "Summary" },
+  { value: "industry", label: "Industry" },
+];
 
 function detectFieldType(header) {
-  const h = header.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  if (h.includes('linkedin') || h === 'profile_url') return 'linkedin_url'
-  if (h === 'first_name' || h === 'firstname' || h === 'first') return 'first_name'
-  if (h === 'last_name' || h === 'lastname' || h === 'last' || h === 'surname') return 'last_name'
-  if (h === 'full_name' || h === 'fullname' || h === 'name' || h === 'contact_name') return 'full_name'
-  if (h.includes('job_title') || h === 'title' || h.includes('jobtitle') || h.includes('position') || h === 'role') return 'job_title'
-  if (h.includes('company') || h.includes('organization') || h === 'employer') return 'company'
-  if (h.includes('location') || h === 'city' || h === 'country' || h === 'region') return 'location'
-  if (h.includes('email') || h.includes('mail')) return 'email'
-  if (h === 'website' || h === 'web' || h === 'url') return 'website'
-  if (h.includes('headline') || h === 'bio') return 'headline'
-  if (h.includes('summary') || h.includes('about')) return 'summary'
-  if (h.includes('industry') || h.includes('sector')) return 'industry'
-  return ''
+  const h = header.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  if (h.includes("linkedin") || h === "profile_url") return "linkedin_url";
+  if (h === "first_name" || h === "firstname" || h === "first")
+    return "first_name";
+  if (h === "last_name" || h === "lastname" || h === "last" || h === "surname")
+    return "last_name";
+  if (
+    h === "full_name" ||
+    h === "fullname" ||
+    h === "name" ||
+    h === "contact_name"
+  )
+    return "full_name";
+  if (
+    h.includes("job_title") ||
+    h === "title" ||
+    h.includes("jobtitle") ||
+    h.includes("position") ||
+    h === "role"
+  )
+    return "job_title";
+  if (h.includes("company") || h.includes("organization") || h === "employer")
+    return "company";
+  if (
+    h.includes("location") ||
+    h === "city" ||
+    h === "country" ||
+    h === "region"
+  )
+    return "location";
+  if (h.includes("email") || h.includes("mail")) return "email";
+  if (h === "website" || h === "web" || h === "url") return "website";
+  if (h.includes("headline") || h === "bio") return "headline";
+  if (h.includes("summary") || h.includes("about")) return "summary";
+  if (h.includes("industry") || h.includes("sector")) return "industry";
+  return "";
 }
 
 function parseCsvRaw(text) {
   function splitRow(row) {
-    const cells = []; let cur = '', inQ = false
+    const cells = [];
+    let cur = "",
+      inQ = false;
     for (const ch of row) {
-      if (ch === '"') { inQ = !inQ }
-      else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = '' }
-      else { cur += ch }
+      if (ch === '"') {
+        inQ = !inQ;
+      } else if (ch === "," && !inQ) {
+        cells.push(cur.trim());
+        cur = "";
+      } else {
+        cur += ch;
+      }
     }
-    cells.push(cur.trim())
-    return cells
+    cells.push(cur.trim());
+    return cells;
   }
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim())
-  if (lines.length < 2) return { headers: [], sampleRows: [], allRows: [] }
-  const rawHeaders = splitRow(lines[0])
-  const headers = rawHeaders.map(h => h.replace(/^"|"$/g, '').trim())
-  const allRows = []
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((l) => l.trim());
+  if (lines.length < 2) return { headers: [], sampleRows: [], allRows: [] };
+  const rawHeaders = splitRow(lines[0]);
+  const headers = rawHeaders.map((h) => h.replace(/^"|"$/g, "").trim());
+  const allRows = [];
   for (let i = 1; i < lines.length; i++) {
-    const cells = splitRow(lines[i]).map(c => c.replace(/^"|"$/g, '').trim())
-    if (cells.every(c => !c)) continue
-    allRows.push(cells)
+    const cells = splitRow(lines[i]).map((c) => c.replace(/^"|"$/g, "").trim());
+    if (cells.every((c) => !c)) continue;
+    allRows.push(cells);
   }
-  return { headers, sampleRows: allRows.slice(0, 3), allRows }
+  return { headers, sampleRows: allRows.slice(0, 3), allRows };
 }
 
 function applyColumnMapping(allRows, headers, mapping) {
   return allRows.map((cells, i) => {
-    const lead = { id: `csv_${i}` }
-    let firstName = '', lastName = ''
+    const lead = { id: `csv_${i}` };
+    let firstName = "",
+      lastName = "";
     headers.forEach((h, colIdx) => {
-      const type = mapping[h] || ''
-      const val = cells[colIdx] || ''
-      if (type === 'linkedin_url') lead.linkedinUrl = val
-      else if (type === 'first_name') firstName = val
-      else if (type === 'last_name') lastName = val
-      else if (type === 'full_name') lead.name = val
-      else if (type === 'job_title') lead.title = val
-      else if (type === 'company') lead.company = val
-      else if (type === 'location') lead.location = val
-    })
-    if (!lead.name && (firstName || lastName)) lead.name = [firstName, lastName].filter(Boolean).join(' ')
-    if (!lead.name) lead.name = `Row ${i + 1}`
-    return lead
-  })
+      const type = mapping[h] || "";
+      const val = cells[colIdx] || "";
+      if (type === "linkedin_url") lead.linkedinUrl = val;
+      else if (type === "first_name") firstName = val;
+      else if (type === "last_name") lastName = val;
+      else if (type === "full_name") lead.name = val;
+      else if (type === "job_title") lead.title = val;
+      else if (type === "company") lead.company = val;
+      else if (type === "location") lead.location = val;
+    });
+    if (!lead.name && (firstName || lastName))
+      lead.name = [firstName, lastName].filter(Boolean).join(" ");
+    if (!lead.name) lead.name = `Row ${i + 1}`;
+    return lead;
+  });
 }
 
 // ── CSV Setup Wizard steps ─────────────────────────────────────
 function CsvSourceStep({ onSelectCsv, onSelectMyLeads }) {
-  const cardStyle = { width: 320, border: '1px solid var(--border)', borderRadius: 12, padding: 28, cursor: 'pointer', background: 'var(--surface)', transition: 'border-color 0.15s' }
-  const hover = e => e.currentTarget.style.borderColor = 'var(--signal)'
-  const unhover = e => e.currentTarget.style.borderColor = 'var(--border)'
+  const cardStyle = {
+    width: 320,
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: 28,
+    cursor: "pointer",
+    background: "var(--surface)",
+    transition: "border-color 0.15s",
+  };
+  const hover = (e) => (e.currentTarget.style.borderColor = "var(--signal)");
+  const unhover = (e) => (e.currentTarget.style.borderColor = "var(--border)");
   return (
     <div>
-      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Select Leads Source</h2>
-      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 32 }}>Choose where you want to get your leads from</p>
-      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <div style={cardStyle} onClick={onSelectMyLeads} onMouseEnter={hover} onMouseLeave={unhover}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 32, height: 32, marginBottom: 14, color: 'var(--signal)' }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
+        Select Leads Source
+      </h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 32 }}>
+        Choose where you want to get your leads from
+      </p>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div
+          style={cardStyle}
+          onClick={onSelectMyLeads}
+          onMouseEnter={hover}
+          onMouseLeave={unhover}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            style={{
+              width: 32,
+              height: 32,
+              marginBottom: 14,
+              color: "var(--signal)",
+            }}
+          >
             <ellipse cx="12" cy="5" rx="9" ry="3" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12c0 1.657-4.03 3-9 3s-9-1.343-9-3" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 5v14c0 1.657 4.03 3 9 3s9-1.343 9-3V5" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 12c0 1.657-4.03 3-9 3s-9-1.343-9-3"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 5v14c0 1.657 4.03 3 9 3s9-1.343 9-3V5"
+            />
           </svg>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>My Leads</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
-            Add leads from your saved lead database. Pick and choose who to include in this campaign.
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+            My Leads
           </div>
-          <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => { e.stopPropagation(); onSelectMyLeads() }}>
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              marginBottom: 20,
+              lineHeight: 1.5,
+            }}
+          >
+            Add leads from your saved lead database. Pick and choose who to
+            include in this campaign.
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectMyLeads();
+            }}
+          >
             Select →
           </button>
         </div>
-        <div style={cardStyle} onClick={onSelectCsv} onMouseEnter={hover} onMouseLeave={unhover}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 32, height: 32, marginBottom: 14, color: 'var(--signal)' }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+        <div
+          style={cardStyle}
+          onClick={onSelectCsv}
+          onMouseEnter={hover}
+          onMouseLeave={unhover}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            style={{
+              width: 32,
+              height: 32,
+              marginBottom: 14,
+              color: "var(--signal)",
+            }}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+            />
           </svg>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Upload CSV</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
-            Import leads from a CSV file. The file should include LinkedIn URLs and other optional information.
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+            Upload CSV
           </div>
-          <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => { e.stopPropagation(); onSelectCsv() }}>
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              marginBottom: 20,
+              lineHeight: 1.5,
+            }}
+          >
+            Import leads from a CSV file. The file should include LinkedIn URLs
+            and other optional information.
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectCsv();
+            }}
+          >
             Select →
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function CsvUploadStep({ onFile, onBack }) {
-  const fileRef = React.useRef()
-  const [dragOver, setDragOver] = useState(false)
-  const [error, setError] = useState('')
+  const fileRef = React.useRef();
+  const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState("");
 
   function processFile(file) {
-    if (!file || !file.name.toLowerCase().endsWith('.csv')) { setError('Please upload a .csv file'); return }
-    const reader = new FileReader()
-    reader.onload = e => {
-      const { headers, sampleRows, allRows } = parseCsvRaw(e.target.result)
-      if (!headers.length) { setError('No columns detected — check your CSV format'); return }
-      if (!allRows.length) { setError('No data rows found — CSV must have at least one row after the header'); return }
-      onFile(file, headers, sampleRows, allRows)
+    if (!file || !file.name.toLowerCase().endsWith(".csv")) {
+      setError("Please upload a .csv file");
+      return;
     }
-    reader.readAsText(file)
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const { headers, sampleRows, allRows } = parseCsvRaw(e.target.result);
+      if (!headers.length) {
+        setError("No columns detected — check your CSV format");
+        return;
+      }
+      if (!allRows.length) {
+        setError(
+          "No data rows found — CSV must have at least one row after the header",
+        );
+        return;
+      }
+      onFile(file, headers, sampleRows, allRows);
+    };
+    reader.readAsText(file);
   }
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <button className="btn btn-ghost btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>← Back</button>
-      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Upload CSV File</h2>
-      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>LinkedIn URL is required. LinkedIn URLs and other optional information.</p>
-      <div
-        style={{ border: `2px dashed ${dragOver ? 'var(--signal)' : 'var(--border)'}`, borderRadius: 12, padding: '48px 24px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'var(--surface-2)' : 'var(--surface)', transition: 'all 0.15s' }}
-        onClick={() => fileRef.current?.click()}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); processFile(e.dataTransfer.files[0]) }}
+      <button
+        className="btn btn-ghost btn-sm"
+        style={{ marginBottom: 20 }}
+        onClick={onBack}
       >
-        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => processFile(e.target.files[0])} />
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 40, height: 40, color: 'var(--text-muted)', margin: '0 auto 14px' }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+        ← Back
+      </button>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
+        Upload CSV File
+      </h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 24 }}>
+        LinkedIn URL is required. LinkedIn URLs and other optional information.
+      </p>
+      <div
+        style={{
+          border: `2px dashed ${dragOver ? "var(--signal)" : "var(--border)"}`,
+          borderRadius: 12,
+          padding: "48px 24px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: dragOver ? "var(--surface-2)" : "var(--surface)",
+          transition: "all 0.15s",
+        }}
+        onClick={() => fileRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          processFile(e.dataTransfer.files[0]);
+        }}
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          style={{ display: "none" }}
+          onChange={(e) => processFile(e.target.files[0])}
+        />
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          style={{
+            width: 40,
+            height: 40,
+            color: "var(--text-muted)",
+            margin: "0 auto 14px",
+          }}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+          />
         </svg>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Click to choose a CSV file</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>or drag and drop here</div>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>
+          Click to choose a CSV file
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+          or drag and drop here
+        </div>
       </div>
-      {error && <div style={{ marginTop: 12, fontSize: 13, color: 'var(--danger)' }}>{error}</div>}
+      {error && (
+        <div style={{ marginTop: 12, fontSize: 13, color: "var(--danger)" }}>
+          {error}
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
-function CsvMappingStep({ file, headers, sampleData, allRows, mapping, onMappingChange, onImport, importing, error, onBack }) {
-  const fileSizeKb = file ? Math.round(file.size / 1024) : 0
+function CsvMappingStep({
+  file,
+  headers,
+  sampleData,
+  allRows,
+  mapping,
+  onMappingChange,
+  onImport,
+  importing,
+  error,
+  onBack,
+}) {
+  const fileSizeKb = file ? Math.round(file.size / 1024) : 0;
 
   function setFieldType(header, value) {
     // If assigning a unique field (like linkedin_url), clear it from other headers first
-    const unique = ['linkedin_url', 'full_name']
-    const updated = { ...mapping }
+    const unique = ["linkedin_url", "full_name"];
+    const updated = { ...mapping };
     if (unique.includes(value)) {
-      Object.keys(updated).forEach(k => { if (updated[k] === value) updated[k] = '' })
+      Object.keys(updated).forEach((k) => {
+        if (updated[k] === value) updated[k] = "";
+      });
     }
-    updated[header] = value
-    onMappingChange(updated)
+    updated[header] = value;
+    onMappingChange(updated);
   }
 
-  const hasLinkedinUrl = Object.values(mapping).includes('linkedin_url')
+  const hasLinkedinUrl = Object.values(mapping).includes("linkedin_url");
 
   return (
     <div>
-      <button className="btn btn-ghost btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>← Back</button>
-      <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>
-        Match your CSV columns to the appropriate fields. <strong>LinkedIn URL is required.</strong>
+      <button
+        className="btn btn-ghost btn-sm"
+        style={{ marginBottom: 20 }}
+        onClick={onBack}
+      >
+        ← Back
+      </button>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 20 }}>
+        Match your CSV columns to the appropriate fields.{" "}
+        <strong>LinkedIn URL is required.</strong>
       </p>
 
       {file && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 24, width: 'fit-content' }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 20, height: 20, color: 'var(--text-muted)', flexShrink: 0 }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 14px",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            marginBottom: 24,
+            width: "fit-content",
+          }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            style={{
+              width: 20,
+              height: 20,
+              color: "var(--text-muted)",
+              flexShrink: 0,
+            }}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+            />
           </svg>
           <div>
             <div style={{ fontWeight: 600, fontSize: 13 }}>{file.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>({fileSizeKb} KB) · {headers.length} columns detected · {allRows.length} rows</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              ({fileSizeKb} KB) · {headers.length} columns detected ·{" "}
+              {allRows.length} rows
+            </div>
           </div>
         </div>
       )}
@@ -1841,53 +2447,88 @@ function CsvMappingStep({ file, headers, sampleData, allRows, mapping, onMapping
         <table>
           <thead>
             <tr>
-              <th style={{ width: '28%' }}>CSV Column</th>
-              <th style={{ width: '36%' }}>Select Type</th>
+              <th style={{ width: "28%" }}>CSV Column</th>
+              <th style={{ width: "36%" }}>Select Type</th>
               <th>Sample Data</th>
             </tr>
           </thead>
           <tbody>
             {headers.map((header, hi) => {
-              const sample = sampleData.map(row => row[hi] || '').filter(Boolean).slice(0, 3).join(', ')
+              const sample = sampleData
+                .map((row) => row[hi] || "")
+                .filter(Boolean)
+                .slice(0, 3)
+                .join(", ");
               return (
                 <tr key={header}>
                   <td style={{ fontWeight: 500, fontSize: 13 }}>{header}</td>
                   <td>
                     <select
                       className="input"
-                      style={{ fontSize: 13, padding: '5px 10px', height: 'auto' }}
-                      value={mapping[header] || ''}
-                      onChange={e => setFieldType(header, e.target.value)}
+                      style={{
+                        fontSize: 13,
+                        padding: "5px 10px",
+                        height: "auto",
+                      }}
+                      value={mapping[header] || ""}
+                      onChange={(e) => setFieldType(header, e.target.value)}
                     >
-                      {CSV_FIELD_TYPES.map(ft => (
-                        <option key={ft.value} value={ft.value}>{ft.label}</option>
+                      {CSV_FIELD_TYPES.map((ft) => (
+                        <option key={ft.value} value={ft.value}>
+                          {ft.label}
+                        </option>
                       ))}
                     </select>
                   </td>
-                  <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sample}>{sample || '—'}</td>
+                  <td
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-muted)",
+                      maxWidth: 240,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={sample}
+                  >
+                    {sample || "—"}
+                  </td>
                 </tr>
-              )
+              );
             })}
           </tbody>
         </table>
       </div>
 
       {!hasLinkedinUrl && (
-        <div style={{ fontSize: 13, color: 'var(--warning, #f59e0b)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div
+          style={{
+            fontSize: 13,
+            color: "var(--warning, #f59e0b)",
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
           ⚠ Please map a column to "LinkedIn URL (Required)" before importing
         </div>
       )}
-      {error && <div style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
+      {error && (
+        <div style={{ fontSize: 13, color: "var(--danger)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
 
       <button
         className="btn btn-primary"
         disabled={!hasLinkedinUrl || importing}
         onClick={onImport}
       >
-        {importing ? 'Importing…' : `Import ${allRows.length} Contacts →`}
+        {importing ? "Importing…" : `Import ${allRows.length} Contacts →`}
       </button>
     </div>
-  )
+  );
 }
 
 // ── CSV Import Modal ─────────────────────────────────────────
@@ -2274,14 +2915,16 @@ function LeadsTab({
   const [retryingFor, setRetryingFor] = useState(null);
 
   // Setup mode CSV wizard state
-  const [csvPhase, setCsvPhase] = useState(() => leads.length > 0 ? 'done' : 'select');
+  const [csvPhase, setCsvPhase] = useState(() =>
+    leads.length > 0 ? "done" : "select",
+  );
   const [csvFile, setCsvFile] = useState(null);
   const [csvHeaders, setCsvHeaders] = useState([]);
   const [csvSampleData, setCsvSampleData] = useState([]);
   const [csvAllRows, setCsvAllRows] = useState([]);
   const [csvMapping, setCsvMapping] = useState({});
   const [csvImporting, setCsvImporting] = useState(false);
-  const [csvImportError, setCsvImportError] = useState('');
+  const [csvImportError, setCsvImportError] = useState("");
 
   // (always declared — hooks must not be conditional)
   const [showSaveList, setShowSaveList] = useState(false);
@@ -2292,26 +2935,29 @@ function LeadsTab({
 
   // Advance past wizard once leads are loaded (e.g. on page refresh after import)
   React.useEffect(() => {
-    if (leads.length > 0 && csvPhase !== 'done') setCsvPhase('done');
+    if (leads.length > 0 && csvPhase !== "done") setCsvPhase("done");
   }, [leads.length]);
 
   // Setup mode: show CSV wizard phases inline (not the old list/import-panel flow)
-  if (isSetup && csvPhase !== 'done') {
+  if (isSetup && csvPhase !== "done") {
     return (
-      <div style={{ padding: '24px 32px', maxWidth: 900 }}>
+      <div style={{ padding: "24px 32px", maxWidth: 900 }}>
         <MyLeadsPickerModal
           open={myLeadsOpen}
           onClose={() => setMyLeadsOpen(false)}
           campaignId={campaignId}
-          onImported={() => { setMyLeadsOpen(false); onSetupImportDone?.(); }}
+          onImported={() => {
+            setMyLeadsOpen(false);
+            onSetupImportDone?.();
+          }}
         />
-        {csvPhase === 'select' && (
+        {csvPhase === "select" && (
           <CsvSourceStep
-            onSelectCsv={() => setCsvPhase('upload')}
+            onSelectCsv={() => setCsvPhase("upload")}
             onSelectMyLeads={() => setMyLeadsOpen(true)}
           />
         )}
-        {csvPhase === 'upload' && (
+        {csvPhase === "upload" && (
           <CsvUploadStep
             onFile={(file, headers, sampleRows, allRows) => {
               setCsvFile(file);
@@ -2319,14 +2965,16 @@ function LeadsTab({
               setCsvSampleData(sampleRows);
               setCsvAllRows(allRows);
               const autoMap = {};
-              headers.forEach(h => { autoMap[h] = detectFieldType(h); });
+              headers.forEach((h) => {
+                autoMap[h] = detectFieldType(h);
+              });
               setCsvMapping(autoMap);
-              setCsvPhase('map');
+              setCsvPhase("map");
             }}
-            onBack={() => setCsvPhase('select')}
+            onBack={() => setCsvPhase("select")}
           />
         )}
-        {csvPhase === 'map' && (
+        {csvPhase === "map" && (
           <CsvMappingStep
             file={csvFile}
             headers={csvHeaders}
@@ -2336,17 +2984,24 @@ function LeadsTab({
             onMappingChange={setCsvMapping}
             importing={csvImporting}
             error={csvImportError}
-            onBack={() => setCsvPhase('upload')}
+            onBack={() => setCsvPhase("upload")}
             onImport={async () => {
               setCsvImporting(true);
-              setCsvImportError('');
+              setCsvImportError("");
               try {
-                const mappedLeads = applyColumnMapping(csvAllRows, csvHeaders, csvMapping);
-                await campaignsApi.importLeads(campaignId, { leads: mappedLeads, source: 'csv' });
+                const mappedLeads = applyColumnMapping(
+                  csvAllRows,
+                  csvHeaders,
+                  csvMapping,
+                );
+                await campaignsApi.importLeads(campaignId, {
+                  leads: mappedLeads,
+                  source: "csv",
+                });
                 await onRefreshLeads?.();
-                setCsvPhase('done');
+                setCsvPhase("done");
               } catch (e) {
-                setCsvImportError(e.message || 'Import failed');
+                setCsvImportError(e.message || "Import failed");
               } finally {
                 setCsvImporting(false);
               }
@@ -2499,10 +3154,22 @@ function LeadsTab({
               {visibleLeads.map((l) => (
                 <tr key={l.id || l.name}>
                   <td style={{ fontWeight: 600 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
                       {l.name || l.firstName + " " + l.lastName || "—"}
                       {l.profileSummary && (
-                        <span title={l.profileSummary} style={{ fontSize: 10, color: "var(--signal)", cursor: "help", flexShrink: 0 }}>◆</span>
+                        <span
+                          title={l.profileSummary}
+                          style={{
+                            fontSize: 10,
+                            color: "var(--signal)",
+                            cursor: "help",
+                            flexShrink: 0,
+                          }}
+                        >
+                          ◆
+                        </span>
                       )}
                       {l.linkedinUrl && (
                         <a
@@ -2513,8 +3180,13 @@ function LeadsTab({
                           onClick={(e) => e.stopPropagation()}
                           title="View LinkedIn profile"
                         >
-                          <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
-                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z"/>
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            width="11"
+                            height="11"
+                          >
+                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z" />
                           </svg>
                         </a>
                       )}
@@ -2531,7 +3203,18 @@ function LeadsTab({
                       {l.status || "pending"}
                     </span>
                     {l.lastError && (
-                      <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 3, maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.lastError}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--danger)",
+                          marginTop: 3,
+                          maxWidth: 180,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                        title={l.lastError}
+                      >
                         {l.lastError}
                       </div>
                     )}
@@ -2588,8 +3271,8 @@ function LeadsTab({
 
       {isSetup && (
         <div className="setup-leads-footer">
-          {leads.length > 0 && (
-            savedListId ? (
+          {leads.length > 0 &&
+            (savedListId ? (
               <span className="setup-saved-badge">✓ Saved to My Lists</span>
             ) : showSaveList ? (
               <div className="setup-save-list-row">
@@ -2598,8 +3281,10 @@ function LeadsTab({
                   style={{ width: 220 }}
                   placeholder="List name…"
                   value={listName}
-                  onChange={e => setListName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && listName.trim() && handleSaveAsMyList()}
+                  onChange={(e) => setListName(e.target.value)}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && listName.trim() && handleSaveAsMyList()
+                  }
                   autoFocus
                 />
                 <button
@@ -2607,21 +3292,28 @@ function LeadsTab({
                   disabled={!listName.trim() || savingList}
                   onClick={handleSaveAsMyList}
                 >
-                  {savingList ? 'Saving…' : 'Save List'}
+                  {savingList ? "Saving…" : "Save List"}
                 </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveList(false)}>Cancel</button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowSaveList(false)}
+                >
+                  Cancel
+                </button>
               </div>
             ) : (
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveList(true)}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowSaveList(true)}
+              >
                 + Save as My List
               </button>
-            )
-          )}
+            ))}
           <button
             className="btn btn-primary"
             disabled={leads.length === 0}
             onClick={onSetupNext}
-            style={{ marginLeft: 'auto' }}
+            style={{ marginLeft: "auto" }}
           >
             Next: LinkedIn Accounts →
           </button>
@@ -2728,7 +3420,7 @@ function LeadsTab({
                         onCloseImport();
                         setCsvImportOpen(true);
                       } else {
-                        toast(`${s.label} — coming soon`, 'info');
+                        toast(`${s.label} — coming soon`, "info");
                       }
                     }}
                   >
@@ -2759,24 +3451,28 @@ function BuilderTab({
   isSetup = false,
   onSetupNext,
 }) {
+  // nodes is a real tree — a node's children live at config.noBranch /
+  // config.yesBranch, at any depth. This matches the persisted JSON shape
+  // exactly, so no flatten/reconstruct step is needed. Nodes loaded from
+  // older data that predates stable ids (see addNode) get one generated
+  // here in memory; it persists next time the sequence is saved.
   const [nodes, setNodes] = useState(() => {
-    const expanded = [];
-    (initialNodes || []).forEach((n, i) => {
-      const parentId = n.id || `n_${i}`;
-      const { noBranch, yesBranch, ...restConfig } = n.config || {};
-      expanded.push({ ...n, _id: parentId, config: restConfig });
-      if (noBranch?.length) {
-        noBranch.forEach((nb, j) => {
-          expanded.push({ ...nb, _id: nb.id || `nb_${parentId}_${j}`, _nobranchOf: parentId });
-        });
-      }
-      if (yesBranch?.length) {
-        yesBranch.forEach((yb, j) => {
-          expanded.push({ ...yb, _id: yb.id || `yb_${parentId}_${j}`, _yesbranchOf: parentId });
-        });
-      }
-    });
-    return expanded;
+    function ensureIds(list) {
+      return (list || []).map((n) => ({
+        ...n,
+        id: n.id || `n_${Math.random().toString(36).slice(2)}`,
+        config: {
+          ...n.config,
+          ...(n.config?.noBranch
+            ? { noBranch: ensureIds(n.config.noBranch) }
+            : {}),
+          ...(n.config?.yesBranch
+            ? { yesBranch: ensureIds(n.config.yesBranch) }
+            : {}),
+        },
+      }));
+    }
+    return ensureIds(normalizeLegacyFlatSequence(initialNodes));
   });
   // Pick a random campaign lead to use for message previews (falls back to
   // the static placeholder values when there are no leads yet). Memoised on
@@ -2787,9 +3483,35 @@ function BuilderTab({
   }, [leads]);
   const [selectedId, setSelectedId] = useState(null);
   const [addingAt, setAddingAt] = useState(null); // index to insert after (-1 = beginning)
-  const [addingToNoBranch, setAddingToNoBranch] = useState(null); // condNode._id
-  const [addingToYesBranch, setAddingToYesBranch] = useState(null); // condNode._id
-  const [pickerTab, setPickerTab] = useState("action");
+  const [addingToNoBranch, setAddingToNoBranch] = useState(null); // condNode.id
+  const [addingToYesBranch, setAddingToYesBranch] = useState(null); // condNode.id
+
+  // Close the step-picker dropdown on an outside click. Doesn't use a
+  // full-screen overlay div — .builder-inner has a CSS transform (for pan/
+  // zoom), which creates its own stacking context, so an overlay with a
+  // higher z-index than .builder-canvas would paint above the dropdown and
+  // swallow clicks meant for it. A document listener sidesteps that.
+  useEffect(() => {
+    if (
+      addingAt === null &&
+      addingToNoBranch === null &&
+      addingToYesBranch === null
+    )
+      return;
+    function handleOutsideClick(e) {
+      if (
+        e.target.closest(".node-action-menu") ||
+        e.target.closest(".add-node-btn")
+      )
+        return;
+      setAddingAt(null);
+      setAddingToNoBranch(null);
+      setAddingToYesBranch(null);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [addingAt, addingToNoBranch, addingToYesBranch]);
+
   const [saving, setSaving] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -2798,7 +3520,14 @@ function BuilderTab({
   const [transform, setTransform] = useState({ zoom: 1, x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const canvasRef = useRef(null);
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, startPx: 0, startPy: 0, moved: false });
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    startPx: 0,
+    startPy: 0,
+    moved: false,
+  });
 
   // Close stats popup on outside click
   React.useEffect(() => {
@@ -2820,23 +3549,31 @@ function BuilderTab({
     if (!leads?.length) return { inProgress: 0, finished: 0, failed: 0 };
     const failedSt = ["failed", "rejected", "skipped"];
     let inProgressSt, finishedSt;
-    if (["visit_profile", "like_post", "follow", "comment_post"].includes(nodeType)) {
-      inProgressSt = ["pending"]; finishedSt = ["invited", "connected", "replied", "booked"];
+    if (
+      ["visit_profile", "like_post", "follow", "comment_post"].includes(
+        nodeType,
+      )
+    ) {
+      inProgressSt = ["pending"];
+      finishedSt = ["invited", "connected", "replied", "booked"];
     } else if (nodeType === "connection_request") {
-      inProgressSt = ["invited"]; finishedSt = ["connected", "replied", "booked"];
+      inProgressSt = ["invited"];
+      finishedSt = ["connected", "replied", "booked"];
     } else if (["message", "message_open", "inmail"].includes(nodeType)) {
-      inProgressSt = ["connected"]; finishedSt = ["replied", "booked"];
+      inProgressSt = ["connected"];
+      finishedSt = ["replied", "booked"];
     } else {
-      inProgressSt = ["pending", "invited"]; finishedSt = ["connected", "replied", "booked"];
+      inProgressSt = ["pending", "invited"];
+      finishedSt = ["connected", "replied", "booked"];
     }
     return {
-      inProgress: leads.filter(l => inProgressSt.includes(l.status)).length,
-      finished:   leads.filter(l => finishedSt.includes(l.status)).length,
-      failed:     leads.filter(l => failedSt.includes(l.status)).length,
+      inProgress: leads.filter((l) => inProgressSt.includes(l.status)).length,
+      finished: leads.filter((l) => finishedSt.includes(l.status)).length,
+      failed: leads.filter((l) => failedSt.includes(l.status)).length,
     };
   }
 
-  const selectedNode = nodes.find((n) => n._id === selectedId) || null;
+  const selectedNode = findNodeById(nodes, selectedId);
 
   function handleDragStart(e, index) {
     isDraggingRef.current = true;
@@ -2874,37 +3611,39 @@ function BuilderTab({
   }
 
   async function saveSequence(updatedNodes) {
+    // The tree already matches the persisted shape 1:1 — just strip the
+    // UI-only `_new` flag (used for the entrance animation) recursively.
+    function stripUiFields(list) {
+      return (list || []).map(({ _new, ...rest }) => ({
+        ...rest,
+        config: {
+          ...rest.config,
+          ...(rest.config?.noBranch
+            ? { noBranch: stripUiFields(rest.config.noBranch) }
+            : {}),
+          ...(rest.config?.yesBranch
+            ? { yesBranch: stripUiFields(rest.config.yesBranch) }
+            : {}),
+        },
+      }));
+    }
+    function countConnectionRequests(list) {
+      return (list || []).reduce(
+        (sum, n) =>
+          sum +
+          (n.type === "connection_request" ? 1 : 0) +
+          countConnectionRequests(n.config?.noBranch) +
+          countConnectionRequests(n.config?.yesBranch),
+        0,
+      );
+    }
+    if (countConnectionRequests(updatedNodes) > 1) {
+      toast?.("A sequence can only have one Send Connection step", "danger");
+      return;
+    }
     setSaving(true);
     try {
-      // Collect noBranch / yesBranch nodes back into their parent's config
-      const nobranchMap = {};
-      const yesbranchMap = {};
-      updatedNodes.forEach((n) => {
-        if (n._nobranchOf) {
-          if (!nobranchMap[n._nobranchOf]) nobranchMap[n._nobranchOf] = [];
-          nobranchMap[n._nobranchOf].push(n);
-        }
-        if (n._yesbranchOf) {
-          if (!yesbranchMap[n._yesbranchOf]) yesbranchMap[n._yesbranchOf] = [];
-          yesbranchMap[n._yesbranchOf].push(n);
-        }
-      });
-      const payload = {
-        nodes: updatedNodes
-          .filter((n) => !n._nobranchOf && !n._yesbranchOf)
-          .map(({ _id, _new, ...rest }) => ({
-            ...rest,
-            config: {
-              ...rest.config,
-              ...(nobranchMap[_id]?.length
-                ? { noBranch: nobranchMap[_id].map(({ _id: _nbId, _nobranchOf, _new: _nbNew, ...nbRest }) => nbRest) }
-                : {}),
-              ...(yesbranchMap[_id]?.length
-                ? { yesBranch: yesbranchMap[_id].map(({ _id: _ybId, _yesbranchOf, _new: _ybNew, ...ybRest }) => ybRest) }
-                : {}),
-            },
-          })),
-      };
+      const payload = { nodes: stripUiFields(updatedNodes) };
       const result = await campaignsApi.updateSequence(campaignId, payload);
       onSaved(result);
       toast?.("Sequence saved", "success");
@@ -2915,58 +3654,103 @@ function BuilderTab({
     }
   }
 
-  function addNode(type, insertAfterIndex, noBranchOfId = null, yesBranchOfId = null) {
-    const branchTag = noBranchOfId
-      ? { _nobranchOf: noBranchOfId }
-      : yesBranchOfId
-        ? { _yesbranchOf: yesBranchOfId }
-        : {};
+  // target: { kind: 'root', afterId: string | null } — afterId null means
+  //   "insert as the very first node" (used by the empty-state "+")
+  // target: { kind: 'branch', parentId: string, branch: 'noBranch' | 'yesBranch' }
+  function addNode(type, target) {
+    const makeWaitNode = () => ({
+      id: crypto.randomUUID(),
+      type: "wait",
+      config: { days: 1, unit: "days" },
+      _new: true,
+    });
     const newNode = {
-      _id: `n_${Date.now()}`,
+      id: crypto.randomUUID(),
       type,
       config: type === "wait" ? { days: 1, unit: "days" } : {},
       _new: true,
-      ...branchTag,
     };
+    // A node that forks into a Yes/No branch renders as that fork, not a
+    // plain connector — so its default "next step" has to live inside each
+    // branch, not as a flat sibling after it (which would render as a
+    // disconnected orphan below an empty fork). Give both branches their own
+    // default wait. Non-forking types (wait/stop/voice_note) have nowhere to
+    // put a branch wait, so voice_note keeps the old flat-sibling insert.
+    if (nodeHasBranches(type)) {
+      newNode.config = {
+        ...newNode.config,
+        yesBranch: [makeWaitNode()],
+        noBranch: [makeWaitNode()],
+      };
+    }
+    const autoWaitSibling = type === "voice_note" ? makeWaitNode() : null;
     setNodes((prev) => {
-      const next = [...prev];
-      if (noBranchOfId || yesBranchOfId) {
-        const parentId = noBranchOfId || yesBranchOfId;
-        const tagKey = noBranchOfId ? "_nobranchOf" : "_yesbranchOf";
-        const condIdx = prev.findIndex((n) => n._id === parentId);
-        let insertIdx = condIdx;
-        for (let k = condIdx + 1; k < next.length; k++) {
-          if (next[k][tagKey] === parentId) insertIdx = k;
-          else if (!next[k]._nobranchOf && !next[k]._yesbranchOf) break;
-        }
-        next.splice(insertIdx + 1, 0, newNode);
+      let next;
+      if (target.kind === "branch") {
+        next = insertChildNode(prev, target.parentId, target.branch, newNode);
+      } else if (target.afterId == null) {
+        next = [newNode, ...prev];
       } else {
-        next.splice(insertAfterIndex + 1, 0, newNode);
+        next = insertSiblingAfter(prev, target.afterId, newNode);
       }
+      if (autoWaitSibling)
+        next = insertSiblingAfter(next, newNode.id, autoWaitSibling);
       return next;
     });
     setAddingAt(null);
     setAddingToNoBranch(null);
     setAddingToYesBranch(null);
-    setSelectedId(newNode._id);
+    setSelectedId(newNode.id);
   }
 
   function updateNode(id, config) {
     setNodes((prev) =>
-      prev.map((n) =>
-        n._id === id ? { ...n, config: { ...n.config, ...config } } : n,
-      ),
+      mapNodeById(prev, id, (n) => ({
+        ...n,
+        config: { ...n.config, ...config },
+      })),
     );
   }
 
   function deleteNode(id) {
-    setNodes((prev) => prev.filter((n) => n._id !== id));
-    if (selectedId === id) setSelectedId(null);
+    setNodes((prev) => deleteNodeById(prev, id));
+    if (selectedId && isNodeOrDescendant(findNodeById(nodes, id), selectedId))
+      setSelectedId(null);
+  }
+
+  // Anchored step-picker dropdown — rendered inline right after the "+"
+  // button that opened it (inside a position:relative wrapper), so it's
+  // always pinned to that exact button regardless of scroll/pan/zoom.
+  function renderStepMenu(items, onPick) {
+    return (
+      <div
+        className="node-action-menu animate-fade-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {items.map((s) => (
+          <button
+            key={s.type}
+            className="node-action-item"
+            onClick={() => onPick(s.type)}
+          >
+            <span className="node-action-icon">{s.icon}</span>
+            <span className="node-action-label">{s.label}</span>
+          </button>
+        ))}
+      </div>
+    );
   }
 
   function handleCanvasMouseDown(e) {
     if (e.button !== 0) return;
-    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, startPx: transform.x, startPy: transform.y, moved: false };
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPx: transform.x,
+      startPy: transform.y,
+      moved: false,
+    };
     setPanning(true);
   }
   function handleCanvasMouseMove(e) {
@@ -2975,7 +3759,11 @@ function BuilderTab({
     const dy = e.clientY - dragRef.current.startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
       dragRef.current.moved = true;
-      setTransform(t => ({ ...t, x: dragRef.current.startPx + dx, y: dragRef.current.startPy + dy }));
+      setTransform((t) => ({
+        ...t,
+        x: dragRef.current.startPx + dx,
+        y: dragRef.current.startPy + dy,
+      }));
     }
   }
   function handleCanvasMouseUp() {
@@ -2989,16 +3777,395 @@ function BuilderTab({
     const rect = canvasRef.current.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    setTransform(t => {
+    setTransform((t) => {
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
       const newZoom = Math.min(2.5, Math.max(0.2, t.zoom * factor));
       const scale = newZoom / t.zoom;
-      return { zoom: newZoom, x: mx - scale * (mx - t.x), y: my - scale * (my - t.y) };
+      return {
+        zoom: newZoom,
+        x: mx - scale * (mx - t.x),
+        y: my - scale * (my - t.y),
+      };
     });
   }
-  function zoomIn() { setTransform(t => ({ ...t, zoom: Math.min(2.5, parseFloat((t.zoom + 0.1).toFixed(1))) })); }
-  function zoomOut() { setTransform(t => ({ ...t, zoom: Math.max(0.2, parseFloat((t.zoom - 0.1).toFixed(1))) })); }
-  function resetView() { setTransform({ zoom: 1, x: 0, y: 0 }); }
+  function zoomIn() {
+    setTransform((t) => ({
+      ...t,
+      zoom: Math.min(2.5, parseFloat((t.zoom + 0.1).toFixed(1))),
+    }));
+  }
+  function zoomOut() {
+    setTransform((t) => ({
+      ...t,
+      zoom: Math.max(0.2, parseFloat((t.zoom - 0.1).toFixed(1))),
+    }));
+  }
+  function resetView() {
+    setTransform({ zoom: 1, x: 0, y: 0 });
+  }
+
+  const StopPill = () => (
+    <div className="builder-stop-node">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="4.9" y1="4.9" x2="19.1" y2="19.1" />
+      </svg>
+      Stop
+    </div>
+  );
+
+  // Renders a top-level (trunk) node: draggable, full-size card, external
+  // stat badges, its own "+" to insert the next trunk node after it (or, if
+  // it branches, its whole recursive fork instead).
+  function renderRootNode(node, i) {
+    if (node.type === "stop") {
+      return (
+        <div
+          key={node.id}
+          className="builder-node-wrap"
+          style={{ alignItems: "center" }}
+        >
+          <div className="builder-stop-node builder-stop-node--removable">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="4.9" y1="4.9" x2="19.1" y2="19.1" />
+            </svg>
+            Stop
+            <button
+              className="btn btn-icon btn-ghost"
+              style={{ fontSize: 11, color: "var(--danger)", marginLeft: 4 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteNode(node.id);
+              }}
+              title="Remove"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="builder-connector-wrap">
+            <div className="builder-connector" />
+            <div className="builder-dot" />
+            <div className="builder-connector" />
+          </div>
+        </div>
+      );
+    }
+
+    const meta = stepMeta(node.type);
+    const ok = nodeConfigured(node);
+    const sub =
+      node.type === "wait"
+        ? null
+        : node.config?.text
+          ? node.config.text.slice(0, 42) +
+            (node.config.text.length > 42 ? "…" : "")
+          : node.config?.note
+            ? node.config.note.slice(0, 42) +
+              (node.config.note.length > 42 ? "…" : "")
+            : null;
+    const nodeStats = getNodeLeadStats(node.type);
+    const statsTotal =
+      nodeStats.inProgress + nodeStats.finished + nodeStats.failed;
+
+    return (
+      <div
+        key={node.id}
+        className={`builder-node-wrap${dragOverIndex === i && dragIndex !== i ? " builder-drop-target" : ""}`}
+        style={{ position: "relative" }}
+        onDragOver={(e) => handleDragOver(e, i)}
+        onDrop={(e) => handleDrop(e, i)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget))
+            setDragOverIndex(null);
+        }}
+      >
+        <div className="builder-node-row">
+          <div
+            draggable
+            className={`builder-node${node._new ? " builder-node--new" : ""}${nodeHasBranches(node.type) ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node.id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
+            style={{ animationDelay: node._new ? "0ms" : `${i * 45}ms` }}
+            onDragStart={(e) => handleDragStart(e, i)}
+            onDragEnd={handleDragEnd}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isDraggingRef.current) setSelectedId(node.id);
+            }}
+          >
+            <div className="node-icon">{meta.icon}</div>
+            <div className="node-content">
+              <div className="node-label">{nodeLabel(node)}</div>
+              {!ok ? (
+                <div className="node-error">Configure required</div>
+              ) : (
+                sub && <div className="node-sub">{sub}</div>
+              )}
+            </div>
+            <div className="node-actions" onClick={(e) => e.stopPropagation()}>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-disabled)",
+                  cursor: "grab",
+                  padding: "0 4px",
+                  lineHeight: 1,
+                }}
+                title="Drag to reorder"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                ⠿
+              </span>
+              <button
+                className="btn btn-icon btn-ghost"
+                style={{ fontSize: 11, color: "var(--danger)" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteNode(node.id);
+                }}
+                title="Remove"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {leads?.length > 0 && statsTotal > 0 && (
+            <div className="node-ext-badges">
+              {nodeStats.inProgress > 0 && (
+                <span className="node-ext-badge node-ext-badge--progress">
+                  <svg viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1z" />
+                  </svg>
+                  {nodeStats.inProgress}
+                </span>
+              )}
+              {nodeStats.finished > 0 && (
+                <span className="node-ext-badge node-ext-badge--done">
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <polyline points="3,8 6,11 13,4" />
+                  </svg>
+                  {nodeStats.finished}
+                </span>
+              )}
+              {nodeStats.failed > 0 && (
+                <span className="node-ext-badge node-ext-badge--failed">
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <line x1="4" y1="4" x2="12" y2="12" />
+                    <line x1="12" y1="4" x2="4" y2="12" />
+                  </svg>
+                  {nodeStats.failed}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {nodeHasBranches(node.type) ? (
+          renderFork(node)
+        ) : (
+          <div className="builder-connector-wrap">
+            <div className="builder-connector" />
+            <button
+              className="add-node-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAddingAt(node.id);
+                setAddingToNoBranch(null);
+                setAddingToYesBranch(null);
+              }}
+              title="Add step"
+            >
+              +
+            </button>
+            <div className="builder-connector" />
+            {addingAt === node.id &&
+              renderStepMenu(BUILDER_MENU_ACTIONS, (type) =>
+                addNode(type, { kind: "root", afterId: node.id }),
+              )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Renders a branching node's fork — the No/Yes columns, each listing its
+  // children (recursively rendered, so a child that itself branches shows
+  // its own nested fork right below it) plus that column's single append-
+  // only "+" and terminal Stop. Reused for both trunk nodes and nested
+  // branch children, at any depth — this is what makes nesting recursive.
+  function renderFork(node) {
+    const noBranchNodes = node.config?.noBranch || [];
+    const yesBranchNodes = node.config?.yesBranch || [];
+    const labels = getBranchLabels(node.type);
+    // A freshly-added branch always starts with its default wait (see
+    // addNode) — the outcome badge (Not Connected / Accepted / ...) belongs
+    // right under *that*, not after whatever real actions get appended
+    // afterward. So only the first step renders before the label; anything
+    // added after it renders below the label instead.
+    const [noFirst, ...noRest] = noBranchNodes;
+    const [yesFirst, ...yesRest] = yesBranchNodes;
+    // Once a branch's last step itself forks, it already ends in its own
+    // real Stop pills one level down — this branch's own "add here" + Stop
+    // would just float below that entire nested fork, redundant and
+    // disconnected-looking. Only show them while the branch still ends in a
+    // plain (non-forking) step, or is empty.
+    const noTailForks =
+      noBranchNodes.length > 0 &&
+      nodeHasBranches(noBranchNodes[noBranchNodes.length - 1].type);
+    const yesTailForks =
+      yesBranchNodes.length > 0 &&
+      nodeHasBranches(yesBranchNodes[yesBranchNodes.length - 1].type);
+    return (
+      <div className="builder-branch-wrap">
+        <div className="builder-connector" />
+        <div className="builder-dot" />
+        <div className="builder-branch-fork">
+          {/* ── No column (left) ── */}
+          <div className="builder-branch-col branch-col-no">
+            {noFirst && renderBranchChild(noFirst, "no")}
+            <div className="branch-nb-connector" />
+            <span className="branch-label branch-label-no">{labels.no}</span>
+            {noRest.map((nb) => renderBranchChild(nb, "no"))}
+            {!noTailForks && (
+              <>
+                <div className="branch-nb-connector" />
+                <span style={{ position: "relative", display: "inline-block" }}>
+                  <button
+                    className={`add-node-btn${addingToNoBranch === node.id ? " menu-open" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddingToNoBranch(node.id);
+                      setAddingToYesBranch(null);
+                      setAddingAt(null);
+                    }}
+                    title="Add step to No branch"
+                  >
+                    +
+                  </button>
+                  {addingToNoBranch === node.id &&
+                    renderStepMenu(NO_BRANCH_ACTIONS, (type) =>
+                      addNode(type, {
+                        kind: "branch",
+                        parentId: node.id,
+                        branch: "noBranch",
+                      }),
+                    )}
+                </span>
+                <div className="branch-nb-connector" />
+                <StopPill />
+              </>
+            )}
+            <div className="branch-col-fill" />
+          </div>
+
+          {/* ── Yes column (right) — mirrors the No column's order (steps,
+              then the branch label, then add/Stop) so the label always sits
+              directly under the last step instead of floating above it. ── */}
+          <div className="builder-branch-col branch-col-yes">
+            {yesFirst && renderBranchChild(yesFirst, "yes")}
+            <div className="branch-nb-connector branch-nb-connector-yes" />
+            <span className="branch-label branch-label-yes">{labels.yes}</span>
+            {yesRest.map((yb) => renderBranchChild(yb, "yes"))}
+            {!yesTailForks && (
+              <>
+                <div className="branch-nb-connector branch-nb-connector-yes" />
+                <span style={{ position: "relative", display: "inline-block" }}>
+                  <button
+                    className={`add-node-btn${addingToYesBranch === node.id ? " menu-open" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddingToYesBranch(node.id);
+                      setAddingToNoBranch(null);
+                      setAddingAt(null);
+                    }}
+                    title="Add step to Yes branch"
+                  >
+                    +
+                  </button>
+                  {addingToYesBranch === node.id &&
+                    renderStepMenu(YES_BRANCH_ACTIONS, (type) =>
+                      addNode(type, {
+                        kind: "branch",
+                        parentId: node.id,
+                        branch: "yesBranch",
+                      }),
+                    )}
+                </span>
+                <div className="branch-nb-connector branch-nb-connector-yes" />
+                <StopPill />
+              </>
+            )}
+            <div className="branch-col-fill" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Renders one node inside a branch column: the compact pill, and — if
+  // this child itself has branches — its own fork recursively underneath.
+  function renderBranchChild(child, side) {
+    const cMeta = stepMeta(child.type);
+    const cOk = nodeConfigured(child);
+    const connectorClass =
+      side === "yes"
+        ? "branch-nb-connector branch-nb-connector-yes"
+        : "branch-nb-connector";
+    return (
+      <React.Fragment key={child.id}>
+        <div className={connectorClass} />
+        <div
+          className={`builder-node builder-node-nb${side === "yes" ? " builder-node-yb" : ""}${selectedId === child.id ? " selected" : ""}${!cOk ? " missing" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedId(child.id);
+          }}
+        >
+          <div className="node-icon">{cMeta.icon}</div>
+          <div className="node-content">
+            <div className="node-label">{nodeLabel(child)}</div>
+            {!cOk && <div className="node-error">Action required</div>}
+          </div>
+          <button
+            className="btn btn-icon btn-ghost"
+            style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteNode(child.id);
+            }}
+            title="Remove"
+          >
+            ✕
+          </button>
+        </div>
+        {nodeHasBranches(child.type) && renderFork(child)}
+      </React.Fragment>
+    );
+  }
 
   return (
     <div className="builder-wrap">
@@ -3010,302 +4177,167 @@ function BuilderTab({
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
-        style={{ cursor: panning ? 'grabbing' : 'grab' }}
+        style={{ cursor: panning ? "grabbing" : "grab" }}
       >
         <div
           className="builder-inner"
-          style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`, transformOrigin: '0 0' }}
-        >
-        {/* Start node */}
-        <div
-          className={`builder-entry-node ${isSetup ? "builder-entry-node--setup" : campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isSetup) onSetupNext?.();
-            else onToggleStatus?.();
+          style={{
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`,
+            transformOrigin: "0 0",
           }}
-          title={isSetup ? "Save & continue to Schedule" : campaignStatus === "active" ? "Pause campaign" : "Start campaign"}
-          style={{ cursor: "pointer" }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16, flexShrink: 0 }}>
-            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-          </svg>
-          <span>
-            {isSetup ? "Next: Schedule" : campaignStatus === "active" ? "Running" : "Start"}
-          </span>
-          {!isSetup && leads?.length > 0 && (
-            <span style={{ fontSize: 11, color: "inherit", opacity: 0.65, fontWeight: 400 }}>
-              · {leads.length.toLocaleString()}
-            </span>
-          )}
-        </div>
-
-        {/* Add first node */}
-        <div className="builder-connector-wrap">
-          <div className="builder-connector" />
-          <button
-            className="add-node-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setAddingAt(-1);
+          {/* Start node */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              position: "relative",
             }}
-            title="Add first step"
           >
-            +
-          </button>
-          {nodes.length > 0 && <div className="builder-connector" />}
-        </div>
-
-        {nodes.map((node, i) => {
-          // Branch nodes are rendered inside the condition fork, not in the main flow
-          if (node._nobranchOf || node._yesbranchOf) return null;
-          const meta = stepMeta(node.type);
-          const ok = nodeConfigured(node);
-          const sub =
-            node.type === "wait"
-              ? null // day count is shown in the title via nodeLabel
-              : node.config?.text
-                ? node.config.text.slice(0, 42) +
-                  (node.config.text.length > 42 ? "…" : "")
-                : node.config?.note
-                  ? node.config.note.slice(0, 42) +
-                    (node.config.note.length > 42 ? "…" : "")
-                  : null;
-          const nodeStats = getNodeLeadStats(node.type);
-          const statsTotal = nodeStats.inProgress + nodeStats.finished + nodeStats.failed;
-          return (
             <div
-              key={node._id}
-              className={`builder-node-wrap${dragOverIndex === i && dragIndex !== i ? " builder-drop-target" : ""}`}
-              style={{ position: "relative" }}
-              onDragOver={(e) => handleDragOver(e, i)}
-              onDrop={(e) => handleDrop(e, i)}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget))
-                  setDragOverIndex(null);
+              className={`builder-entry-node ${isSetup ? "builder-entry-node--setup" : campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isSetup) onSetupNext?.();
+                else onToggleStatus?.();
               }}
+              title={
+                isSetup
+                  ? "Save & continue to Schedule"
+                  : campaignStatus === "active"
+                    ? "Pause campaign"
+                    : "Start campaign"
+              }
+              style={{ cursor: "pointer" }}
             >
-              <div
-                draggable
-                className={`builder-node${node._new ? " builder-node--new" : ""}${meta.isCondition ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node._id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
-                style={{ animationDelay: node._new ? "0ms" : `${i * 45}ms` }}
-                onDragStart={(e) => handleDragStart(e, i)}
-                onDragEnd={handleDragEnd}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!isDraggingRef.current) setSelectedId(node._id);
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ width: 14, height: 14, flexShrink: 0 }}
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+              <span>{isSetup ? "Next: Schedule" : "Start"}</span>
+            </div>
+            {!isSetup && leads?.length > 0 && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#4285f4",
+                  background: "#e8f0fe",
+                  borderRadius: 20,
+                  padding: "3px 9px",
+                  position: "absolute",
+                  right: "-50px",
                 }}
               >
-                <div className="node-icon">{meta.icon}</div>
-                <div className="node-content">
-                  <div className="node-label">{nodeLabel(node)}</div>
-                  {!ok ? (
-                    <div className="node-error">Configure required</div>
-                  ) : (
-                    sub && <div className="node-sub">{sub}</div>
-                  )}
-                </div>
-                <div
-                  className="node-actions"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {leads?.length > 0 && (
-                    <button
-                      className="btn btn-icon btn-ghost node-contacts-btn"
-                      title="Contact statuses"
-                      onClick={(e) => { e.stopPropagation(); setOpenStatsId(openStatsId === node._id ? null : node._id); }}
-                    >
-                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1z"/></svg>
-                      <span>{statsTotal}</span>
-                    </button>
-                  )}
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: "var(--text-disabled)",
-                      cursor: "grab",
-                      padding: "0 4px",
-                      lineHeight: 1,
-                    }}
-                    title="Drag to reorder"
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    ⠿
-                  </span>
-                  <button
-                    className="btn btn-icon btn-ghost"
-                    style={{ fontSize: 11, color: "var(--danger)" }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteNode(node._id);
-                    }}
-                    title="Remove"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
+                {leads.length.toLocaleString()}
+              </span>
+            )}
+          </div>
 
-              {/* Contact statuses popup */}
-              {openStatsId === node._id && (
-                <div className="node-stats-popup" onClick={(e) => e.stopPropagation()}>
-                  <div className="node-stats-popup-header">
-                    <span>CONTACT'S STATUSES</span><span>COUNT</span>
-                  </div>
-                  <div className="node-stats-popup-row">
-                    <span><span className="node-stats-dot node-stats-dot--yellow" />In Progress</span>
-                    <span>{nodeStats.inProgress}</span>
-                  </div>
-                  <div className="node-stats-popup-row">
-                    <span><span className="node-stats-dot node-stats-dot--green" />Finished</span>
-                    <span>{nodeStats.finished}</span>
-                  </div>
-                  <div className="node-stats-popup-row">
-                    <span><span className="node-stats-dot node-stats-dot--red" />Failed</span>
-                    <span>{nodeStats.failed}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Connector + add button between nodes */}
-              {meta.isCondition ? (() => {
-                const noBranchNodes = nodes.filter((n) => n._nobranchOf === node._id);
-                const yesBranchNodes = nodes.filter((n) => n._yesbranchOf === node._id);
-                const mainNodesAfter = nodes.filter((n) => !n._nobranchOf && !n._yesbranchOf);
-                const condMainIdx = mainNodesAfter.findIndex((n) => n._id === node._id);
-                const hasNextMain = condMainIdx < mainNodesAfter.length - 1;
-                const labels = getBranchLabels(node.type);
-                const StopNode = () => (
-                  <div className="builder-stop-node">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" /><line x1="4.9" y1="4.9" x2="19.1" y2="19.1" />
-                    </svg>
-                    Stop
-                  </div>
-                );
-                return (
-                  <div className="builder-branch-wrap">
-                    <div className="builder-connector" />
-                    <div className="builder-dot" />
-                    <div className="builder-branch-fork">
-                      {/* ── No column (left) ── */}
-                      <div className="builder-branch-col branch-col-no">
-                        {noBranchNodes.map((nb) => {
-                          const nbMeta = stepMeta(nb.type);
-                          const nbOk = nodeConfigured(nb);
-                          return (
-                            <React.Fragment key={nb._id}>
-                              <div className="branch-nb-connector" />
-                              <div
-                                className={`builder-node builder-node-nb${selectedId === nb._id ? " selected" : ""}${!nbOk ? " missing" : ""}`}
-                                onClick={(e) => { e.stopPropagation(); setSelectedId(nb._id); }}
-                              >
-                                <div className="node-icon">{nbMeta.icon}</div>
-                                <div className="node-content">
-                                  <div className="node-label">{nodeLabel(nb)}</div>
-                                  {!nbOk && <div className="node-error">Action required</div>}
-                                </div>
-                                <button className="btn btn-icon btn-ghost" style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); deleteNode(nb._id); }} title="Remove">✕</button>
-                              </div>
-                            </React.Fragment>
-                          );
-                        })}
-                        <div className="branch-nb-connector" />
-                        <span className="branch-label branch-label-no">{labels.no}</span>
-                        <div className="branch-nb-connector" />
-                        <button className="add-node-btn" onClick={(e) => { e.stopPropagation(); setAddingToNoBranch(node._id); setAddingToYesBranch(null); setAddingAt(null); }} title="Add step to No branch">+</button>
-                        <div className="branch-nb-connector" />
-                        <StopNode />
-                        <div className="branch-col-fill" />
-                      </div>
-
-                      {/* ── Yes column (right) ── */}
-                      <div className="builder-branch-col branch-col-yes">
-                        <span className="branch-label branch-label-yes">{labels.yes}</span>
-                        {yesBranchNodes.map((yb) => {
-                          const ybMeta = stepMeta(yb.type);
-                          const ybOk = nodeConfigured(yb);
-                          return (
-                            <React.Fragment key={yb._id}>
-                              <div className="branch-nb-connector branch-nb-connector-yes" />
-                              <div
-                                className={`builder-node builder-node-nb builder-node-yb${selectedId === yb._id ? " selected" : ""}${!ybOk ? " missing" : ""}`}
-                                onClick={(e) => { e.stopPropagation(); setSelectedId(yb._id); }}
-                              >
-                                <div className="node-icon">{ybMeta.icon}</div>
-                                <div className="node-content">
-                                  <div className="node-label">{nodeLabel(yb)}</div>
-                                  {!ybOk && <div className="node-error">Action required</div>}
-                                </div>
-                                <button className="btn btn-icon btn-ghost" style={{ fontSize: 11, color: "var(--danger)", flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); deleteNode(yb._id); }} title="Remove">✕</button>
-                              </div>
-                            </React.Fragment>
-                          );
-                        })}
-                        <div className="branch-nb-connector branch-nb-connector-yes" />
-                        <button className="add-node-btn" onClick={(e) => { e.stopPropagation(); setAddingToYesBranch(node._id); setAddingToNoBranch(null); setAddingAt(null); }} title="Add step to Yes branch">+</button>
-                        <div className="branch-nb-connector branch-nb-connector-yes" />
-                        <StopNode />
-                        <div className="branch-col-fill" />
-                      </div>
-                    </div>
-
-                    <div className="builder-dot" />
-                    <div className="builder-connector" />
-                    <button
-                      className="add-node-btn"
-                      onClick={(e) => { e.stopPropagation(); setAddingAt(i); setAddingToNoBranch(null); setAddingToYesBranch(null); }}
-                      title="Add step after branch"
-                    >+</button>
-                    {hasNextMain && <div className="builder-connector" />}
-                  </div>
-                );
-              })() : (
-                <div className="builder-connector-wrap">
-                  <div className="builder-connector" />
-                  <button
-                    className="add-node-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAddingAt(i);
-                    }}
-                    title="Add step here"
-                  >
-                    +
-                  </button>
-                  {i < nodes.length - 1 && <div className="builder-connector" />}
-                </div>
-              )}
+          {/* Connector after Start / empty state prompt */}
+          {nodes.length === 0 ? (
+            <div className="builder-connector-wrap">
+              <div className="builder-connector" />
+              <button
+                className="add-node-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAddingAt("start");
+                }}
+                title="Add first step"
+              >
+                +
+              </button>
+              <div className="builder-connector" style={{ opacity: 0.3 }} />
+              {addingAt === "start" &&
+                renderStepMenu(BUILDER_MENU_ACTIONS, (type) =>
+                  addNode(type, { kind: "root", afterId: null }),
+                )}
             </div>
-          );
-        })}
+          ) : (
+            <div className="builder-connector-wrap">
+              <div className="builder-connector" />
+            </div>
+          )}
 
-        {/* Save button */}
-        <button
-          className="btn btn-primary btn-sm"
-          style={{ marginTop: 20, fontSize: 12 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            saveSequence(nodes);
-          }}
-          disabled={saving}
-        >
-          {saving ? "Saving…" : "Save Sequence"}
-        </button>
-        </div>{/* /builder-inner */}
+          {nodes.map((node, i) => renderRootNode(node, i))}
+
+          {/* Save button */}
+          <button
+            className="btn btn-primary btn-sm"
+            style={{ marginTop: 20, fontSize: 12 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              saveSequence(nodes);
+            }}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : "Save Sequence"}
+          </button>
+        </div>
+        {/* /builder-inner */}
 
         {/* Zoom controls */}
-        <div className="builder-zoom-controls" onMouseDown={e => e.stopPropagation()}>
-          <button className="builder-zoom-btn" onClick={zoomOut} title="Zoom out">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <div
+          className="builder-zoom-controls"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="builder-zoom-btn"
+            onClick={zoomOut}
+            title="Zoom out"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
-          <span className="builder-zoom-pct">{Math.round(transform.zoom * 100)}%</span>
+          <span className="builder-zoom-pct">
+            {Math.round(transform.zoom * 100)}%
+          </span>
           <button className="builder-zoom-btn" onClick={zoomIn} title="Zoom in">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
           <div className="builder-zoom-divider" />
-          <button className="builder-zoom-btn" onClick={resetView} title="Reset view (100%)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <button
+            className="builder-zoom-btn"
+            onClick={resetView}
+            title="Reset view (100%)"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
           </button>
         </div>
       </div>
@@ -3354,9 +4386,18 @@ function BuilderTab({
                     border: "1px solid var(--signal)",
                     padding: "3px 10px",
                   }}
-                  onClick={() => {
-                    deleteNode(selectedNode._id);
-                    setAddingAt(nodes.indexOf(selectedNode) - 1);
+                  onClick={(e) => {
+                    const loc = findNodeLocation(nodes, selectedNode.id);
+                    deleteNode(selectedNode.id);
+                    if (!loc || !loc.parentId) {
+                      const prevSibling =
+                        loc && loc.index > 0 ? loc.list[loc.index - 1] : null;
+                      setAddingAt(prevSibling ? prevSibling.id : "start");
+                    } else if (loc.branch === "noBranch") {
+                      setAddingToNoBranch(loc.parentId);
+                    } else {
+                      setAddingToYesBranch(loc.parentId);
+                    }
                   }}
                 >
                   Change
@@ -3390,7 +4431,7 @@ function BuilderTab({
                     min={1}
                     value={selectedNode.config?.days || 1}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, {
+                      updateNode(selectedNode.id, {
                         days: Math.max(1, Number(e.target.value)),
                       })
                     }
@@ -3400,7 +4441,7 @@ function BuilderTab({
                     className="input"
                     value={selectedNode.config?.unit || "days"}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, { unit: e.target.value })
+                      updateNode(selectedNode.id, { unit: e.target.value })
                     }
                     style={{ width: 110 }}
                   >
@@ -3424,7 +4465,7 @@ function BuilderTab({
                         const acc = linkedinAccounts.find(
                           (a) => a.id === e.target.value,
                         );
-                        updateNode(selectedNode._id, {
+                        updateNode(selectedNode.id, {
                           accountId: e.target.value,
                           accountName: acc?.name || "",
                         });
@@ -3487,7 +4528,7 @@ function BuilderTab({
                   }
                   value={selectedNode.config?.text || ""}
                   onChange={(e) =>
-                    updateNode(selectedNode._id, { text: e.target.value })
+                    updateNode(selectedNode.id, { text: e.target.value })
                   }
                 />
                 <div
@@ -3524,7 +4565,7 @@ function BuilderTab({
                     placeholder="Quick question, {firstName}"
                     value={selectedNode.config?.subject || ""}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, { subject: e.target.value })
+                      updateNode(selectedNode.id, { subject: e.target.value })
                     }
                   />
                 </div>
@@ -3536,7 +4577,7 @@ function BuilderTab({
                     placeholder="Hi {firstName}, I noticed you work at {company}…"
                     value={selectedNode.config?.body || ""}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, { body: e.target.value })
+                      updateNode(selectedNode.id, { body: e.target.value })
                     }
                   />
                   <div
@@ -3553,6 +4594,61 @@ function BuilderTab({
               </>
             )}
 
+            {/* message / message_open / inmail — reply timeout for the Replied/Not Replied branches */}
+            {["message", "message_open", "inmail"].includes(
+              selectedNode.type,
+            ) && (
+              <div className="input-group">
+                <label className="input-label">
+                  Reply Timeout{" "}
+                  <span style={{ color: "var(--text-muted)" }}>(optional)</span>
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={selectedNode.config?.replyTimeout?.days || 3}
+                    onChange={(e) =>
+                      updateNode(selectedNode.id, {
+                        replyTimeout: {
+                          ...selectedNode.config?.replyTimeout,
+                          days: Math.max(1, Number(e.target.value)),
+                        },
+                      })
+                    }
+                    style={{ width: 80 }}
+                  />
+                  <select
+                    className="input"
+                    value={selectedNode.config?.replyTimeout?.unit || "days"}
+                    onChange={(e) =>
+                      updateNode(selectedNode.id, {
+                        replyTimeout: {
+                          ...selectedNode.config?.replyTimeout,
+                          unit: e.target.value,
+                        },
+                      })
+                    }
+                    style={{ width: 110 }}
+                  >
+                    <option value="minutes">MINS</option>
+                    <option value="hours">HOURS</option>
+                    <option value="days">DAYS</option>
+                  </select>
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  Give up and take the "Not Replied" path after this long.
+                </div>
+              </div>
+            )}
+
             {/* add_tag */}
             {selectedNode.type === "add_tag" && (
               <div className="input-group">
@@ -3563,7 +4659,7 @@ function BuilderTab({
                   placeholder="e.g. hot-lead, follow-up, interested"
                   value={selectedNode.config?.tag || ""}
                   onChange={(e) =>
-                    updateNode(selectedNode._id, { tag: e.target.value })
+                    updateNode(selectedNode.id, { tag: e.target.value })
                   }
                 />
                 <div
@@ -3627,7 +4723,7 @@ function BuilderTab({
                     placeholder="e.g. company, jobTitle, location"
                     value={selectedNode.config?.field || ""}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, { field: e.target.value })
+                      updateNode(selectedNode.id, { field: e.target.value })
                     }
                   />
                 </div>
@@ -3641,7 +4737,7 @@ function BuilderTab({
                     placeholder="e.g. CEO, New York, SaaS"
                     value={selectedNode.config?.value || ""}
                     onChange={(e) =>
-                      updateNode(selectedNode._id, { value: e.target.value })
+                      updateNode(selectedNode.id, { value: e.target.value })
                     }
                   />
                 </div>
@@ -3666,7 +4762,7 @@ function BuilderTab({
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ color: "var(--danger)", fontSize: 12 }}
-                onClick={() => deleteNode(selectedNode._id)}
+                onClick={() => deleteNode(selectedNode.id)}
               >
                 Remove Step
               </button>
@@ -3682,84 +4778,19 @@ function BuilderTab({
           </div>
         </div>
       )}
-
-      {/* Add step picker modal */}
-      {(addingAt !== null || addingToNoBranch !== null || addingToYesBranch !== null) && (
-        <div className="modal-overlay" onClick={() => { setAddingAt(null); setAddingToNoBranch(null); setAddingToYesBranch(null); }}>
-          <div
-            className="step-picker-modal animate-fade-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="step-picker-header">
-              <div className="step-picker-tabs">
-                <button
-                  className={`step-picker-tab${pickerTab === "action" ? " active" : ""}`}
-                  onClick={() => setPickerTab("action")}
-                >
-                  Add an action
-                </button>
-                <button
-                  className={`step-picker-tab${pickerTab === "condition" ? " active" : ""}`}
-                  onClick={() => setPickerTab("condition")}
-                >
-                  Add a condition
-                </button>
-              </div>
-              <button
-                className="btn btn-icon btn-ghost"
-                onClick={() => { setAddingAt(null); setAddingToNoBranch(null); setAddingToYesBranch(null); }}
-                style={{ marginLeft: "auto" }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Grid */}
-            <div className="step-picker-body">
-              {pickerTab === "action" ? (
-                <div className="step-picker-grid">
-                  {ACTION_STEPS.map((s) => (
-                    <button
-                      key={s.type}
-                      className="step-picker-card"
-                      onClick={() => addingToNoBranch ? addNode(s.type, null, addingToNoBranch) : addingToYesBranch ? addNode(s.type, null, null, addingToYesBranch) : addNode(s.type, addingAt)}
-                    >
-                      <div className="step-picker-icon">
-                        <span className="spi-action">{s.icon}</span>
-                        <span className="spi-linkedin">in</span>
-                      </div>
-                      <span className="step-picker-label">{s.label}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="step-picker-grid">
-                  {CONDITION_STEPS.map((s) => (
-                    <button
-                      key={s.type}
-                      className="step-picker-card"
-                      onClick={() => addingToNoBranch ? addNode(s.type, null, addingToNoBranch) : addingToYesBranch ? addNode(s.type, null, null, addingToYesBranch) : addNode(s.type, addingAt)}
-                    >
-                      <div className="step-picker-icon">
-                        <span className="spi-action">{s.icon}</span>
-                        <span className="spi-linkedin">in</span>
-                      </div>
-                      <span className="step-picker-label">{s.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Persona Tab ───────────────────────────────────────────────
-function PersonaTab({ campaignId, campaign, agents, onSaved, toast, isSetup = false }) {
+function PersonaTab({
+  campaignId,
+  campaign,
+  agents,
+  onSaved,
+  toast,
+  isSetup = false,
+}) {
   const [agentId, setAgentId] = useState(campaign.settings?.agentId || "");
   const [persona, setPersona] = useState(campaign.settings?.persona || {});
   const [saving, setSaving] = useState(false);
@@ -3879,7 +4910,11 @@ function PersonaTab({ campaignId, campaign, agents, onSaved, toast, isSetup = fa
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? "Saving…" : isSetup ? "Save & Continue to Settings →" : "Save Persona"}
+            {saving
+              ? "Saving…"
+              : isSetup
+                ? "Save & Continue to Settings →"
+                : "Save Persona"}
           </button>
         </div>
       </div>
@@ -3891,21 +4926,40 @@ function timeAgo(ts) {
   if (!ts) return "—";
   const diff = Math.floor((Date.now() - new Date(ts)) / 1000);
   if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)} minute${Math.floor(diff / 60) === 1 ? "" : "s"} ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) === 1 ? "" : "s"} ago`;
+  if (diff < 3600)
+    return `${Math.floor(diff / 60)} minute${Math.floor(diff / 60) === 1 ? "" : "s"} ago`;
+  if (diff < 86400)
+    return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) === 1 ? "" : "s"} ago`;
   return `${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) === 1 ? "" : "s"} ago`;
 }
 
 function LeadAvatar({ name }) {
-  const initials = (name || "?").split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
-  const hue = [...(name || "")].reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
+  const initials = (name || "?")
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+  const hue =
+    [...(name || "")].reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
   return (
-    <div style={{
-      width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-      background: `hsl(${hue},40%,45%)`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: 11, fontWeight: 600, color: "#fff",
-    }}>{initials}</div>
+    <div
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: "50%",
+        flexShrink: 0,
+        background: `hsl(${hue},40%,45%)`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#fff",
+      }}
+    >
+      {initials}
+    </div>
   );
 }
 
@@ -4205,37 +5259,109 @@ function AnalyticsTab({ campaignId }) {
 
       {/* Activity log */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>
+        <div
+          style={{
+            padding: "14px 18px",
+            borderBottom: "1px solid var(--border)",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
           Past Actions
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+        >
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th style={{ padding: "8px 18px", textAlign: "left", fontWeight: 500, color: "var(--text-muted)", width: 160 }}>Time</th>
-              <th style={{ padding: "8px 18px", textAlign: "left", fontWeight: 500, color: "var(--text-muted)" }}>Past Actions</th>
+              <th
+                style={{
+                  padding: "8px 18px",
+                  textAlign: "left",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                  width: 160,
+                }}
+              >
+                Time
+              </th>
+              <th
+                style={{
+                  padding: "8px 18px",
+                  textAlign: "left",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                }}
+              >
+                Past Actions
+              </th>
             </tr>
           </thead>
           <tbody>
             {actLoading ? (
               Array.from({ length: ACT_LIMIT }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "12px 18px" }}><Sk w={90} h={12} r={4} /></td>
-                  <td style={{ padding: "12px 18px" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><Sk w={28} h={28} r="50%" /><Sk w={260} h={12} r={4} /></div></td>
+                  <td style={{ padding: "12px 18px" }}>
+                    <Sk w={90} h={12} r={4} />
+                  </td>
+                  <td style={{ padding: "12px 18px" }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    >
+                      <Sk w={28} h={28} r="50%" />
+                      <Sk w={260} h={12} r={4} />
+                    </div>
+                  </td>
                 </tr>
               ))
             ) : !actData?.items?.length ? (
-              <tr><td colSpan={2} style={{ padding: "32px 18px", textAlign: "center", color: "var(--text-muted)" }}>No actions yet.</td></tr>
+              <tr>
+                <td
+                  colSpan={2}
+                  style={{
+                    padding: "32px 18px",
+                    textAlign: "center",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  No actions yet.
+                </td>
+              </tr>
             ) : (
-              actData.items.map(item => (
-                <tr key={item.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "12px 18px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{timeAgo(item.timestamp)}</td>
+              actData.items.map((item) => (
+                <tr
+                  key={item.id}
+                  style={{ borderBottom: "1px solid var(--border)" }}
+                >
+                  <td
+                    style={{
+                      padding: "12px 18px",
+                      color: "var(--text-muted)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {timeAgo(item.timestamp)}
+                  </td>
                   <td style={{ padding: "12px 18px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    >
                       <LeadAvatar name={item.name} />
                       <span>
                         {item.action}{" "}
                         {item.linkedinUrl ? (
-                          <a href={item.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>{item.name}</a>
+                          <a
+                            href={item.linkedinUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: "var(--accent)",
+                              textDecoration: "none",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {item.name}
+                          </a>
                         ) : (
                           <strong>{item.name}</strong>
                         )}
@@ -4249,14 +5375,57 @@ function AnalyticsTab({ campaignId }) {
         </table>
         {/* Pagination */}
         {actData?.total > ACT_LIMIT && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "10px 18px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)" }}>
-            <span>{(actPage - 1) * ACT_LIMIT + 1}–{Math.min(actPage * ACT_LIMIT, actData.total)} of {actData.total.toLocaleString()} items</span>
-            <button className="btn-ghost" style={{ padding: "3px 8px", fontSize: 12 }} disabled={actPage === 1} onClick={() => setActPage(p => p - 1)}>‹</button>
-            {Array.from({ length: Math.min(5, Math.ceil(actData.total / ACT_LIMIT)) }, (_, i) => i + 1).map(p => (
-              <button key={p} className={`btn-ghost${actPage === p ? " active" : ""}`} style={{ padding: "3px 8px", fontSize: 12, fontWeight: actPage === p ? 600 : 400 }} onClick={() => setActPage(p)}>{p}</button>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 8,
+              padding: "10px 18px",
+              borderTop: "1px solid var(--border)",
+              fontSize: 12,
+              color: "var(--text-muted)",
+            }}
+          >
+            <span>
+              {(actPage - 1) * ACT_LIMIT + 1}–
+              {Math.min(actPage * ACT_LIMIT, actData.total)} of{" "}
+              {actData.total.toLocaleString()} items
+            </span>
+            <button
+              className="btn-ghost"
+              style={{ padding: "3px 8px", fontSize: 12 }}
+              disabled={actPage === 1}
+              onClick={() => setActPage((p) => p - 1)}
+            >
+              ‹
+            </button>
+            {Array.from(
+              { length: Math.min(5, Math.ceil(actData.total / ACT_LIMIT)) },
+              (_, i) => i + 1,
+            ).map((p) => (
+              <button
+                key={p}
+                className={`btn-ghost${actPage === p ? " active" : ""}`}
+                style={{
+                  padding: "3px 8px",
+                  fontSize: 12,
+                  fontWeight: actPage === p ? 600 : 400,
+                }}
+                onClick={() => setActPage(p)}
+              >
+                {p}
+              </button>
             ))}
             {Math.ceil(actData.total / ACT_LIMIT) > 5 && <span>…</span>}
-            <button className="btn-ghost" style={{ padding: "3px 8px", fontSize: 12 }} disabled={actPage * ACT_LIMIT >= actData.total} onClick={() => setActPage(p => p + 1)}>›</button>
+            <button
+              className="btn-ghost"
+              style={{ padding: "3px 8px", fontSize: 12 }}
+              disabled={actPage * ACT_LIMIT >= actData.total}
+              onClick={() => setActPage((p) => p + 1)}
+            >
+              ›
+            </button>
           </div>
         )}
       </div>
@@ -4306,9 +5475,10 @@ function tzOffsetLabel(value) {
   }
 }
 
-const TIMEZONES = (typeof Intl.supportedValuesOf === "function"
-  ? Intl.supportedValuesOf("timeZone")
-  : FALLBACK_TIMEZONES
+const TIMEZONES = (
+  typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("timeZone")
+    : FALLBACK_TIMEZONES
 ).map((value) => ({ value, label: tzOffsetLabel(value) }));
 
 const DEFAULT_FREQUENCY = {
@@ -4445,7 +5615,14 @@ const FREQUENCY_ITEMS = [
   },
 ];
 
-function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast, isSetup = false }) {
+function SettingsTab({
+  campaign,
+  agents,
+  linkedinAccounts,
+  onSaved,
+  toast,
+  isSetup = false,
+}) {
   const [form, setForm] = useState({
     linkedinAccountId: campaign.settings?.linkedinAccountId || "",
     linkedinAccountName: campaign.settings?.linkedinAccountName || "",
@@ -4662,7 +5839,12 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast, isSet
         <div className="input-group">
           <label className="input-label">Timezone</label>
           <div
-            style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
           >
             <select
               className="input"
@@ -4924,60 +6106,148 @@ function SettingsTab({ campaign, agents, linkedinAccounts, onSaved, toast, isSet
 }
 
 // ── AccountsSetupTab (wizard step 2) ─────────────────────────
-function AccountsSetupTab({ campaignId, campaign, linkedinAccounts, agents, onSaved, toast }) {
-  const [accountId, setAccountId] = useState(campaign.settings?.linkedinAccountId || '')
-  const [agentId, setAgentId] = useState(campaign.settings?.agentId || '')
-  const [saving, setSaving] = useState(false)
+function AccountsSetupTab({
+  campaignId,
+  campaign,
+  linkedinAccounts,
+  agents,
+  onSaved,
+  toast,
+}) {
+  const [accountId, setAccountId] = useState(
+    campaign.settings?.linkedinAccountId || "",
+  );
+  const [agentId, setAgentId] = useState(campaign.settings?.agentId || "");
+  const [saving, setSaving] = useState(false);
 
   async function handleNext() {
-    if (!accountId) { toast?.('Please select a LinkedIn account', 'danger'); return }
-    setSaving(true)
+    if (!accountId) {
+      toast?.("Please select a LinkedIn account", "danger");
+      return;
+    }
+    setSaving(true);
     try {
-      const acc = linkedinAccounts.find(a => a.id === accountId)
+      const acc = linkedinAccounts.find((a) => a.id === accountId);
       const updated = await campaignsApi.update(campaignId, {
         settings: {
           ...campaign.settings,
           linkedinAccountId: accountId,
-          linkedinAccountName: acc?.name || acc?.email || '',
-          agentId: agentId || campaign.settings?.agentId || '',
-        }
-      })
-      onSaved(updated)
+          linkedinAccountName: acc?.name || acc?.email || "",
+          agentId: agentId || campaign.settings?.agentId || "",
+        },
+      });
+      onSaved(updated);
     } catch (err) {
-      toast?.(err.message || 'Could not save', 'danger')
-      setSaving(false)
+      toast?.(err.message || "Could not save", "danger");
+      setSaving(false);
     }
   }
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>LinkedIn Account</h2>
-      <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 32 }}>Select the LinkedIn account to use for outreach on this campaign.</p>
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
+        LinkedIn Account
+      </h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 32 }}>
+        Select the LinkedIn account to use for outreach on this campaign.
+      </p>
 
       {linkedinAccounts.length === 0 ? (
-        <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div
+          style={{
+            padding: "32px 0",
+            textAlign: "center",
+            color: "var(--text-muted)",
+          }}
+        >
           <div style={{ fontSize: 24, marginBottom: 10 }}>◎</div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>No LinkedIn accounts connected</div>
-          <div style={{ fontSize: 13, marginBottom: 16 }}>Connect a LinkedIn account in Settings → LinkedIn Accounts first.</div>
-          <a href="/settings" className="btn btn-secondary btn-sm">Go to Settings →</a>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+            No LinkedIn accounts connected
+          </div>
+          <div style={{ fontSize: 13, marginBottom: 16 }}>
+            Connect a LinkedIn account in Settings → LinkedIn Accounts first.
+          </div>
+          <a href="/settings" className="btn btn-secondary btn-sm">
+            Go to Settings →
+          </a>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
-          {linkedinAccounts.map(acc => (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            marginBottom: 32,
+          }}
+        >
+          {linkedinAccounts.map((acc) => (
             <div
               key={acc.id}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', border: `1px solid ${accountId === acc.id ? 'var(--signal)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: accountId === acc.id ? 'var(--surface-2)' : 'var(--surface)', transition: 'all 0.15s' }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "14px 18px",
+                border: `1px solid ${accountId === acc.id ? "var(--signal)" : "var(--border)"}`,
+                borderRadius: 10,
+                cursor: "pointer",
+                background:
+                  accountId === acc.id ? "var(--surface-2)" : "var(--surface)",
+                transition: "all 0.15s",
+              }}
               onClick={() => setAccountId(acc.id)}
             >
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
-                {(acc.name || acc.email || '?')[0].toUpperCase()}
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: "50%",
+                  background: "var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: "var(--text-muted)",
+                  flexShrink: 0,
+                }}
+              >
+                {(acc.name || acc.email || "?")[0].toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{acc.name || acc.email || acc.id}</div>
-                {acc.email && acc.name && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{acc.email}</div>}
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  {acc.name || acc.email || acc.id}
+                </div>
+                {acc.email && acc.name && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {acc.email}
+                  </div>
+                )}
               </div>
-              <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${accountId === acc.id ? 'var(--signal)' : 'var(--border)'}`, background: accountId === acc.id ? 'var(--signal)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {accountId === acc.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+              <div
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  border: `2px solid ${accountId === acc.id ? "var(--signal)" : "var(--border)"}`,
+                  background:
+                    accountId === acc.id ? "var(--signal)" : "transparent",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {accountId === acc.id && (
+                  <div
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#fff",
+                    }}
+                  />
+                )}
               </div>
             </div>
           ))}
@@ -4987,9 +6257,17 @@ function AccountsSetupTab({ campaignId, campaign, linkedinAccounts, agents, onSa
       {agents.length > 0 && (
         <div className="input-group" style={{ marginBottom: 32 }}>
           <label className="input-label">AI Assistant (optional)</label>
-          <select className="input" value={agentId} onChange={e => setAgentId(e.target.value)}>
+          <select
+            className="input"
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+          >
             <option value="">No agent — I'll reply manually</option>
-            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
           </select>
         </div>
       )}
@@ -4999,39 +6277,64 @@ function AccountsSetupTab({ campaignId, campaign, linkedinAccounts, agents, onSa
         disabled={!accountId || saving}
         onClick={handleNext}
       >
-        {saving ? 'Saving…' : 'Next: Sequences →'}
+        {saving ? "Saving…" : "Next: Sequences →"}
       </button>
     </div>
-  )
+  );
 }
 
 // ── ScheduleSetupTab (wizard step 4) ─────────────────────────
 function ScheduleSetupTab({ campaign, onSaved, toast }) {
-  const [schedule, setSchedule] = useState(campaign.settings?.schedule || DEFAULT_SCHEDULE)
-  const [timezone, setTimezone] = useState(campaign.settings?.timezone || 'Europe/London')
+  const [schedule, setSchedule] = useState(
+    campaign.settings?.schedule || DEFAULT_SCHEDULE,
+  );
+  const [timezone, setTimezone] = useState(
+    campaign.settings?.timezone || "Europe/London",
+  );
   const [frequency, setFrequency] = useState({
     ...DEFAULT_FREQUENCY,
     ...(campaign.settings?.frequency || {}),
-    connectionRequests: campaign.settings?.frequency?.connectionRequests ?? campaign.settings?.dailyConnectionLimit ?? DEFAULT_FREQUENCY.connectionRequests,
-    messages: campaign.settings?.frequency?.messages ?? campaign.settings?.dailyMessageLimit ?? DEFAULT_FREQUENCY.messages,
-  })
-  const [saving, setSaving] = useState(false)
+    connectionRequests:
+      campaign.settings?.frequency?.connectionRequests ??
+      campaign.settings?.dailyConnectionLimit ??
+      DEFAULT_FREQUENCY.connectionRequests,
+    messages:
+      campaign.settings?.frequency?.messages ??
+      campaign.settings?.dailyMessageLimit ??
+      DEFAULT_FREQUENCY.messages,
+  });
+  const [saving, setSaving] = useState(false);
 
-  const [now, setNow] = useState(() => new Date())
-  React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
-  let tzClock = ''
-  try { tzClock = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(now) } catch {}
+  const [now, setNow] = useState(() => new Date());
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  let tzClock = "";
+  try {
+    tzClock = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(now);
+  } catch {}
 
   function updateDay(idx, patch) {
-    setSchedule(prev => prev.map((d, i) => i === idx ? { ...d, ...patch } : d))
+    setSchedule((prev) =>
+      prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)),
+    );
   }
 
   function adjustFreq(key, delta) {
-    setFrequency(prev => ({ ...prev, [key]: Math.max(0, (prev[key] ?? 0) + delta) }))
+    setFrequency((prev) => ({
+      ...prev,
+      [key]: Math.max(0, (prev[key] ?? 0) + delta),
+    }));
   }
 
   async function handleFinish() {
-    setSaving(true)
+    setSaving(true);
     try {
       const updated = await campaignsApi.update(campaign.id, {
         settings: {
@@ -5041,44 +6344,129 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
           frequency,
           dailyConnectionLimit: frequency.connectionRequests,
           dailyMessageLimit: frequency.messages,
-        }
-      })
-      onSaved(updated)
+        },
+      });
+      onSaved(updated);
     } catch (err) {
-      toast?.(err.message || 'Could not save schedule', 'danger')
-      setSaving(false)
+      toast?.(err.message || "Could not save schedule", "danger");
+      setSaving(false);
     }
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 640 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+        maxWidth: 640,
+      }}
+    >
       <div className="card">
         <h3 style={{ fontWeight: 700, marginBottom: 4 }}>Schedule</h3>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Set which days and hours your campaign is active. All times are in the selected timezone.</p>
+        <p
+          style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}
+        >
+          Set which days and hours your campaign is active. All times are in the
+          selected timezone.
+        </p>
 
         <div className="input-group">
           <label className="input-label">Timezone</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <select className="input" value={timezone} onChange={e => setTimezone(e.target.value)} style={{ flex: 1, minWidth: 220 }}>
-              {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <select
+              className="input"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              style={{ flex: 1, minWidth: 220 }}
+            >
+              {TIMEZONES.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
             </select>
-            {tzClock && <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Current time: <strong style={{ color: 'var(--text-primary)' }}>{tzClock}</strong></span>}
+            {tzClock && (
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Current time:{" "}
+                <strong style={{ color: "var(--text-primary)" }}>
+                  {tzClock}
+                </strong>
+              </span>
+            )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            marginTop: 16,
+          }}
+        >
           {schedule.map((row, idx) => (
-            <div key={row.day} style={{ display: 'grid', gridTemplateColumns: '120px 56px 16px 1fr', alignItems: 'center', gap: 10, opacity: row.enabled ? 1 : 0.45 }}>
-              <span style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}>{row.day}</span>
+            <div
+              key={row.day}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "120px 56px 16px 1fr",
+                alignItems: "center",
+                gap: 10,
+                opacity: row.enabled ? 1 : 0.45,
+              }}
+            >
+              <span
+                style={{ fontSize: 13, fontWeight: row.enabled ? 600 : 400 }}
+              >
+                {row.day}
+              </span>
               <label className="toggle" style={{ margin: 0 }}>
-                <input type="checkbox" checked={row.enabled} onChange={e => updateDay(idx, { enabled: e.target.checked })} />
+                <input
+                  type="checkbox"
+                  checked={row.enabled}
+                  onChange={(e) =>
+                    updateDay(idx, { enabled: e.target.checked })
+                  }
+                />
                 <span className="toggle-track" />
               </label>
-              <span style={{ borderTop: '1px solid var(--border)', width: '100%' }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input className="input time-picker" type="time" value={row.start} disabled={!row.enabled} onChange={e => updateDay(idx, { start: e.target.value })} onClick={e => e.currentTarget.showPicker?.()} />
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
-                <input className="input time-picker" type="time" value={row.end} disabled={!row.enabled} onChange={e => updateDay(idx, { end: e.target.value })} onClick={e => e.currentTarget.showPicker?.()} />
+              <span
+                style={{ borderTop: "1px solid var(--border)", width: "100%" }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  className="input time-picker"
+                  type="time"
+                  value={row.start}
+                  disabled={!row.enabled}
+                  onChange={(e) => updateDay(idx, { start: e.target.value })}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
+                />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  to
+                </span>
+                <input
+                  className="input time-picker"
+                  type="time"
+                  value={row.end}
+                  disabled={!row.enabled}
+                  onChange={(e) => updateDay(idx, { end: e.target.value })}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
+                />
               </div>
             </div>
           ))}
@@ -5086,22 +6474,97 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
       </div>
 
       <div className="card">
-        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-          <div style={{ flex: '0 0 200px' }}>
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          <div style={{ flex: "0 0 200px" }}>
             <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Frequency</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>Daily limits per action. Leave as default to stay within LinkedIn limits.</p>
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                lineHeight: 1.5,
+              }}
+            >
+              Daily limits per action. Leave as default to stay within LinkedIn
+              limits.
+            </p>
           </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
             {FREQUENCY_ITEMS.map(({ key, label, icon }) => (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 6, background: 'var(--surface-2, #1a1f2e)' }}>
-                <span style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexShrink: 0 }}>
-                  {React.cloneElement(icon, { style: { width: 20, height: 20 } })}
+              <div
+                key={key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  marginBottom: 6,
+                  background: "var(--surface-2, #1a1f2e)",
+                }}
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--text-muted)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {React.cloneElement(icon, {
+                    style: { width: 20, height: 20 },
+                  })}
                 </span>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{label}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button className="btn btn-ghost btn-sm" style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }} onClick={() => adjustFreq(key, -1)}>−</button>
-                  <span style={{ width: 32, textAlign: 'center', fontWeight: 600, fontSize: 14 }}>{frequency[key] ?? DEFAULT_FREQUENCY[key]}</span>
-                  <button className="btn btn-ghost btn-sm" style={{ width: 28, height: 28, padding: 0, fontWeight: 700, fontSize: 16 }} onClick={() => adjustFreq(key, 1)}>+</button>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>
+                  {label}
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      padding: 0,
+                      fontWeight: 700,
+                      fontSize: 16,
+                    }}
+                    onClick={() => adjustFreq(key, -1)}
+                  >
+                    −
+                  </button>
+                  <span
+                    style={{
+                      width: 32,
+                      textAlign: "center",
+                      fontWeight: 600,
+                      fontSize: 14,
+                    }}
+                  >
+                    {frequency[key] ?? DEFAULT_FREQUENCY[key]}
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      padding: 0,
+                      fontWeight: 700,
+                      fontSize: 16,
+                    }}
+                    onClick={() => adjustFreq(key, 1)}
+                  >
+                    +
+                  </button>
                 </div>
               </div>
             ))}
@@ -5109,13 +6572,24 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 32 }}>
-        <button className="btn btn-primary" style={{ fontSize: 15, padding: '10px 28px' }} onClick={handleFinish} disabled={saving}>
-          {saving ? 'Saving…' : 'Launch Campaign →'}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          paddingBottom: 32,
+        }}
+      >
+        <button
+          className="btn btn-primary"
+          style={{ fontSize: 15, padding: "10px 28px" }}
+          onClick={handleFinish}
+          disabled={saving}
+        >
+          {saving ? "Saving…" : "Launch Campaign →"}
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Connection Note Editor ─────────────────────────────────────
@@ -5164,7 +6638,7 @@ function ConnectionNoteEditor({ node, updateNode, sampleLead, toast }) {
   function insertVar(v) {
     const ta = textareaRef.current;
     if (!ta) {
-      updateNode(node._id, { note: noteText + v });
+      updateNode(node.id, { note: noteText + v });
       setShowVarMenu(false);
       return;
     }
@@ -5172,7 +6646,7 @@ function ConnectionNoteEditor({ node, updateNode, sampleLead, toast }) {
     const end = ta.selectionEnd;
     const next = noteText.slice(0, start) + v + noteText.slice(end);
     if (next.length > NOTE_CHAR_LIMIT) return;
-    updateNode(node._id, { note: next });
+    updateNode(node.id, { note: next });
     setShowVarMenu(false);
     setTimeout(() => {
       ta.focus();
@@ -5188,7 +6662,7 @@ function ConnectionNoteEditor({ node, updateNode, sampleLead, toast }) {
         prompt: aiPrompt + " Keep it under 300 characters.",
       });
       const truncated = result.message.slice(0, NOTE_CHAR_LIMIT);
-      updateNode(node._id, { note: truncated });
+      updateNode(node.id, { note: truncated });
       setShowAiPrompt(false);
       setAiPrompt("");
     } catch (err) {
@@ -5309,7 +6783,7 @@ function ConnectionNoteEditor({ node, updateNode, sampleLead, toast }) {
             placeholder="Hi {firstName}, I came across your profile and thought it would be great to connect…"
             value={noteText}
             maxLength={NOTE_CHAR_LIMIT}
-            onChange={(e) => updateNode(node._id, { note: e.target.value })}
+            onChange={(e) => updateNode(node.id, { note: e.target.value })}
           />
         )}
       </div>
@@ -5361,12 +6835,7 @@ const SEND_CONDITIONS = [
   },
 ];
 
-function MessageStepEditor({
-  node,
-  updateNode,
-  sampleLead,
-  toast,
-}) {
+function MessageStepEditor({ node, updateNode, sampleLead, toast }) {
   const [showVarMenu, setShowVarMenu] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -5382,7 +6851,7 @@ function MessageStepEditor({
       reader.onload = (ev) => {
         const base64 = ev.target.result.split(",")[1];
         const current = node.config?.attachments || [];
-        updateNode(node._id, {
+        updateNode(node.id, {
           attachments: [
             ...current,
             { name: file.name, type: file.type, size: file.size, data: base64 },
@@ -5398,25 +6867,24 @@ function MessageStepEditor({
     const attachments = (node.config?.attachments || []).filter(
       (_, i) => i !== idx,
     );
-    updateNode(node._id, { attachments });
+    updateNode(node.id, { attachments });
   }
 
   const config = node.config || {};
   const msgText = config.text || "";
   const isEmpty = !msgText.trim();
 
-
   function insertVar(v) {
     const ta = textareaRef.current;
     if (!ta) {
-      updateNode(node._id, { text: msgText + v });
+      updateNode(node.id, { text: msgText + v });
       setShowVarMenu(false);
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const next = msgText.slice(0, start) + v + msgText.slice(end);
-    updateNode(node._id, { text: next });
+    updateNode(node.id, { text: next });
     setShowVarMenu(false);
     setTimeout(() => {
       ta.focus();
@@ -5429,7 +6897,7 @@ function MessageStepEditor({
     setGeneratingAI(true);
     try {
       const result = await campaignsApi.generateMessage({ prompt: aiPrompt });
-      updateNode(node._id, { text: result.message });
+      updateNode(node.id, { text: result.message });
       setShowAiPrompt(false);
       setAiPrompt("");
     } catch (err) {
@@ -5564,7 +7032,7 @@ function MessageStepEditor({
             rows={9}
             placeholder=""
             value={msgText}
-            onChange={(e) => updateNode(node._id, { text: e.target.value })}
+            onChange={(e) => updateNode(node.id, { text: e.target.value })}
           />
         )}
 
@@ -5649,7 +7117,7 @@ function MessageStepEditor({
         <select
           className="input msg-condition-select"
           value={config.condition || "if_no_reply"}
-          onChange={(e) => updateNode(node._id, { condition: e.target.value })}
+          onChange={(e) => updateNode(node.id, { condition: e.target.value })}
         >
           {SEND_CONDITIONS.map((c) => (
             <option key={c.value} value={c.value}>

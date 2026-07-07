@@ -1,5 +1,6 @@
+import { randomUUID } from 'crypto'
 import { supabase } from './supabase.js'
-import { syncCampaignStatuses, executePostConnectionSteps, runCampaignInvites } from '../routes/campaigns.js'
+import { syncCampaignStatuses, runCampaignInvites, resumeReplyBranch, resumeFromPendingStep } from '../routes/campaigns.js'
 import { conversationStore } from './store.js'
 
 async function processActiveCampaigns() {
@@ -48,33 +49,93 @@ async function processActiveCampaigns() {
   }
 }
 
-// Recover any sequence wait nodes that were persisted but never resumed
-// (e.g. because the server restarted mid-wait).
-async function resumePendingWaits() {
+// One-time (idempotent — safe to run every scheduler tick) conversion of
+// leads paused under the pre-nested-branching flat-index columns
+// (sequence_step/sequence_resume_at, reply_wait_step/reply_wait_deadline)
+// into the new node-id-keyed pending_step column. Every lead paused by the
+// old executor was paused at the tree root level, so its resume point is
+// always representable as a single-element path. Each row is cleared of its
+// legacy columns once converted, so this naturally drains to a no-op.
+async function backfillLegacyPendingSteps() {
+  if (!supabase) return
+  try {
+    async function resolveLegacyNodeId(campaignId, stepIndex) {
+      const { data: campaign } = await supabase
+        .from('campaigns').select('sequence').eq('id', campaignId).maybeSingle()
+      const nodes = campaign?.sequence?.nodes || []
+      const connectIdx = nodes.findIndex(n => n.type === 'connection_request')
+      const postNodes = connectIdx >= 0 ? nodes.slice(connectIdx + 1) : nodes
+      return postNodes[stepIndex]?.id || null
+    }
+
+    const { data: waitLeads } = await supabase
+      .from('campaign_leads')
+      .select('id, campaign_id, sequence_step, sequence_resume_at')
+      .not('sequence_resume_at', 'is', null)
+    for (const lead of waitLeads || []) {
+      const nodeId = await resolveLegacyNodeId(lead.campaign_id, lead.sequence_step)
+      await supabase.from('campaign_leads').update({
+        sequence_step: null,
+        sequence_resume_at: null,
+        ...(nodeId ? { pending_step: {
+          kind: 'wait',
+          path: [{ nodeId, branch: null }],
+          deadline: lead.sequence_resume_at,
+          claimId: randomUUID(),
+        } } : {}),
+      }).eq('id', lead.id)
+    }
+
+    const { data: replyLeads } = await supabase
+      .from('campaign_leads')
+      .select('id, campaign_id, reply_wait_step, reply_wait_deadline')
+      .not('reply_wait_deadline', 'is', null)
+    for (const lead of replyLeads || []) {
+      const nodeId = await resolveLegacyNodeId(lead.campaign_id, lead.reply_wait_step)
+      await supabase.from('campaign_leads').update({
+        reply_wait_step: null,
+        reply_wait_deadline: null,
+        ...(nodeId ? { pending_step: {
+          kind: 'reply',
+          path: [{ nodeId, branch: null }],
+          deadline: lead.reply_wait_deadline,
+          claimId: randomUUID(),
+        } } : {}),
+      }).eq('id', lead.id)
+    }
+
+    const total = (waitLeads?.length || 0) + (replyLeads?.length || 0)
+    if (total > 0) {
+      console.log(`[scheduler] Backfilled ${total} legacy pause(s) to pending_step`)
+    }
+  } catch (err) {
+    console.error('[scheduler] backfillLegacyPendingSteps error:', err.message)
+  }
+}
+
+// Recover any lead whose pending_step deadline has passed (wait elapsed, or
+// a reply timeout with no reply received) — backstop for a setTimeout lost
+// to a server restart, or a missed/undelivered reply webhook.
+async function resumePendingSteps() {
   if (!supabase) return
   try {
     const { data: leads } = await supabase
       .from('campaign_leads')
-      .select('provider_id, campaign_id, workspace_id, sequence_step')
-      .not('sequence_resume_at', 'is', null)
-      .lte('sequence_resume_at', new Date().toISOString())
+      .select('provider_id, campaign_id, pending_step')
+      .not('pending_step', 'is', null)
 
-    if (!leads?.length) return
-    console.log(`[scheduler] Recovering ${leads.length} pending wait node(s)`)
+    const now = new Date().toISOString()
+    const due = (leads || []).filter(l => l.pending_step?.deadline && l.pending_step.deadline <= now)
+    if (!due.length) return
+    console.log(`[scheduler] Recovering ${due.length} pending step(s)`)
 
-    for (const lead of leads) {
-      const { data: campaign } = await supabase
-        .from('campaigns').select('settings').eq('id', lead.campaign_id).maybeSingle()
-      const accountId = campaign?.settings?.linkedinAccountId || campaign?.settings?.accountId
-      if (!accountId) continue
-
-      console.log(`[scheduler] Resuming sequence at step ${lead.sequence_step} for ${lead.provider_id}`)
-      executePostConnectionSteps(
-        lead.provider_id, accountId, lead.campaign_id, lead.workspace_id, lead.sequence_step
-      ).catch(err => console.error(`[scheduler] wait resume error:`, err.message))
+    for (const lead of due) {
+      const outcome = lead.pending_step.kind === 'reply' ? 'timeout' : null
+      resumeFromPendingStep(lead.provider_id, lead.campaign_id, outcome)
+        .catch(err => console.error(`[scheduler] pending-step resume error:`, err.message))
     }
   } catch (err) {
-    console.error('[scheduler] resumePendingWaits error:', err.message)
+    console.error('[scheduler] resumePendingSteps error:', err.message)
   }
 }
 
@@ -119,6 +180,10 @@ async function syncAIConversations() {
         }
 
         scheduleAIReply(conv.id)
+        if (conv.prospectId && conv.campaignId) {
+          resumeReplyBranch(conv.prospectId, conv.campaignId, 'replied')
+            .catch(err => console.error(`[sync-ai-convs] resumeReplyBranch error:`, err.message))
+        }
         triggered++
       } catch (err) {
         const msg = err.message || ''
@@ -150,11 +215,13 @@ export function startScheduler() {
   const aiSyncIntervalMs = parseInt(process.env.AI_SYNC_INTERVAL_MS || '') || 10 * 60 * 1000
 
   // Run once shortly after startup, then on interval
+  setTimeout(backfillLegacyPendingSteps, 20 * 1000)
   setTimeout(processActiveCampaigns, 30 * 1000)
-  setTimeout(resumePendingWaits, 35 * 1000)
+  setTimeout(resumePendingSteps, 35 * 1000)
   setTimeout(syncAIConversations, 60 * 1000) // first check 1 min after startup
+  setInterval(backfillLegacyPendingSteps, intervalMs)
   setInterval(processActiveCampaigns, intervalMs)
-  setInterval(resumePendingWaits, intervalMs)
+  setInterval(resumePendingSteps, intervalMs)
   setInterval(syncAIConversations, aiSyncIntervalMs)
 
   console.log(`[scheduler] AI conversation sync every ${Math.round(aiSyncIntervalMs / 60000)} min`)

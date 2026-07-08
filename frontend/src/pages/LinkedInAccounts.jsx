@@ -225,9 +225,17 @@ export default function LinkedInAccounts() {
                     {/* Account */}
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #0a66c2, #0077b5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-                          {(acc.name || acc.username || 'L')[0].toUpperCase()}
-                        </div>
+                        {acc.picture_url ? (
+                          <img
+                            src={acc.picture_url}
+                            alt={acc.name || acc.username || 'LinkedIn account'}
+                            style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                          />
+                        ) : (
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #0a66c2, #0077b5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                            {(acc.name || acc.username || 'L')[0].toUpperCase()}
+                          </div>
+                        )}
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 13 }}>{acc.name || acc.username || acc.id}</div>
                           {(acc.username || acc.profile_url) && (

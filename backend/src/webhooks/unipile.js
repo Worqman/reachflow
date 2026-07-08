@@ -3,6 +3,7 @@ import { conversationStore } from '../services/store.js'
 import { scheduleAIReply, scheduleOpeningMessage } from '../routes/conversations.js'
 import { executePostConnectionSteps, resumeReplyBranch } from '../routes/campaigns.js'
 import { supabase } from '../services/supabase.js'
+import { logLeadActivity } from '../services/leadActivity.js'
 
 const router = Router()
 
@@ -30,7 +31,7 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
   if (supabase) {
     const { data: leadRow } = await supabase
       .from('campaign_leads')
-      .select('campaign_id, status, workspace_id')
+      .select('id, campaign_id, status, workspace_id')
       .eq('provider_id', providerUserId)
       .limit(1)
       .maybeSingle()
@@ -49,6 +50,8 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
       .update({ status: 'connected' })
       .eq('provider_id', providerUserId)
       .in('status', ['invited', 'pending']) // only advance if still in earlier state
+
+    if (leadRow?.id) logLeadActivity(campaignId, leadRow.id, 'connected')
   }
 
   // Execute builder sequence message steps after connection_request node
@@ -243,7 +246,8 @@ router.post('/unipile', async (req, res) => {
             .eq('provider_id', senderId)
             .eq('status', 'connected')
           if (conv.campaignId) q = q.eq('campaign_id', conv.campaignId)
-          await q
+          const { data: repliedLeads } = await q.select('id, campaign_id')
+          for (const row of repliedLeads || []) logLeadActivity(row.campaign_id, row.id, 'replied')
         }
 
         // Resume any sequence paused on this lead's Replied/Not Replied branch

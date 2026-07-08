@@ -1,17 +1,56 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 import { companyProfiles, workspace as workspaceApi } from '../lib/api'
 import { getActiveWorkspaceId, onActiveWorkspaceChange } from '../lib/workspaceState'
+import ProfileTab from './Profile'
+import BillingTab from './Billing'
 import './Settings.css'
 
+const TABS = [
+  { key: 'company', label: 'Company Profile' },
+  { key: 'profile', label: 'My Profile' },
+  { key: 'billing', label: 'Billing' },
+]
+
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requested = searchParams.get('tab')
+  const activeTab = TABS.some(t => t.key === requested) ? requested : 'company'
+
+  function setTab(key) {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (key === 'company') next.delete('tab')
+      else next.set('tab', key)
+      return next
+    }, { replace: true })
+  }
+
   return (
     <div className="settings-layout page animate-fade-in">
-      <div className="page-header" style={{ marginBottom: 24 }}>
+      <div className="page-header" style={{ marginBottom: 20 }}>
         <h1 className="page-title">Settings</h1>
       </div>
-      <CompanyProfileSection />
+
+      <div className="settings-tabs">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            className={`settings-tab${activeTab === t.key ? ' active' : ''}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div key={activeTab} className="settings-tab-content animate-tab-in">
+        {activeTab === 'company' && <CompanyProfileSection />}
+        {activeTab === 'profile' && <ProfileTab />}
+        {activeTab === 'billing' && <BillingTab />}
+      </div>
     </div>
   )
 }

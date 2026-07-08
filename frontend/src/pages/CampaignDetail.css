@@ -177,6 +177,39 @@
   border-bottom-color: #111827;
 }
 
+/* Campaign Settings sub-tabs */
+.settings-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-subtab {
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+}
+.settings-subtab:hover {
+  color: var(--text-secondary);
+  background: var(--surface-2);
+}
+.settings-subtab.active {
+  color: var(--signal);
+  background: var(--signal-subtle);
+}
+.settings-subtab.danger.active {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
 /* Setup wizard step tabs */
 .setup-wizard-tab {
   display: flex;
@@ -436,6 +469,18 @@
   will-change: transform;
 }
 
+/* ── Save button — fixed to the canvas, not the pannable/zoomable inner
+   content, so it stays reachable no matter where the diagram is scrolled
+   or how far it's zoomed. ── */
+.builder-save-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+  font-size: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
 /* ── Zoom controls ── */
 .builder-zoom-controls {
   position: absolute;
@@ -554,9 +599,10 @@
   border-color: #4285f4;
 }
 .builder-entry-node--active {
-  background: #f0f4ff;
-  border-color: #4285f4;
-  color: #4285f4;
+  background: #eafff2;
+  border-color: #16a34a;
+  color: #16a34a;
+  animation: activePulse 2s ease-in-out infinite;
 }
 .builder-entry-node--setup {
   color: #4285f4;
@@ -743,11 +789,40 @@
   border-color: #4285f4;
 }
 
+/* Wait steps are just a timer, not a real action — smaller than the
+   200px action cards so the sequence visually distinguishes "do
+   something" from "pause", both on the trunk (.builder-node) and inside
+   branch columns (.builder-node-nb). */
+.builder-node.builder-node-wait,
+.builder-node-nb.builder-node-wait {
+  width: 140px;
+  padding: 7px 10px;
+  gap: 8px;
+}
+.builder-node-wait .node-icon {
+  width: 20px;
+  height: 20px;
+}
+.builder-node-wait .node-icon svg {
+  width: 11px;
+  height: 11px;
+}
+.builder-node-wait .node-label {
+  font-size: 12px;
+}
+
 /* ── Branch fork ─────────────────────────────── */
 .builder-branch-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* Shorter than a regular step-to-step connector (36px) — this one only has
+   to reach the fork's dot, not another full node, so the full-length
+   connector left an oversized gap under the forking node. */
+.builder-branch-wrap > .builder-connector {
+  height: 40px;
 }
 
 .builder-branch-fork {
@@ -758,37 +833,57 @@
   position: relative;
 }
 
-/* Horizontal dashed line spanning the fork */
-.builder-branch-fork::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 20%;
-  right: 20%;
-  height: 2px;
-  background-image: linear-gradient(to right, #c5d3e8 50%, transparent 50%);
-  background-size: 10px 2px;
-  background-repeat: repeat-x;
-  animation: dashFlowX 0.6s linear infinite;
-}
-
 .builder-branch-col {
   flex: 1 0 auto;
   min-width: 220px;
   display: flex;
+  max-width: 50%;
   flex-direction: column;
   align-items: center;
   padding: 0 16px 20px;
   position: relative;
 }
 
-/* Vertical dashed line from the horizontal fork line down to content */
-.branch-col-no::before,
+/* A fork nested inside a branch column (a step in that branch that itself
+   forks again) would otherwise force the *whole column* — including the
+   plain steps above it — to widen to fit it, dragging early, simple steps
+   far from the trunk just because something several steps later happens
+   to fork too. Since nearly every step type forks by default, that's the
+   common case, not an edge case: a branch that keeps going tends to nest
+   deeper than its sibling that just waits and stops, and the sibling ends
+   up looking disconnected, off in its own corner.
+   Pinning the nested wrap to zero width (with overflow left visible) means
+   its own align-items: center centers it — and everything inside it — on
+   this exact column's centerline and lets it spill outward from there as
+   needed, instead of reporting that width upward and stretching the
+   column itself. The column's width then reflects only its own direct
+   content, so a plain branch and a branch that forks again both stay
+   anchored at roughly the same distance from the trunk. */
+.builder-branch-col > .builder-branch-wrap {
+  width: 520px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+/* Vertical dashed line from the horizontal tie-in line down to content, and
+   the horizontal tie-in itself connecting to the incoming trunk dot above.
+   Both read --dot-x / --tie-left / --tie-width, custom properties a layout
+   effect (see the fork-alignment effect in BuilderTab) sets on this exact
+   element after every render, computed from the dot's real on-screen
+   position relative to this column's own box. A fixed 50% here would only
+   be correct when both branch columns happen to be the same width — as
+   soon as one branch is deeper than the other (very common: forks nest
+   under whichever branch keeps going, e.g. Accepted → Message → Replied?),
+   the columns end up unequal width and a hardcoded % drifts away from
+   where the dot and the sibling column's line actually are. Falls back to
+   50%/0 (a plain centered line) before the effect has measured anything,
+   e.g. on first paint. */
+/* .branch-col-no::before,
 .branch-col-yes::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 50%;
+  left: var(--dot-x, 50%);
   transform: translateX(-50%);
   width: 2px;
   height: 36px;
@@ -796,6 +891,19 @@
   background-size: 2px 10px;
   background-repeat: repeat-y;
   animation: dashFlowY 0.6s linear infinite;
+} */
+.branch-col-no::after,
+.branch-col-yes::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--tie-left, 50%);
+  width: var(--tie-width, 0px);
+  height: 2px;
+  background-image: linear-gradient(to right, #c5d3e8 50%, transparent 50%);
+  background-size: 10px 2px;
+  background-repeat: repeat-x;
+  animation: dashFlowX 0.6s linear infinite;
 }
 
 /* Branch labels — pill badges. No margin-top: the label always follows a
@@ -822,6 +930,18 @@
   color: #16a34a;
   background: #f0fdf4;
   border: 1px solid #86efac;
+}
+
+/* "Accepted" tag overlaid directly on the Yes column's own tie-in line
+   (.branch-col-yes::after), above the wait it precedes. Anchored to the
+   column's own center so it stays put regardless of column width. Solid
+   background masks the dashed line behind it. */
+.branch-col-yes-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
 }
 
 /* Thin vertical connectors inside branch columns */
@@ -931,7 +1051,7 @@
 .node-ext-badges {
   display: flex;
   position: absolute;
-  right: -50px;
+  right: -100px;
   gap: 4px;
   flex-wrap: wrap;
   max-width: 80px;
@@ -1762,21 +1882,16 @@ input[type="time"].time-picker::-webkit-calendar-picker-indicator {
   color: #9ca3af;
 }
 
-.mlp-sel-all {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6366f1;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
-  white-space: nowrap;
-  font-family: inherit;
-  transition: background 0.1s;
+.mlp-select-all-row {
+  margin-bottom: 4px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #f3f4f6;
+  border-radius: 9px 9px 0 0;
 }
-.mlp-sel-all:hover {
-  background: #eef2ff;
+.mlp-select-all-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
 }
 
 .mlp-leads-list {
@@ -2001,4 +2116,41 @@ tr:hover .cl-li-btn {
 .mlp-btn-primary:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ── Limit-range sliders (Settings → Limit ranges) ── */
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border-2, #e5e7eb);
+  outline: none;
+  cursor: pointer;
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--text-primary, #111827);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.range-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--text-primary, #111827);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.range-slider::-moz-range-progress {
+  background: var(--text-primary, #111827);
+  height: 4px;
+  border-radius: 4px;
 }

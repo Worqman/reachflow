@@ -148,19 +148,6 @@ const IconLink = () => (
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
   </svg>
 );
-const IconGraduate = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-    <path d="M6 12v5c3 3 9 3 12 0v-5" />
-  </svg>
-);
 const IconSignOut = () => (
   <svg
     viewBox="0 0 24 24"
@@ -195,7 +182,6 @@ const NAV = [
   { section: "GENERAL" },
   { to: "/settings", label: "Settings", icon: <IconSettings /> },
   { to: "/members", label: "Members", icon: <IconLink /> },
-  { to: "/billing", label: "Billing", icon: <IconGraduate /> },
 ];
 
 export default function Sidebar() {
@@ -436,7 +422,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="sidebar-user-identity"
-              onClick={() => navigate("/profile")}
+              onClick={() => navigate("/settings?tab=profile")}
               title="My profile"
             >
               <div className="sidebar-user-avatar">

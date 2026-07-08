@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { accounts, chats, linkedin, relations, isConfigured } from '../services/unipile.js'
 import { supabase } from '../services/supabase.js'
+import { logSend, getDailyUsage } from '../services/usageLog.js'
 
 function wsId(req) { return req.workspaceId || 'ws_default' }
 
@@ -176,6 +177,58 @@ router.use((_req, res, next) => {
 
 // ── Accounts ──────────────────────────────────────────────────
 
+// Attaches today's real send counts (connection requests + messages) to each
+// account — counted from unipile_send_log, which every send call site logs to
+// regardless of whether the send came from a campaign or a manual/standalone
+// endpoint. Falls back to leaving accounts unchanged if usage lookup fails.
+async function withUsage(items) {
+  const ids = items.map(a => a.id).filter(Boolean)
+  const usage = await getDailyUsage(ids)
+  return items.map(a => ({
+    ...a,
+    daily_requests_used: usage[a.id]?.requests ?? 0,
+    daily_messages_used: usage[a.id]?.messages ?? 0,
+  }))
+}
+
+// In-memory cache for the connected account's own LinkedIn profile picture:
+// accountId → { picture, expiresAt }. Avoids re-fetching on every page load.
+const _accountPictureCache = new Map()
+const ACCOUNT_PICTURE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+const ACCOUNT_PICTURE_FAILURE_TTL = 60 * 60 * 1000 // retry failures after 1 hour
+
+// Attaches the connected LinkedIn user's own profile picture to each account,
+// fetched via their own provider_id (connection_params.im.id) and cached.
+async function withPicture(items) {
+  const now = Date.now()
+  const toFetch = items.filter(a => {
+    const providerId = a.connection_params?.im?.id
+    if (!providerId) return false
+    const hit = _accountPictureCache.get(a.id)
+    return !hit || hit.expiresAt <= now
+  })
+
+  await Promise.allSettled(
+    toFetch.map(async a => {
+      const providerId = a.connection_params.im.id
+      try {
+        const profile = await linkedin.visitProfile(a.id, providerId)
+        _accountPictureCache.set(a.id, {
+          picture: profile.profile_picture_url || profile.profile_picture_url_large || null,
+          expiresAt: now + ACCOUNT_PICTURE_TTL,
+        })
+      } catch {
+        _accountPictureCache.set(a.id, { picture: null, expiresAt: now + ACCOUNT_PICTURE_FAILURE_TTL })
+      }
+    })
+  )
+
+  return items.map(a => ({
+    ...a,
+    picture_url: _accountPictureCache.get(a.id)?.picture || null,
+  }))
+}
+
 // GET /api/unipile/accounts
 // Returns only LinkedIn accounts associated with the current workspace.
 router.get('/accounts', async (req, res) => {
@@ -188,7 +241,7 @@ router.get('/accounts', async (req, res) => {
 
     // No DB / dev mode — return everything
     if (!supabase || ws === 'ws_default') {
-      return res.json({ items: all, object: 'AccountList' })
+      return res.json({ items: await withPicture(await withUsage(all)), object: 'AccountList' })
     }
 
     // Fetch workspace account associations from DB
@@ -200,12 +253,12 @@ router.get('/accounts', async (req, res) => {
     if (dbErr) {
       // Table likely not created yet — return all accounts so the UI isn't broken
       console.warn('[unipile/accounts] DB error (migration not run?):', dbErr.message)
-      return res.json({ items: all, object: 'AccountList' })
+      return res.json({ items: await withPicture(await withUsage(all)), object: 'AccountList' })
     }
 
     const knownIds = (rows || []).map(r => r.unipile_account_id)
     const filtered = all.filter(a => knownIds.includes(a.id))
-    res.json({ items: filtered, object: 'AccountList' })
+    res.json({ items: await withPicture(await withUsage(filtered)), object: 'AccountList' })
   } catch (err) {
     console.error('[unipile/accounts] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
@@ -394,6 +447,7 @@ router.post('/chats/:chatId/messages', async (req, res) => {
     const { text } = req.body
     if (!text) return res.status(400).json({ message: 'text required' })
     const data = await chats.sendMessage(req.params.chatId, text)
+    if (req.body.accountId) logSend(req.body.accountId, 'message')
     res.json(data)
   } catch (err) {
     console.error('[unipile/chats/send] error:', err.status, err.message, JSON.stringify(err.data || {}))
@@ -419,6 +473,7 @@ router.post('/invite', async (req, res) => {
     if (!pid) return res.status(400).json({ message: 'Could not resolve providerUserId from linkedinUrl' })
 
     const data = await linkedin.sendInvite({ accountId, providerUserId: pid, message })
+    logSend(accountId, 'connection_request')
     res.json(data)
   } catch (err) {
     console.error('[unipile/invite] error:', err.status, err.message, JSON.stringify(err.data || {}))
@@ -620,6 +675,7 @@ router.post('/message', async (req, res) => {
     if (!text) return res.status(400).json({ message: 'text required' })
 
     const data = await linkedin.sendMessage({ accountId, linkedinUrl, providerUserId, text })
+    logSend(accountId, 'message')
     res.json(data)
   } catch (err) {
     console.error('[unipile/message] error:', err.status, err.message, JSON.stringify(err.data || {}))

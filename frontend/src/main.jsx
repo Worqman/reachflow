@@ -26,8 +26,6 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const LinkedInAccounts = lazy(() => import('./pages/LinkedInAccounts'))
 const Workspaces = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Workspaces })))
 const Members = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Members })))
-const Billing = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Billing })))
-const Profile = lazy(() => import('./pages/Profile'))
 
 const PageLoader = () => (
   <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
@@ -299,9 +297,9 @@ function AppRoutes() {
         <Route path="/workspaces"    element={<Workspaces />} />
         <Route path="/members"       element={<Members />} />
         <Route path="/invite"        element={<Navigate to={`/members${location.search || ''}`} replace />} />
-        <Route path="/billing"       element={<Billing />} />
+        <Route path="/billing"       element={<Navigate to="/settings?tab=billing" replace />} />
         <Route path="/settings"      element={<Settings />} />
-        <Route path="/profile"       element={<Profile />} />
+        <Route path="/profile"       element={<Navigate to="/settings?tab=profile" replace />} />
         <Route path="/onboarding"    element={<Onboarding />} />
         <Route path="/login"            element={<Login />} />
         <Route path="/register"         element={<Register />} />

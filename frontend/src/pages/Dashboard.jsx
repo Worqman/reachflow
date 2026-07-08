@@ -20,6 +20,13 @@ function formatDate(isoString) {
   return new Date(isoString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function getGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
 function IconSend() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -131,7 +138,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="dash-header">
         <div>
-          <div className="dash-greeting">Good morning 👋</div>
+          <div className="dash-greeting">{getGreeting()} 👋</div>
           <div className="dash-date">{today}</div>
         </div>
         <button className="dash-btn-new" onClick={() => navigate('/campaigns')}>

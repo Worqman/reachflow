@@ -12,7 +12,6 @@ const ROUTE_MAP = {
   '/linkedin-accounts': 'LinkedIn Accounts',
   '/workspaces':        'Workspaces',
   '/members':           'Members',
-  '/billing':           'Billing',
 }
 
 export default function TopBar() {

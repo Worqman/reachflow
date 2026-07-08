@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useLocation, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
 import LinkedInProfileModal from "../components/LinkedInProfileModal";
-import ImportContactsModal from "../components/ImportContactsModal";
 import Modal from "../components/Modal";
 import { Sk, SkeletonTableRows } from "../components/Skeleton";
 import {
@@ -35,7 +35,7 @@ const STEP_TYPES = [
       </svg>
     ),
     label: "Visit profile",
-    hasConfig: false,
+    hasConfig: true,
   },
   {
     type: "like_post",
@@ -51,7 +51,7 @@ const STEP_TYPES = [
       </svg>
     ),
     label: "Like last post",
-    hasConfig: false,
+    hasConfig: true,
   },
   {
     type: "follow",
@@ -539,23 +539,6 @@ const YES_BRANCH_ACTIONS = [
       </svg>
     ),
   },
-  {
-    type: "voice_note",
-    label: "Send Voice Note",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-        <line x1="12" y1="19" x2="12" y2="22" />
-      </svg>
-    ),
-  },
 ];
 
 function stepMeta(type) {
@@ -587,10 +570,49 @@ function waitLabel(config) {
 }
 
 // Every node type gets a positive/negative branch fork by default, except
-// wait/stop (no outcome to branch on) and voice_note (no real API support,
-// so there's no meaningful success/failure signal to fork on).
+// wait/stop (no outcome to branch on), voice_note (no real API support,
+// so there's no meaningful success/failure signal to fork on), and
+// visit_profile (only "Success" is a real outcome worth branching on, so
+// it just continues in a straight line instead of forking).
 function nodeHasBranches(type) {
-  return type !== "wait" && type !== "stop" && type !== "voice_note";
+  return (
+    type !== "wait" &&
+    type !== "stop" &&
+    type !== "voice_note" &&
+    type !== "visit_profile"
+  );
+}
+
+// Legacy saved sequences may still have a visit_profile node with a real
+// Yes/No fork (from before it stopped branching). Keep the Success
+// (yesBranch) continuation flattened back into the flow and drop the
+// Failed (noBranch) path entirely, so old data renders the same as newly
+// authored sequences.
+function flattenVisitProfileForks(list) {
+  const out = [];
+  for (const node of list || []) {
+    const { noBranch, yesBranch, ...restConfig } = node.config || {};
+    if (node.type === "visit_profile" && (noBranch || yesBranch)) {
+      out.push({ ...node, config: restConfig });
+      if (yesBranch?.length) out.push(...flattenVisitProfileForks(yesBranch));
+      continue;
+    }
+    if (noBranch || yesBranch) {
+      out.push({
+        ...node,
+        config: {
+          ...node.config,
+          ...(noBranch ? { noBranch: flattenVisitProfileForks(noBranch) } : {}),
+          ...(yesBranch
+            ? { yesBranch: flattenVisitProfileForks(yesBranch) }
+            : {}),
+        },
+      });
+      continue;
+    }
+    out.push(node);
+  }
+  return out;
 }
 
 // Sequences saved before the branch-tree schema existed are a flat array —
@@ -1026,6 +1048,63 @@ const STATUS_COLORS = {
   skipped: "badge-muted",
 };
 
+// Manual, user-set "Lead Status" — separate from the automated pipeline
+// status above. Order here is also the order shown in the dropdown/filter.
+const LEAD_STATUS_META = {
+  lead: {
+    label: "Lead", color: "#6366f1",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>,
+  },
+  interested: {
+    label: "Interested", color: "#16a34a",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" /></svg>,
+  },
+  meeting_booked: {
+    label: "Meeting booked", color: "#7c3aed",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>,
+  },
+  meeting_complete: {
+    label: "Meeting complete", color: "#2563eb",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>,
+  },
+  closed: {
+    label: "Closed", color: "#16a34a",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" /></svg>,
+  },
+  wrong_person: {
+    label: "Wrong person", color: "#d97706",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="18" y1="8" x2="23" y2="13" /><line x1="23" y1="8" x2="18" y2="13" /></svg>,
+  },
+  not_interested: {
+    label: "Not Interested", color: "#ef4444",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" /></svg>,
+  },
+  no_response: {
+    label: "No Response", color: "#9ca3af",
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>,
+  },
+};
+
+// Activity-log action → { label, icon } shown in the per-lead Activity popover.
+const LEAD_ACTIVITY_META = {
+  added:                { label: "Added to campaign" },
+  visited_profile:      { label: "Visited profile" },
+  liked_post:           { label: "Liked a post" },
+  followed:             { label: "Followed" },
+  commented:            { label: "Commented on a post" },
+  invite_sent:          { label: "Connection request sent" },
+  connected:            { label: "Connection accepted" },
+  message_sent:         { label: "Message sent" },
+  inmail_sent:          { label: "InMail sent" },
+  opening_message_sent: { label: "AI opening message sent" },
+  replied:              { label: "Replied" },
+  booked:               { label: "Meeting booked" },
+  failed:               { label: "Failed" },
+  rejected:             { label: "Connection request declined" },
+  skipped:              { label: "Skipped" },
+  lead_status_changed:  { label: "Lead status changed" },
+};
+
 const PERSONA_FIELDS = [
   {
     key: "roleAndObjective",
@@ -1076,18 +1155,20 @@ export default function CampaignDetail() {
   const [linkedinAccounts, setLinkedinAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("leads");
+
+  // Setup-only tabs ("accounts", "schedule") don't exist once setup mode ends —
+  // fall back to "leads" so the tab bar never lands on nothing selected.
+  useEffect(() => {
+    if (!isSetup && (tab === "accounts" || tab === "schedule")) setTab("leads");
+  }, [isSetup, tab]);
+
   const [showImport, setShowImport] = useState(false);
-  const [importContactsOpen, setImportContactsOpen] = useState(false);
-  const [savingImportContacts, setSavingImportContacts] = useState(false);
-  const [workspaceMembers, setWorkspaceMembers] = useState([]);
-  const [campaignLeadLists, setCampaignLeadLists] = useState([]);
   const [lfOpen, setLfOpen] = useState(false);
   const [profileUrlOpen, setProfileUrlOpen] = useState(false);
   const [linkedInProfileOpen, setLinkedInProfileOpen] = useState(false);
   const [postEngagersOpen, setPostEngagersOpen] = useState(false);
   const [sendingInvites, setSendingInvites] = useState(false);
   const [sendingMessageFor, setSendingMessageFor] = useState(null);
-  const [syncing, setSyncing] = useState(false);
 
   async function handleSendInvites() {
     setSendingInvites(true);
@@ -1114,8 +1195,7 @@ export default function CampaignDetail() {
     }
   }
 
-  async function syncStatuses(silent = false) {
-    if (!silent) setSyncing(true);
+  async function syncStatuses() {
     try {
       const result = await campaignsApi.syncStatuses(id);
       if (result.connected > 0) {
@@ -1124,13 +1204,9 @@ export default function CampaignDetail() {
           "success",
         );
         refreshLeads();
-      } else if (!silent) {
-        toast?.("No new connections found", "success");
       }
-    } catch (err) {
-      if (!silent) toast?.(err.message || "Sync failed", "danger");
-    } finally {
-      if (!silent) setSyncing(false);
+    } catch {
+      /* silent — this runs on an automatic 30s poll */
     }
   }
 
@@ -1144,7 +1220,7 @@ export default function CampaignDetail() {
     if (!hasInvited && !hasActive) return;
 
     const interval = setInterval(async () => {
-      if (hasInvited) syncStatuses(true);
+      if (hasInvited) syncStatuses();
       if (hasActive) {
         try {
           const result = await campaignsApi.syncMessages(id);
@@ -1186,70 +1262,12 @@ export default function CampaignDetail() {
     } catch {}
   }
 
-  // Load LinkedIn accounts + lead lists for ImportContactsModal
-  useEffect(() => {
-    unipile
-      .getAccounts()
-      .then((data) => {
-        setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
-      })
-      .catch(() => {});
-    leadListsApi
-      .list()
-      .then((data) => {
-        setCampaignLeadLists(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Called after any import modal completes in setup mode
+  // Called after any import modal completes in setup mode — the LinkedIn
+  // account is chosen in its own wizard step (AccountsSetupTab) and leads
+  // can be saved to a list right from the Leads tab's own footer, so
+  // there's nothing further to ask here.
   async function handleSetupImportDone() {
     await refreshLeads();
-    if (isSetup) setImportContactsOpen(true);
-  }
-
-  async function handleImportContactsConfirm({ userId, listId }) {
-    setSavingImportContacts(true);
-    try {
-      const saves = [];
-      if (userId) {
-        const acc = workspaceMembers.find((a) => a.id === userId);
-        saves.push(
-          campaignsApi
-            .update(id, {
-              settings: {
-                ...campaign?.settings,
-                linkedinAccountId: userId,
-                linkedinAccountName: acc?.name || acc?.username || "",
-              },
-            })
-            .then((updated) => setCampaign(updated))
-            .catch(() => {}),
-        );
-      }
-      if (listId) {
-        const leadsToSave = leads.map((l) => ({
-          name: l.name,
-          title: l.title,
-          company: l.company,
-          location: l.location,
-          linkedinUrl: l.linkedinUrl,
-          providerId: l.providerId,
-        }));
-        saves.push(leadsApi.bulkCreate(leadsToSave, listId).catch(() => {}));
-      }
-      await Promise.all(saves);
-    } finally {
-      setSavingImportContacts(false);
-    }
-    setImportContactsOpen(false);
-    setTab("builder");
-  }
-
-  async function handleCreateLeadList(name) {
-    const created = await leadListsApi.create(name);
-    setCampaignLeadLists((prev) => [...prev, created]);
-    return created;
   }
 
   useEffect(() => {
@@ -1277,7 +1295,7 @@ export default function CampaignDetail() {
 
         // Auto-sync on load if any leads are in 'invited' state
         const hasInvited = loadedLeads.some((l) => l.status === "invited");
-        if (hasInvited) syncStatuses(true);
+        if (hasInvited) syncStatuses();
       } finally {
         setLoading(false);
       }
@@ -1423,7 +1441,7 @@ export default function CampaignDetail() {
               {campaign.settings.linkedinAccountName}
             </span>
           )}
-          {isSetup ? (
+          {isSetup && campaign.status !== "active" ? (
             <span className="detail-setup-hint">
               Complete each step to launch
             </span>
@@ -1522,16 +1540,6 @@ export default function CampaignDetail() {
         campaignId={id}
       />
 
-      <ImportContactsModal
-        open={importContactsOpen}
-        onClose={() => setImportContactsOpen(false)}
-        onConfirm={handleImportContactsConfirm}
-        members={workspaceMembers}
-        lists={campaignLeadLists}
-        onCreateList={handleCreateLeadList}
-        saving={savingImportContacts}
-      />
-
       {/* Tab content */}
       <div
         key={tab}
@@ -1556,8 +1564,6 @@ export default function CampaignDetail() {
             onSendMessage={handleSendLeadMessage}
             sendingMessageFor={sendingMessageFor}
             onDeleteLead={handleDeleteLead}
-            onSync={() => syncStatuses(false)}
-            syncing={syncing}
             onRefreshLeads={refreshLeads}
             onSetupImportDone={isSetup ? handleSetupImportDone : undefined}
             isSetup={isSetup}
@@ -1581,7 +1587,6 @@ export default function CampaignDetail() {
             campaignStatus={campaign.status}
             onToggleStatus={handleToggleStatus}
             isSetup={isSetup}
-            onSetupNext={() => setTab("schedule")}
           />
         )}
         {tab === "accounts" && isSetup && (
@@ -1627,6 +1632,7 @@ export default function CampaignDetail() {
             campaign={campaign}
             onSaved={(updated) => {
               setCampaign(updated);
+              setTab("leads");
               navigate(`/campaigns/${id}`, { replace: true });
             }}
             toast={toast}
@@ -1848,17 +1854,37 @@ function MyLeadsPickerModal({ open, onClose, campaignId, onImported }) {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                {activeLeads.length > 0 && (
-                  <button className="mlp-sel-all" onClick={toggleAll}>
-                    {allActiveChecked
-                      ? "Deselect all"
-                      : `Select all (${activeLeads.length})`}
-                  </button>
-                )}
               </div>
             )}
 
             <div className="mlp-leads-list">
+              {!loadingLeads && activeLeads.length > 0 && (
+                <div
+                  className={`mlp-lead-row mlp-select-all-row ${allActiveChecked ? "checked" : ""}`}
+                  onClick={toggleAll}
+                >
+                  <div
+                    className={`mlp-checkbox ${allActiveChecked ? "checked" : ""}`}
+                  >
+                    {allActiveChecked && (
+                      <svg viewBox="0 0 12 12" fill="none">
+                        <polyline
+                          points="2,6 5,9 10,3"
+                          stroke="#fff"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="mlp-select-all-label">
+                    {allActiveChecked
+                      ? "Deselect all"
+                      : `Select all (${activeLeads.length})`}
+                  </span>
+                </div>
+              )}
               {loadingLeads ? (
                 <div
                   style={{
@@ -2896,8 +2922,6 @@ function LeadsTab({
   onSendMessage,
   sendingMessageFor,
   onDeleteLead,
-  onSync,
-  syncing,
   onRefreshLeads,
   onSetupImportDone,
   isSetup = false,
@@ -2907,12 +2931,26 @@ function LeadsTab({
   onSaveCampaign,
 }) {
   const { toast } = useToast();
-  const invitedCount = leads.filter((l) => l.status === "invited").length;
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [myLeadsOpen, setMyLeadsOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [leadsSearch, setLeadsSearch] = useState("");
   const [retryingFor, setRetryingFor] = useState(null);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadStatusFilter, setLeadStatusFilter] = useState([]); // empty = show all
+  const [popover, setPopover] = useState(null); // { type: 'status'|'activity'|'filter', leadId?, top, left }
+  const [savingLeadStatusFor, setSavingLeadStatusFor] = useState(null);
+  const [activityItems, setActivityItems] = useState({}); // leadId -> items[] | 'loading' | 'error'
+  const popoverRef = useRef(null);
+
+  useEffect(() => {
+    if (!popover) return;
+    function onDocClick(e) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) setPopover(null);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [popover]);
 
   // Setup mode CSV wizard state
   const [csvPhase, setCsvPhase] = useState(() =>
@@ -2937,6 +2975,33 @@ function LeadsTab({
   React.useEffect(() => {
     if (leads.length > 0 && csvPhase !== "done") setCsvPhase("done");
   }, [leads.length]);
+
+  const LEADS_PER_PAGE = 20;
+
+  const visibleLeads = leads
+    .filter((l) =>
+      leadStatusFilter.length === 0 ||
+      leadStatusFilter.includes(l.leadStatus || "lead"),
+    )
+    .filter((l) => {
+      if (!leadsSearch) return true;
+      const q = leadsSearch.toLowerCase();
+      return (
+        (l.name || "").toLowerCase().includes(q) ||
+        (l.title || l.jobTitle || "").toLowerCase().includes(q) ||
+        (l.company || "").toLowerCase().includes(q)
+      );
+    });
+
+  const leadsTotalPages = Math.max(
+    1,
+    Math.ceil(visibleLeads.length / LEADS_PER_PAGE),
+  );
+
+  // Clamp the current page if filtering/search shrinks the result set
+  React.useEffect(() => {
+    if (leadsPage > leadsTotalPages) setLeadsPage(leadsTotalPages);
+  }, [leadsTotalPages, leadsPage]);
 
   // Setup mode: show CSV wizard phases inline (not the old list/import-panel flow)
   if (isSetup && csvPhase !== "done") {
@@ -3046,16 +3111,49 @@ function LeadsTab({
     }
   };
 
-  const visibleLeads = leadsSearch
-    ? leads.filter((l) => {
-        const q = leadsSearch.toLowerCase();
-        return (
-          (l.name || "").toLowerCase().includes(q) ||
-          (l.title || l.jobTitle || "").toLowerCase().includes(q) ||
-          (l.company || "").toLowerCase().includes(q)
+  function openPopoverAt(e, type, leadId = null) {
+    e.stopPropagation();
+    if (popover?.type === type && popover?.leadId === leadId) {
+      setPopover(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPopover({ type, leadId, top: rect.bottom + 4, left: rect.left });
+    if (type === "activity" && leadId && !activityItems[leadId]) {
+      setActivityItems((prev) => ({ ...prev, [leadId]: "loading" }));
+      campaignsApi
+        .getLeadActivity(campaignId, leadId)
+        .then((data) =>
+          setActivityItems((prev) => ({ ...prev, [leadId]: data?.items || [] })),
+        )
+        .catch(() =>
+          setActivityItems((prev) => ({ ...prev, [leadId]: "error" })),
         );
-      })
-    : leads;
+    }
+  }
+
+  async function handleSetLeadStatus(lead, slug) {
+    setPopover(null);
+    setSavingLeadStatusFor(lead.id);
+    try {
+      await campaignsApi.updateLeadQualification(campaignId, lead.id, slug);
+      await onRefreshLeads?.();
+    } finally {
+      setSavingLeadStatusFor(null);
+    }
+  }
+
+  function toggleLeadStatusFilter(slug) {
+    setLeadsPage(1);
+    setLeadStatusFilter((prev) =>
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
+    );
+  }
+
+  const pagedLeads = visibleLeads.slice(
+    (leadsPage - 1) * LEADS_PER_PAGE,
+    leadsPage * LEADS_PER_PAGE,
+  );
 
   return (
     <div>
@@ -3071,7 +3169,7 @@ function LeadsTab({
           <span
             style={{ color: "var(--text-muted)", fontSize: 13, flexShrink: 0 }}
           >
-            {leadsSearch
+            {leadsSearch || leadStatusFilter.length > 0
               ? `${visibleLeads.length} of ${leads.length} leads`
               : `${leads.length} leads in campaign`}
           </span>
@@ -3086,21 +3184,14 @@ function LeadsTab({
               }}
               placeholder="Search leads…"
               value={leadsSearch}
-              onChange={(e) => setLeadsSearch(e.target.value)}
+              onChange={(e) => {
+                setLeadsSearch(e.target.value);
+                setLeadsPage(1);
+              }}
             />
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {invitedCount > 0 && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={onSync}
-              disabled={syncing}
-              title="Check Unipile for accepted connections"
-            >
-              {syncing ? "↻ Syncing…" : `↻ Sync (${invitedCount} invited)`}
-            </button>
-          )}
           {/* {pendingCount > 0 && (
             <button
               className="btn btn-primary btn-sm"
@@ -3146,12 +3237,32 @@ function LeadsTab({
                 <th>Title</th>
                 <th>Company</th>
                 <th>Status</th>
+                <th>Activity</th>
+                <th>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    Lead Status
+                    <button
+                      onClick={(e) => openPopoverAt(e, "filter")}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title="Filter by lead status"
+                      style={{
+                        border: "none", background: "transparent", padding: 2, cursor: "pointer",
+                        color: leadStatusFilter.length > 0 ? "var(--signal)" : "var(--text-muted)",
+                        display: "inline-flex",
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                      </svg>
+                    </button>
+                  </span>
+                </th>
                 <th>Added</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {visibleLeads.map((l) => (
+              {pagedLeads.map((l) => (
                 <tr key={l.id || l.name}>
                   <td style={{ fontWeight: 600 }}>
                     <div
@@ -3219,20 +3330,53 @@ function LeadsTab({
                       </div>
                     )}
                   </td>
+                  <td>
+                    <button
+                      onClick={(e) => openPopoverAt(e, "activity", l.id)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title="View activity"
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        border: "1px solid var(--border)", background: "var(--surface)",
+                        borderRadius: 6, padding: "3px 8px", fontSize: 11.5,
+                        color: "var(--text-secondary)", cursor: "pointer",
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11 }}>
+                        <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                      </svg>
+                      Activity
+                    </button>
+                  </td>
+                  <td>
+                    <button
+                      onClick={(e) => openPopoverAt(e, "status", l.id)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      disabled={savingLeadStatusFor === l.id}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        border: "1px solid var(--border)", background: "var(--surface)",
+                        borderRadius: 6, padding: "4px 9px", fontSize: 12, fontWeight: 600,
+                        color: LEAD_STATUS_META[l.leadStatus || "lead"]?.color || "#6366f1",
+                        cursor: savingLeadStatusFor === l.id ? "wait" : "pointer",
+                        opacity: savingLeadStatusFor === l.id ? 0.6 : 1,
+                      }}
+                    >
+                      <span style={{ width: 12, height: 12, display: "inline-flex" }}>
+                        {LEAD_STATUS_META[l.leadStatus || "lead"]?.icon}
+                      </span>
+                      {LEAD_STATUS_META[l.leadStatus || "lead"]?.label || "Lead"}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10, flexShrink: 0 }}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                  </td>
                   <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
                     {l.addedAt
                       ? new Date(l.addedAt).toLocaleDateString("en-GB")
                       : "—"}
                   </td>
                   <td>
-                    {l.status === "invited" && (
-                      <span
-                        style={{ fontSize: 11, color: "var(--text-muted)" }}
-                        title="Auto-detects acceptance every 30s"
-                      >
-                        ↻ Checking…
-                      </span>
-                    )}
                     {l.status === "connected" && (
                       <button
                         className="btn btn-primary btn-sm"
@@ -3266,6 +3410,85 @@ function LeadsTab({
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {leadsTotalPages > 1 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 6,
+            padding: "10px 14px",
+            marginTop: 10,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            fontSize: 12,
+            color: "var(--text-muted)",
+          }}
+        >
+          <span style={{ marginRight: 8 }}>
+            {(leadsPage - 1) * LEADS_PER_PAGE + 1}–
+            {Math.min(leadsPage * LEADS_PER_PAGE, visibleLeads.length)} of{" "}
+            {visibleLeads.length.toLocaleString()} leads
+          </span>
+          <button
+            className="btn btn-ghost btn-icon"
+            style={{
+              width: 26, height: 26, padding: 0,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}
+            disabled={leadsPage === 1}
+            onClick={() => setLeadsPage((p) => p - 1)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          {Array.from(
+            { length: Math.min(5, leadsTotalPages) },
+            (_, i) => i + 1,
+          ).map((p) => (
+            <button
+              key={p}
+              className={`btn btn-icon${leadsPage === p ? "" : " btn-ghost"}`}
+              style={{
+                width: 26,
+                height: 26,
+                padding: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                lineHeight: 1,
+                fontWeight: leadsPage === p ? 700 : 500,
+                ...(leadsPage === p && {
+                  background: "var(--signal-subtle)",
+                  color: "var(--signal)",
+                  border: "1px solid rgba(99,102,241,0.25)",
+                }),
+              }}
+              onClick={() => setLeadsPage(p)}
+            >
+              {p}
+            </button>
+          ))}
+          {leadsTotalPages > 5 && <span>…</span>}
+          <button
+            className="btn btn-ghost btn-icon"
+            style={{
+              width: 26, height: 26, padding: 0,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}
+            disabled={leadsPage >= leadsTotalPages}
+            onClick={() => setLeadsPage((p) => p + 1)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
         </div>
       )}
 
@@ -3434,6 +3657,116 @@ function LeadsTab({
           </div>
         </div>
       )}
+
+      {popover && createPortal(
+        <div
+          ref={popoverRef}
+          style={{
+            position: "fixed",
+            top: popover.top,
+            left: popover.left,
+            zIndex: 9999,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+            minWidth: popover.type === "activity" ? 260 : 190,
+            maxWidth: 300,
+            padding: popover.type === "activity" ? "10px 12px" : 4,
+          }}
+        >
+          {popover.type === "status" &&
+            (() => {
+              const lead = leads.find((l) => l.id === popover.leadId);
+              return Object.entries(LEAD_STATUS_META).map(([slug, meta]) => (
+                <button
+                  key={slug}
+                  onClick={() => handleSetLeadStatus(lead, slug)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%",
+                    padding: "7px 10px", borderRadius: 6, border: "none",
+                    background: (lead?.leadStatus || "lead") === slug ? "var(--surface-2)" : "transparent",
+                    color: meta.color, fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer",
+                  }}
+                >
+                  <span style={{ width: 14, height: 14, display: "inline-flex", flexShrink: 0 }}>{meta.icon}</span>
+                  {meta.label}
+                </button>
+              ));
+            })()}
+
+          {popover.type === "filter" && (
+            <>
+              {leadStatusFilter.length > 0 && (
+                <button
+                  onClick={() => {
+                    setLeadsPage(1);
+                    setLeadStatusFilter([]);
+                  }}
+                  style={{
+                    display: "block", width: "100%", padding: "7px 10px", borderRadius: 6,
+                    border: "none", background: "transparent", color: "var(--text-muted)",
+                    fontSize: 12, textAlign: "left", cursor: "pointer",
+                  }}
+                >
+                  Clear filter
+                </button>
+              )}
+              {Object.entries(LEAD_STATUS_META).map(([slug, meta]) => (
+                <button
+                  key={slug}
+                  onClick={() => toggleLeadStatusFilter(slug)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%",
+                    padding: "7px 10px", borderRadius: 6, border: "none",
+                    background: leadStatusFilter.includes(slug) ? "var(--surface-2)" : "transparent",
+                    color: meta.color, fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer",
+                  }}
+                >
+                  <span style={{
+                    width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                    border: `1.5px solid ${leadStatusFilter.includes(slug) ? meta.color : "var(--border)"}`,
+                    background: leadStatusFilter.includes(slug) ? meta.color : "transparent",
+                  }} />
+                  {meta.label}
+                </button>
+              ))}
+            </>
+          )}
+
+          {popover.type === "activity" && (() => {
+            const items = activityItems[popover.leadId];
+            if (items === "loading") {
+              return <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 2px" }}>Loading…</div>;
+            }
+            if (items === "error") {
+              return <div style={{ fontSize: 12, color: "var(--danger)", padding: "6px 2px" }}>Failed to load activity.</div>;
+            }
+            if (!items?.length) {
+              return <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 2px" }}>No activity yet.</div>;
+            }
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
+                {items.map((item) => (
+                  <div key={item.id} style={{ display: "flex", gap: 8 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--signal)", marginTop: 5, flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
+                        {LEAD_ACTIVITY_META[item.action]?.label || item.action}
+                      </div>
+                      {item.detail && (
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{item.detail}</div>
+                      )}
+                      <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{timeAgo(item.timestamp)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -3449,7 +3782,6 @@ function BuilderTab({
   campaignStatus,
   onToggleStatus,
   isSetup = false,
-  onSetupNext,
 }) {
   // nodes is a real tree — a node's children live at config.noBranch /
   // config.yesBranch, at any depth. This matches the persisted JSON shape
@@ -3472,7 +3804,9 @@ function BuilderTab({
         },
       }));
     }
-    return ensureIds(normalizeLegacyFlatSequence(initialNodes));
+    return ensureIds(
+      flattenVisitProfileForks(normalizeLegacyFlatSequence(initialNodes)),
+    );
   });
   // Pick a random campaign lead to use for message previews (falls back to
   // the static placeholder values when there are no leads yet). Memoised on
@@ -3544,6 +3878,49 @@ function BuilderTab({
     el.addEventListener("wheel", handleCanvasWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleCanvasWheel);
   });
+
+  // Keeps every fork's dashed connector lines pointing at the actual
+  // incoming trunk dot, which CSS alone can't do: the No/Yes columns are
+  // only as wide as their own direct content (a nested fork further down a
+  // branch no longer widens its ancestor column — see the `.builder-
+  // branch-col > .builder-branch-wrap` rule in the CSS), but the two
+  // columns still aren't always exactly equal width (e.g. one has an extra
+  // label), so a fixed 50% would still drift off center occasionally. Runs
+  // after every layout-affecting change (nodes added/removed/
+  // reconfigured) and writes plain CSS custom properties directly onto the
+  // DOM nodes — no React state, since this is a pure visual sync that
+  // would otherwise cause a render loop.
+  // Deliberately NOT re-run on zoom: .builder-inner scales everything
+  // (dot, columns, and the gap between them) by the same factor, so the
+  // ratio this measures is zoom-invariant — dividing by the zoom at
+  // measurement time already cancels it out. Re-running on every wheel
+  // tick bought nothing but a pile of synchronous layout reads on the
+  // main thread during a scroll gesture, which is exactly what made
+  // zooming feel janky.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const zoom = transform.zoom || 1;
+    canvas.querySelectorAll(".builder-branch-wrap").forEach((wrap) => {
+      const dot = wrap.querySelector(":scope > .builder-dot");
+      const fork = wrap.querySelector(":scope > .builder-branch-fork");
+      const noCol = fork?.querySelector(":scope > .branch-col-no");
+      const yesCol = fork?.querySelector(":scope > .branch-col-yes");
+      if (!dot || !noCol || !yesCol) return;
+      const dotRect = dot.getBoundingClientRect();
+      const dotX = dotRect.left + dotRect.width / 2;
+      [noCol, yesCol].forEach((col) => {
+        const rect = col.getBoundingClientRect();
+        const dotXLocal = (dotX - rect.left) / zoom;
+        const center = rect.width / zoom / 2;
+        const tieLeft = Math.min(center, dotXLocal);
+        const tieWidth = Math.abs(dotXLocal - center);
+        col.style.setProperty("--dot-x", `${dotXLocal}px`);
+        col.style.setProperty("--tie-left", `${tieLeft}px`);
+        col.style.setProperty("--tie-width", `${tieWidth}px`);
+      });
+    });
+  }, [nodes]);
 
   function getNodeLeadStats(nodeType) {
     if (!leads?.length) return { inProgress: 0, finished: 0, failed: 0 };
@@ -3675,7 +4052,9 @@ function BuilderTab({
     // branch, not as a flat sibling after it (which would render as a
     // disconnected orphan below an empty fork). Give both branches their own
     // default wait. Non-forking types (wait/stop/voice_note) have nowhere to
-    // put a branch wait, so voice_note keeps the old flat-sibling insert.
+    // put a branch wait, so voice_note and visit_profile keep the old
+    // flat-sibling insert — visit_profile always gets a default "Wait 1d"
+    // right after it, same as voice_note.
     if (nodeHasBranches(type)) {
       newNode.config = {
         ...newNode.config,
@@ -3683,7 +4062,8 @@ function BuilderTab({
         noBranch: [makeWaitNode()],
       };
     }
-    const autoWaitSibling = type === "voice_note" ? makeWaitNode() : null;
+    const autoWaitSibling =
+      type === "voice_note" || type === "visit_profile" ? makeWaitNode() : null;
     setNodes((prev) => {
       let next;
       if (target.kind === "branch") {
@@ -3778,7 +4158,13 @@ function BuilderTab({
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     setTransform((t) => {
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      // Scale continuously with however far this particular tick actually
+      // scrolled instead of a flat ±10% per event — a trackpad's small,
+      // frequent deltas then zoom in tiny smooth increments, and one
+      // notch of a mouse wheel's much larger delta is clamped so it
+      // doesn't jump the zoom level too far in one step either way.
+      const clampedDelta = Math.max(-100, Math.min(100, e.deltaY));
+      const factor = Math.exp(-clampedDelta * 0.0018);
       const newZoom = Math.min(2.5, Math.max(0.2, t.zoom * factor));
       const scale = newZoom / t.zoom;
       return {
@@ -3897,7 +4283,7 @@ function BuilderTab({
         <div className="builder-node-row">
           <div
             draggable
-            className={`builder-node${node._new ? " builder-node--new" : ""}${nodeHasBranches(node.type) ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node.id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
+            className={`builder-node${node.type === "wait" ? " builder-node-wait" : ""}${node._new ? " builder-node--new" : ""}${nodeHasBranches(node.type) ? " condition" : ""}${!ok ? " missing" : ""}${selectedId === node.id ? " selected" : ""}${dragIndex === i ? " dragging" : ""}`}
             style={{ animationDelay: node._new ? "0ms" : `${i * 45}ms` }}
             onDragStart={(e) => handleDragStart(e, i)}
             onDragEnd={handleDragEnd}
@@ -3986,6 +4372,14 @@ function BuilderTab({
 
         {nodeHasBranches(node.type) ? (
           renderFork(node)
+        ) : (node.type === "visit_profile" || node.type === "voice_note") &&
+          nodes[i + 1]?.type === "wait" ? (
+          // The wait right after an action is its fixed auto-added pair
+          // (see addNode's autoWaitSibling) — no "+" to wedge another step
+          // in between it and the action it's timeid off of.
+          <div className="builder-connector-wrap">
+            <div className="builder-connector" />
+          </div>
         ) : (
           <div className="builder-connector-wrap">
             <div className="builder-connector" />
@@ -4021,13 +4415,12 @@ function BuilderTab({
     const noBranchNodes = node.config?.noBranch || [];
     const yesBranchNodes = node.config?.yesBranch || [];
     const labels = getBranchLabels(node.type);
-    // A freshly-added branch always starts with its default wait (see
-    // addNode) — the outcome badge (Not Connected / Accepted / ...) belongs
-    // right under *that*, not after whatever real actions get appended
-    // afterward. So only the first step renders before the label; anything
-    // added after it renders below the label instead.
+    // No/"Not Accepted" reads as the outcome of waiting it out, so its tag
+    // sits under the branch's first step (the default wait) rather than
+    // above it — only the first step renders before the label; anything
+    // added after it renders below. Yes/"Accepted" is the immediate,
+    // happy-path outcome, so its tag stays above the wait, on the fork bar.
     const [noFirst, ...noRest] = noBranchNodes;
-    const [yesFirst, ...yesRest] = yesBranchNodes;
     // Once a branch's last step itself forks, it already ends in its own
     // real Stop pills one level down — this branch's own "add here" + Stop
     // would just float below that entire nested fork, redundant and
@@ -4044,7 +4437,8 @@ function BuilderTab({
         <div className="builder-connector" />
         <div className="builder-dot" />
         <div className="builder-branch-fork">
-          {/* ── No column (left) ── */}
+          {/* ── No column (left) — first step (the wait), then the "Not
+              Accepted" tag under it, then anything added after. ── */}
           <div className="builder-branch-col branch-col-no">
             {noFirst && renderBranchChild(noFirst, "no")}
             <div className="branch-nb-connector" />
@@ -4082,14 +4476,18 @@ function BuilderTab({
             <div className="branch-col-fill" />
           </div>
 
-          {/* ── Yes column (right) — mirrors the No column's order (steps,
-              then the branch label, then add/Stop) so the label always sits
-              directly under the last step instead of floating above it. ── */}
+          {/* ── Yes column (right) — mirrors the No column's order. ── */}
           <div className="builder-branch-col branch-col-yes">
-            {yesFirst && renderBranchChild(yesFirst, "yes")}
+            {/* "Accepted" sits right on this column's own dashed line —
+                above the wait it precedes — instead of stacked inside the
+                column's normal flow. Anchored to the column itself (not
+                the whole fork) so it stays centered over the wait even
+                when the No column is a very different width. */}
+            <span className="branch-label branch-label-yes branch-col-yes-label">
+              {labels.yes}
+            </span>
             <div className="branch-nb-connector branch-nb-connector-yes" />
-            <span className="branch-label branch-label-yes">{labels.yes}</span>
-            {yesRest.map((yb) => renderBranchChild(yb, "yes"))}
+            {yesBranchNodes.map((yb) => renderBranchChild(yb, "yes"))}
             {!yesTailForks && (
               <>
                 <div className="branch-nb-connector branch-nb-connector-yes" />
@@ -4139,7 +4537,7 @@ function BuilderTab({
       <React.Fragment key={child.id}>
         <div className={connectorClass} />
         <div
-          className={`builder-node builder-node-nb${side === "yes" ? " builder-node-yb" : ""}${selectedId === child.id ? " selected" : ""}${!cOk ? " missing" : ""}`}
+          className={`builder-node builder-node-nb${child.type === "wait" ? " builder-node-wait" : ""}${side === "yes" ? " builder-node-yb" : ""}${selectedId === child.id ? " selected" : ""}${!cOk ? " missing" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             setSelectedId(child.id);
@@ -4184,6 +4582,13 @@ function BuilderTab({
           style={{
             transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`,
             transformOrigin: "0 0",
+            // Off while actively dragging — panning needs the canvas to
+            // track the cursor 1:1, and easing it would make the drag feel
+            // like it's lagging behind. On the rest of the time (wheel
+            // zoom, the +/- buttons, reset) so each step eases into place
+            // instead of snapping, and overlapping wheel ticks blend into
+            // one smooth zoom instead of a stutter of hard jumps.
+            transition: panning ? "none" : "transform 0.12s ease-out",
           }}
         >
           {/* Start node */}
@@ -4196,34 +4601,42 @@ function BuilderTab({
             }}
           >
             <div
-              className={`builder-entry-node ${isSetup ? "builder-entry-node--setup" : campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
+              className={`builder-entry-node ${campaignStatus === "active" ? "builder-entry-node--active" : ""}`}
               onClick={(e) => {
                 e.stopPropagation();
-                if (isSetup) onSetupNext?.();
-                else onToggleStatus?.();
+                onToggleStatus?.();
               }}
               title={
-                isSetup
-                  ? "Save & continue to Schedule"
-                  : campaignStatus === "active"
-                    ? "Pause campaign"
-                    : "Start campaign"
+                campaignStatus === "active"
+                  ? "Pause campaign"
+                  : "Start campaign"
               }
               style={{ cursor: "pointer" }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ width: 14, height: 14, flexShrink: 0 }}
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-              <span>{isSetup ? "Next: Schedule" : "Start"}</span>
+              {campaignStatus === "active" ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  style={{ width: 12, height: 12, flexShrink: 0 }}
+                >
+                  <rect x="6" y="4" width="4" height="16" />
+                  <rect x="14" y="4" width="4" height="16" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ width: 14, height: 14, flexShrink: 0 }}
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              )}
+              <span>{campaignStatus === "active" ? "Running" : "Start"}</span>
             </div>
             {!isSetup && leads?.length > 0 && (
               <span
@@ -4269,22 +4682,26 @@ function BuilderTab({
             </div>
           )}
 
-          {nodes.map((node, i) => renderRootNode(node, i))}
+          {nodes.length === 0 && <StopPill />}
 
-          {/* Save button */}
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: 20, fontSize: 12 }}
-            onClick={(e) => {
-              e.stopPropagation();
-              saveSequence(nodes);
-            }}
-            disabled={saving}
-          >
-            {saving ? "Saving…" : "Save Sequence"}
-          </button>
+          {nodes.map((node, i) => renderRootNode(node, i))}
         </div>
         {/* /builder-inner */}
+
+        {/* Save button — fixed to the canvas corner, not the pannable/
+            zoomable inner content, so it's always reachable regardless of
+            scroll position or zoom level. */}
+        <button
+          className="btn btn-primary btn-sm builder-save-btn"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            saveSequence(nodes);
+          }}
+          disabled={saving}
+        >
+          {saving ? "Saving…" : "Save Sequence"}
+        </button>
 
         {/* Zoom controls */}
         <div
@@ -4451,6 +4868,36 @@ function BuilderTab({
                   </select>
                 </div>
               </div>
+            )}
+
+            {["visit_profile", "like_post"].includes(selectedNode.type) && (
+              <>
+                {linkedinAccounts.length > 0 && (
+                  <div className="input-group">
+                    <label className="input-label">Send From</label>
+                    <select
+                      className="input"
+                      value={selectedNode.config?.accountId || ""}
+                      onChange={(e) => {
+                        const acc = linkedinAccounts.find(
+                          (a) => a.id === e.target.value,
+                        );
+                        updateNode(selectedNode.id, {
+                          accountId: e.target.value,
+                          accountName: acc?.name || "",
+                        });
+                      }}
+                    >
+                      <option value="">Select account…</option>
+                      {linkedinAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name || a.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
             )}
 
             {selectedNode.type === "connection_request" && (
@@ -5495,6 +5942,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "messages",
     label: "Messages",
+    rangeLabel: "Send message limit (per account)",
+    min: 1,
+    max: 100,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5511,6 +5961,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "inmails",
     label: "InMails",
+    rangeLabel: "InMail limit (per account)",
+    min: 1,
+    max: 50,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5528,6 +5981,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "connectionRequests",
     label: "Connection Requests",
+    rangeLabel: "Connection request limit (per account)",
+    min: 1,
+    max: 50,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5547,6 +6003,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "aiComments",
     label: "AI Comments",
+    rangeLabel: "AI comment limit (per account)",
+    min: 1,
+    max: 100,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5565,6 +6024,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "likesToPosts",
     label: "Likes to posts",
+    rangeLabel: "Like post limit (per account)",
+    min: 1,
+    max: 100,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5581,6 +6043,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "profileVisits",
     label: "Profile visits",
+    rangeLabel: "Profile visit limit (per account)",
+    min: 1,
+    max: 100,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5598,6 +6063,9 @@ const FREQUENCY_ITEMS = [
   {
     key: "followLead",
     label: "Follow Lead",
+    rangeLabel: "Follow lead limit (per account)",
+    min: 1,
+    max: 100,
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -5617,20 +6085,62 @@ const FREQUENCY_ITEMS = [
 
 function SettingsTab({
   campaign,
-  agents,
   linkedinAccounts,
   onSaved,
   toast,
   isSetup = false,
 }) {
   const [form, setForm] = useState({
-    linkedinAccountId: campaign.settings?.linkedinAccountId || "",
-    linkedinAccountName: campaign.settings?.linkedinAccountName || "",
     agentId: campaign.settings?.agentId || "",
     timezone: campaign.settings?.timezone || "Europe/London",
   });
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [subTab, setSubTab] = useState("accounts");
+
+  // ── Accounts to use ──────────────────────────────────────────
+  const [selectedAccountId, setSelectedAccountId] = useState(
+    campaign.settings?.linkedinAccountId || "",
+  );
+  const [savingAccount, setSavingAccount] = useState(false);
+  // Active-campaign count per account, for the "N Active Campaigns" badge —
+  // fetched once since it spans campaigns beyond this one.
+  const [accountCampaignCounts, setAccountCampaignCounts] = useState({});
+  useEffect(() => {
+    campaignsApi
+      .list()
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        const counts = {};
+        for (const c of list) {
+          if (c.status !== "active") continue;
+          const accId = c.settings?.linkedinAccountId;
+          if (!accId) continue;
+          counts[accId] = (counts[accId] || 0) + 1;
+        }
+        setAccountCampaignCounts(counts);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSaveAccount() {
+    setSavingAccount(true);
+    try {
+      const acc = linkedinAccounts.find((a) => a.id === selectedAccountId);
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: {
+          ...campaign.settings,
+          linkedinAccountId: selectedAccountId,
+          linkedinAccountName: acc?.name || acc?.username || "",
+        },
+      });
+      onSaved(updated);
+      toast?.("Accounts saved", "success");
+    } catch (err) {
+      toast?.(err.message || "Could not save accounts", "danger");
+    } finally {
+      setSavingAccount(false);
+    }
+  }
 
   const [schedule, setSchedule] = useState(
     campaign.settings?.schedule || DEFAULT_SCHEDULE,
@@ -5721,21 +6231,6 @@ function SettingsTab({
     }
   }
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const updated = await campaignsApi.update(campaign.id, {
-        settings: { ...campaign.settings, ...form },
-      });
-      onSaved(updated);
-      toast?.("Settings saved", "success");
-    } catch (err) {
-      toast?.(err.message || "Could not save settings", "danger");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleDelete() {
     // eslint-disable-next-line no-alert
     if (
@@ -5754,78 +6249,253 @@ function SettingsTab({
     }
   }
 
+  const SETTINGS_SUBTABS = [
+    { key: "accounts", label: "Accounts" },
+    { key: "schedule", label: "Schedule" },
+    { key: "limits", label: "Limits" },
+    { key: "danger", label: "Danger Zone" },
+  ];
+
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 20,
-        maxWidth: 640,
-      }}
-    >
-      {/* ── General ── */}
-      <div className="card">
-        <h3 style={{ fontWeight: 700, marginBottom: 16 }}>Campaign Settings</h3>
-
-        <div className="input-group">
-          <label className="input-label">LinkedIn Account</label>
-          <select
-            className="input"
-            value={form.linkedinAccountId}
-            onChange={(e) => {
-              const acc = linkedinAccounts.find((a) => a.id === e.target.value);
-              setForm((f) => ({
-                ...f,
-                linkedinAccountId: e.target.value,
-                linkedinAccountName: acc?.name || "",
-              }));
-            }}
+    <div style={{ maxWidth: 640 }}>
+      <div className="settings-subtabs">
+        {SETTINGS_SUBTABS.map((t) => (
+          <button
+            key={t.key}
+            className={`settings-subtab${subTab === t.key ? " active" : ""}${t.key === "danger" ? " danger" : ""}`}
+            onClick={() => setSubTab(t.key)}
           >
-            <option value="">Select account…</option>
-            {linkedinAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.id}
-              </option>
-            ))}
-            {linkedinAccounts.length === 0 && (
-              <option disabled>No accounts connected — add in Settings</option>
-            )}
-          </select>
-        </div>
-
-        <div className="input-group">
-          <label className="input-label">AI Assistant (Persona)</label>
-          <select
-            className="input"
-            value={form.agentId}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, agentId: e.target.value }))
-            }
-          >
-            <option value="">No agent</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <div
-            style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}
-          >
-            Configure persona details in the Persona tab.
-          </div>
-        </div>
-
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving…" : isSetup ? "Finish Setup →" : "Save Settings"}
-        </button>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* ── Schedule ── */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 20,
+        }}
+      >
+      {subTab === "accounts" && (
+      <div className="card">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ width: 20, height: 20, flexShrink: 0 }}
+            >
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <h3 style={{ fontWeight: 700, margin: 0 }}>Accounts to use</h3>
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleSaveAccount}
+            disabled={savingAccount}
+          >
+            {savingAccount ? "Saving…" : "Save"}
+          </button>
+        </div>
+        <p
+          style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}
+        >
+          Select LinkedIn accounts to send messages from this campaign
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700 }}>
+            Available Accounts
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {selectedAccountId ? "1 selected" : "0 selected"}
+          </span>
+        </div>
+
+        {linkedinAccounts.length === 0 ? (
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              padding: "14px 0",
+            }}
+          >
+            No accounts connected — add one in Settings → LinkedIn Accounts.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {linkedinAccounts.map((acc) => {
+              const isChecked = selectedAccountId === acc.id;
+              const status = (
+                acc.connection_status ||
+                acc.status ||
+                ""
+              ).toLowerCase();
+              const isActive =
+                status === "ok" ||
+                status === "connected" ||
+                status === "active" ||
+                !status;
+              const type = (
+                acc.type ||
+                acc.plan ||
+                acc.subscription ||
+                ""
+              ).toLowerCase();
+              const planLabel =
+                type.includes("premium") || type.includes("sales")
+                  ? "Premium"
+                  : "Free";
+              const activeCount = accountCampaignCounts[acc.id] || 0;
+              return (
+                <div
+                  key={acc.id}
+                  onClick={() => setSelectedAccountId(acc.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    border: `1.5px solid ${isChecked ? "var(--signal)" : "var(--border)"}`,
+                    cursor: "pointer",
+                    transition: "border-color 0.1s",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: "50%",
+                      border: `2px solid ${isChecked ? "var(--signal)" : "var(--border-2)"}`,
+                      background: isChecked ? "var(--signal)" : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isChecked && (
+                      <svg
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        style={{ width: 10, height: 10 }}
+                      >
+                        <polyline
+                          points="2,6 5,9 10,3"
+                          stroke="#fff"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                  {acc.picture_url ? (
+                    <img
+                      src={acc.picture_url}
+                      alt={acc.name || acc.username || "LinkedIn account"}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: "linear-gradient(135deg, #0a66c2, #0077b5)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#fff",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {(acc.name || acc.username || "L")[0].toUpperCase()}
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>
+                        {acc.name || acc.username || acc.id}
+                      </span>
+                      <span className="badge badge-muted">{planLabel}</span>
+                      {activeCount > 0 && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: "var(--text-primary)",
+                            color: "var(--surface)",
+                          }}
+                        >
+                          {activeCount} Active Campaign
+                          {activeCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                        marginTop: 2,
+                      }}
+                    >
+                      {isActive ? "Active" : "Error"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
+
+      {subTab === "schedule" && (
       <div className="card">
         <h3 style={{ fontWeight: 700, marginBottom: 4 }}>Schedule</h3>
         <p
@@ -5970,123 +6640,112 @@ function SettingsTab({
           </button>
         </div>
       </div>
+      )}
 
-      {/* ── Frequency ── */}
+      {subTab === "limits" && (
       <div className="card">
-        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-          {/* Left description */}
-          <div style={{ flex: "0 0 200px" }}>
-            <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Frequency</h3>
-            <p
-              style={{
-                fontSize: 12,
-                color: "var(--text-muted)",
-                lineHeight: 1.5,
-              }}
-            >
-              Set how many times you want your campaign to run per day. We
-              recommend leaving these as default to avoid LinkedIn restrictions.
-            </p>
-          </div>
-
-          {/* Right counters */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
           <div
             style={{
-              flex: 1,
               display: "flex",
-              flexDirection: "column",
-              gap: 2,
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
             }}
           >
-            {FREQUENCY_ITEMS.map(({ key, label, icon }) => (
-              <div
-                key={key}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "10px 14px",
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  marginBottom: 6,
-                  background: "var(--surface-2, #1a1f2e)",
-                }}
-              >
-                <span
-                  style={{
-                    width: 22,
-                    height: 22,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "var(--text-muted)",
-                    flexShrink: 0,
-                  }}
-                >
-                  {React.cloneElement(icon, {
-                    style: { width: 20, height: 20 },
-                  })}
-                </span>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>
-                  {label}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    style={{
-                      width: 28,
-                      height: 28,
-                      padding: 0,
-                      fontWeight: 700,
-                      fontSize: 16,
-                    }}
-                    onClick={() => adjustFreq(key, -1)}
-                  >
-                    −
-                  </button>
-                  <span
-                    style={{
-                      width: 32,
-                      textAlign: "center",
-                      fontWeight: 600,
-                      fontSize: 14,
-                    }}
-                  >
-                    {frequency[key] ?? DEFAULT_FREQUENCY[key]}
-                  </span>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    style={{
-                      width: 28,
-                      height: 28,
-                      padding: 0,
-                      fontWeight: 700,
-                      fontSize: 16,
-                    }}
-                    onClick={() => adjustFreq(key, 1)}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            ))}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ width: 20, height: 20, flexShrink: 0 }}
+            >
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <h3 style={{ fontWeight: 700, margin: 0 }}>Limit ranges</h3>
           </div>
-        </div>
-
-        <div
-          style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}
-        >
           <button
-            className="btn btn-primary"
+            className="btn btn-primary btn-sm"
             onClick={handleSaveFrequency}
             disabled={savingFrequency}
           >
-            {savingFrequency ? "Saving…" : "Save Frequency"}
+            {savingFrequency ? "Saving…" : "Save"}
           </button>
         </div>
-      </div>
+        <p
+          style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 26 }}
+        >
+          Set daily limits for your LinkedIn activities to maintain a natural
+          profile behavior. These limits apply per account.
+        </p>
 
-      {/* ── Danger Zone ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {FREQUENCY_ITEMS.map(({ key, label, rangeLabel, min, max }) => {
+            const value = frequency[key] ?? DEFAULT_FREQUENCY[key];
+            const pct = ((value - min) / (max - min)) * 100;
+            return (
+              <div key={key}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {rangeLabel || label}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{value}</span>
+                </div>
+                <input
+                  type="range"
+                  className="range-slider"
+                  min={min}
+                  max={max}
+                  value={value}
+                  onChange={(e) =>
+                    setFrequency((prev) => ({
+                      ...prev,
+                      [key]: Number(e.target.value),
+                    }))
+                  }
+                  style={{
+                    background: `linear-gradient(to right, var(--text-primary, #111827) 0%, var(--text-primary, #111827) ${pct}%, var(--border-2, #e5e7eb) ${pct}%, var(--border-2, #e5e7eb) 100%)`,
+                  }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    marginTop: 4,
+                  }}
+                >
+                  <span>{min}</span>
+                  <span>{max}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      )}
+
+      {subTab === "danger" && (
       <div className="card">
         <h3
           style={{ fontWeight: 700, marginBottom: 12, color: "var(--danger)" }}
@@ -6100,6 +6759,8 @@ function SettingsTab({
         >
           {deleting ? "Deleting…" : "Delete Campaign"}
         </button>
+      </div>
+      )}
       </div>
     </div>
   );
@@ -6197,23 +6858,37 @@ function AccountsSetupTab({
               }}
               onClick={() => setAccountId(acc.id)}
             >
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: "50%",
-                  background: "var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: "var(--text-muted)",
-                  flexShrink: 0,
-                }}
-              >
-                {(acc.name || acc.email || "?")[0].toUpperCase()}
-              </div>
+              {acc.picture_url ? (
+                <img
+                  src={acc.picture_url}
+                  alt={acc.name || acc.email || "LinkedIn account"}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    background: "var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--text-muted)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {(acc.name || acc.email || "?")[0].toUpperCase()}
+                </div>
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
                   {acc.name || acc.email || acc.id}
@@ -6336,7 +7011,13 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
   async function handleFinish() {
     setSaving(true);
     try {
+      // "Launch Campaign" should actually launch it — save the schedule
+      // and activate the campaign in one step, same as the regular "Run
+      // Campaign" button does post-setup. runCampaignInvites checks
+      // isWithinSchedule itself, so this is a no-op until the configured
+      // window opens rather than sending immediately.
       const updated = await campaignsApi.update(campaign.id, {
+        status: "active",
         settings: {
           ...campaign.settings,
           timezone,
@@ -6346,6 +7027,8 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
           dailyMessageLimit: frequency.messages,
         },
       });
+      campaignsApi.sendInvites(campaign.id).catch(() => {});
+      toast?.("Campaign launched — sending on schedule", "success");
       onSaved(updated);
     } catch (err) {
       toast?.(err.message || "Could not save schedule", "danger");

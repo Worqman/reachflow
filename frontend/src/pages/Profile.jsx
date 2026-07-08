@@ -67,21 +67,14 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="profile-page animate-fade-in">
+      <div className="profile-tab">
         <div className="profile-loading">Loading…</div>
       </div>
     )
   }
 
   return (
-    <div className="profile-page animate-fade-in">
-
-      <div className="profile-header">
-        <div>
-          <div className="profile-title">My Profile</div>
-          <div className="profile-subtitle">Manage your personal account details</div>
-        </div>
-      </div>
+    <div className="profile-tab">
 
       <div className="profile-body">
 

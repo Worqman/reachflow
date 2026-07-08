@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '../services/supabase.js'
 import { linkedin, chats as unipileChats, relations as unipileRelations } from '../services/unipile.js'
 import { isWithinSchedule, consumeDailyLimit, getDailyCount } from '../services/limits.js'
+import { logSend } from '../services/usageLog.js'
+import { logLeadActivity, getLeadActivity } from '../services/leadActivity.js'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -153,6 +155,7 @@ function leadDbToApi(row) {
     linkedinUrl: row.linkedin_url,
     providerId:  row.provider_id,
     status:         row.status,
+    leadStatus:     row.lead_status || 'lead',
     source:         row.source,
     addedAt:        row.added_at,
     profileSummary: row.profile_summary || null,
@@ -315,6 +318,7 @@ router.post('/:id/leads', async (req, res) => {
 
     const { data, error } = await supabase.from('campaign_leads').insert(rows).select()
     if (error) return res.status(500).json({ message: error.message })
+    for (const row of data) logLeadActivity(req.params.id, row.id, 'added', source || null)
     res.status(201).json({ added: data.map(leadDbToApi), count: data.length })
   } catch (err) {
     console.error('[import-leads]', err)
@@ -348,6 +352,43 @@ router.post('/:id/leads/:leadId/status', async (req, res) => {
   }
   if (error || !data) return res.status(500).json({ message: error?.message || 'Update failed' })
   res.json(leadDbToApi(data))
+})
+
+// Manual, user-set qualification status — separate from the automated
+// pipeline `status` column above (pending/invited/connected/replied/...).
+const LEAD_STATUS_VALUES = [
+  'lead', 'interested', 'meeting_booked', 'meeting_complete',
+  'closed', 'wrong_person', 'not_interested', 'no_response',
+]
+
+// ── POST /api/campaigns/:id/leads/:leadId/lead-status ──────────
+router.post('/:id/leads/:leadId/lead-status', async (req, res) => {
+  const { leadStatus } = req.body
+  if (!LEAD_STATUS_VALUES.includes(leadStatus)) {
+    return res.status(400).json({ message: `leadStatus must be one of: ${LEAD_STATUS_VALUES.join(', ')}` })
+  }
+  const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!camp) return res.status(404).json({ message: 'Campaign not found' })
+
+  const { data: before } = await supabase
+    .from('campaign_leads').select('lead_status').eq('id', req.params.leadId).maybeSingle()
+
+  const { data, error } = await supabase
+    .from('campaign_leads').update({ lead_status: leadStatus }).eq('id', req.params.leadId).select().single()
+  if (error || !data) return res.status(500).json({ message: error?.message || 'Update failed' })
+
+  logLeadActivity(req.params.id, req.params.leadId, 'lead_status_changed', `${before?.lead_status || 'lead'} → ${leadStatus}`)
+  res.json(leadDbToApi(data))
+})
+
+// ── GET /api/campaigns/:id/leads/:leadId/activity ───────────────
+router.get('/:id/leads/:leadId/activity', async (req, res) => {
+  const { data: camp } = await supabase.from('campaigns').select('id').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!camp) return res.status(404).json({ message: 'Campaign not found' })
+  const items = await getLeadActivity(req.params.leadId)
+  res.json({
+    items: items.map(r => ({ id: r.id, action: r.action, detail: r.detail, timestamp: r.created_at })),
+  })
 })
 
 // ── POST /api/campaigns/:id/leads/:leadId/send-message ─────────
@@ -385,6 +426,7 @@ router.post('/:id/leads/:leadId/send-message', async (req, res) => {
 
     // Update lead status
     await supabase.from('campaign_leads').update({ status: 'replied' }).eq('id', lead.id)
+    logLeadActivity(req.params.id, lead.id, 'opening_message_sent')
 
     res.json({ ok: true, message: text })
   } catch (err) {
@@ -620,19 +662,19 @@ async function runNode(node, ctx, pathToNode) {
     }
     console.log(`[sequence] sending connection request to ${lead?.name}`)
     await linkedin.sendInvite({ accountId, providerUserId, message: note })
+    logSend(accountId, 'connection_request')
+    if (lead?.id) logLeadActivity(campaignId, lead.id, 'invite_sent')
     ctx.invited = true
     await persistPendingStep(ctx, { kind: 'connect', path: pathToNode, deadline: null })
     ctx.halted = true
     return
   }
 
-  // wait — no-op pre-connection (matches original: delay is only meaningful
-  // once we're sending real post-connection outreach), else pause+resume.
+  // wait — pauses the walk and resumes automatically once the delay elapses,
+  // whether pre- or post-connection (see resumeFromPendingStep + the
+  // pending_step-aware query in runCampaignInvites, which keeps a paused
+  // lead from being re-picked-up and restarted from the top in the meantime).
   if (node.type === 'wait') {
-    if (!ctx.connected) {
-      console.log(`[sequence] wait ${node.config?.days}d skipped — not connected yet`)
-      return { ok: true, skipped: true }
-    }
     const n = node.config?.days || 1
     const unit = node.config?.unit || 'days'
     const msPerUnit = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
@@ -748,8 +790,14 @@ async function runNode(node, ctx, pathToNode) {
           console.log(`[sequence] visit_profile skipped for ${providerUserId} — daily limit reached`)
           return { ok: true, skipped: true }
         }
-        await linkedin.visitProfile(accountId, providerUserId)
-        console.log(`[sequence] visited profile of ${providerUserId}`)
+        // Visiting a profile has no downstream state keyed to the acting
+        // account (unlike connection_request, whose invite has to be sent
+        // from — and later polled against — the campaign's account), so a
+        // per-step override is safe: fall back to the campaign account.
+        const visitAccountId = node.config?.accountId || accountId
+        await linkedin.visitProfile(visitAccountId, providerUserId)
+        console.log(`[sequence] visited profile of ${providerUserId} via account ${visitAccountId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'visited_profile')
         return { ok: true }
       }
       case 'like_post': {
@@ -766,6 +814,7 @@ async function runNode(node, ctx, pathToNode) {
         const postId = posts[0].identifier || posts[0].id || posts[0].provider_id
         await linkedin.likePost(accountId, postId)
         console.log(`[sequence] liked post ${postId} for ${providerUserId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'liked_post')
         return { ok: true }
       }
       case 'follow': {
@@ -775,6 +824,7 @@ async function runNode(node, ctx, pathToNode) {
         }
         await linkedin.followUser(accountId, providerUserId)
         console.log(`[sequence] followed ${providerUserId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'followed')
         return { ok: true }
       }
       case 'comment_post':
@@ -795,6 +845,7 @@ async function runNode(node, ctx, pathToNode) {
         const text = interpolateVars(commentText, lead || {}, profile)
         await linkedin.commentOnPost(accountId, postId, text)
         console.log(`[sequence] ${node.type} on post ${postId} for ${providerUserId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'commented')
         return { ok: true }
       }
       case 'add_tag': {
@@ -821,7 +872,9 @@ async function runNode(node, ctx, pathToNode) {
         const text = interpolateVars(node.config.text.trim(), lead || {}, profile)
         const attachments = node.config?.attachments || []
         await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
+        logSend(accountId, 'message')
         console.log(`[sequence] sent ${node.type} to ${providerUserId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'message_sent')
         const hasBranches = node.config?.yesBranch?.length || node.config?.noBranch?.length
         return hasBranches ? { ok: true, pauseForReply: true } : { ok: true, skipped: true }
       }
@@ -836,7 +889,9 @@ async function runNode(node, ctx, pathToNode) {
         const text    = subject ? `${subject}\n\n${body}` : body
         const attachments = node.config?.attachments || []
         await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
+        logSend(accountId, 'message')
         console.log(`[sequence] sent inmail to ${providerUserId}`)
+        if (lead?.id) logLeadActivity(campaignId, lead.id, 'inmail_sent')
         const hasBranches = node.config?.yesBranch?.length || node.config?.noBranch?.length
         return hasBranches ? { ok: true, pauseForReply: true } : { ok: true, skipped: true }
       }
@@ -887,6 +942,24 @@ async function executePreConnectionSteps(lead, sequence, accountId, workspaceId,
 // The claim is atomic: the update is guarded by matching the exact
 // pending_step we read, so a webhook and a timeout/poll racing for the same
 // lead only resolve once.
+// A resumed walk can now advance a lead past 'pending' for the first time —
+// e.g. a pre-connection wait that resumes straight into connection_request —
+// which nothing else updates campaign_leads.status for. Brings it forward,
+// but never regresses it (a lead can legitimately already be further along,
+// e.g. 'replied', by the time an unrelated pending step resolves).
+const LEAD_STATUS_RANK = { pending: 0, invited: 1, connected: 2, replied: 3, booked: 4 }
+const CONNECTED_STATUSES = ['connected', 'replied', 'booked']
+async function syncLeadStatusFromCtx(leadId, campaignId, ctx) {
+  if (!ctx.invited && !ctx.connected) return
+  const target = ctx.connected && !ctx.invited ? 'connected' : 'invited'
+  const { data: row } = await supabase.from('campaign_leads').select('status').eq('id', leadId).single()
+  const current = row?.status || 'pending'
+  if ((LEAD_STATUS_RANK[target] ?? 0) > (LEAD_STATUS_RANK[current] ?? 0)) {
+    await updateLeadStatus(leadId, target)
+    if (current === 'pending') consumeDailyLimit(campaignId, 'connectionRequests', 0)
+  }
+}
+
 // Returns true if a pending step was found and resumed, false if there was
 // nothing pending for this lead (caller may then fall back to something else).
 export async function resumeFromPendingStep(providerUserId, campaignId, outcome = null) {
@@ -932,7 +1005,10 @@ export async function resumeFromPendingStep(providerUserId, campaignId, outcome 
     const profile = await getWorkspaceProfile(effectiveWsId)
     const ctx = {
       providerUserId, accountId, campaignId, workspaceId: effectiveWsId, lead: leadRow,
-      frequency, profile, connected: true, invited: leadRow?.status !== 'pending', halted: false,
+      frequency, profile,
+      connected: CONNECTED_STATUSES.includes(leadRow?.status),
+      invited: leadRow?.status !== 'pending',
+      halted: false,
     }
 
     console.log(`[sequence] resuming ${pending.kind} for ${providerUserId} — outcome: ${outcome || 'n/a'}`)
@@ -944,11 +1020,30 @@ export async function resumeFromPendingStep(providerUserId, campaignId, outcome 
       // rather than appending a duplicate for the same node.
       const pathIntoBranch = [...pending.path.slice(0, -1), { nodeId: loc.node.id, branch: branchKey }]
       await runTree(loc.node.config?.[branchKey], ctx, pathIntoBranch)
-      if (ctx.halted) return true
+      if (ctx.halted) {
+        await syncLeadStatusFromCtx(leadRow.id, campaignId, ctx)
+        return true
+      }
     }
     // 'wait' just continues — nothing to resolve, fall through.
 
-    await runTree(loc.containingList.slice(loc.index + 1), ctx, pending.path.slice(0, -1))
+    try {
+      await runTree(loc.containingList.slice(loc.index + 1), ctx, pending.path.slice(0, -1))
+      await syncLeadStatusFromCtx(leadRow.id, campaignId, ctx)
+    } catch (err) {
+      // Only reachable now that a pre-connection wait can resume straight into
+      // connection_request (previously connection_request was only ever hit
+      // from the initial synchronous walk). Classify the same way the main
+      // send-invites loop does, so e.g. "already connected" lands on a sane
+      // status instead of silently leaving the lead stuck on 'pending'.
+      const invErr = classifyInviteError(err)
+      if (invErr.status) {
+        await updateLeadStatus(leadRow.id, invErr.status, invErr.reason)
+        logLeadActivity(campaignId, leadRow.id, invErr.status, invErr.reason)
+      } else {
+        console.error(`[sequence] resumed walk failed for ${providerUserId}, leaving pending for retry:`, err.message)
+      }
+    }
     return true
   } catch (err) {
     console.error('[sequence] resumeFromPendingStep error:', err.message)
@@ -1201,6 +1296,7 @@ export async function runCampaignInvites(campaignId, workspaceId) {
     .select('*')
     .eq('campaign_id', campaignId)
     .eq('status', 'pending')
+    .is('pending_step', null) // exclude leads paused mid-sequence (e.g. a pre-connection wait) — they resume on their own
     .limit(remaining)
 
   if (!pendingLeads?.length) {
@@ -1218,17 +1314,26 @@ export async function runCampaignInvites(campaignId, workspaceId) {
       const lead = pendingLeads[i]
       try {
         const result = await executePreConnectionSteps(lead, campaign.sequence, accountId, workspaceId || campaign.workspace_id, campaignId, campaign.settings?.frequency || {})
-        // Nested branching can reach "already connected" without ever sending
-        // a request (e.g. an "If Connected → Yes" path) — mark accordingly
-        // instead of always assuming an invite went out.
-        await updateLeadStatus(lead.id, result?.connected && !result?.invited ? 'connected' : 'invited')
-        consumeDailyLimit(campaignId, 'connectionRequests', 0) // track without enforcing (limit enforced above)
-        console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
+        if (result?.invited || result?.connected) {
+          // Nested branching can reach "already connected" without ever sending
+          // a request (e.g. an "If Connected → Yes" path) — mark accordingly
+          // instead of always assuming an invite went out.
+          await updateLeadStatus(lead.id, result.connected && !result.invited ? 'connected' : 'invited')
+          consumeDailyLimit(campaignId, 'connectionRequests', 0) // track without enforcing (limit enforced above)
+          console.log(`[send-invites] ✓ (${i + 1}/${pendingLeads.length}) sequence executed for ${lead.name}`)
+        } else {
+          // Neither invited nor connected — the walk paused mid-sequence (e.g.
+          // hit a wait node). Lead stays 'pending' but its pending_step is now
+          // set, so it won't be re-picked-up here; it resumes automatically
+          // once the wait elapses (see resumeFromPendingStep).
+          console.log(`[send-invites] ⏸ (${i + 1}/${pendingLeads.length}) ${lead.name} paused mid-sequence — will resume automatically`)
+        }
       } catch (err) {
         const detail = err.data ? JSON.stringify(err.data) : err.message
         const outcome = classifyInviteError(err)
         if (outcome.status) {
           await updateLeadStatus(lead.id, outcome.status, outcome.reason)
+          logLeadActivity(campaignId, lead.id, outcome.status, outcome.reason)
           console.error(`[send-invites] ✗ (${i + 1}/${pendingLeads.length}) ${lead.name} → ${outcome.status}:`, detail)
         } else {
           // Transient or account-level error — leave lead as pending so it's retried next run
@@ -1335,6 +1440,7 @@ router.post('/:id/sync-messages', async (req, res) => {
         if (lead.status === 'connected') {
           await supabase.from('campaign_leads').update({ status: 'replied' }).eq('id', lead.id)
           console.log(`[sync-messages] ${lead.name} replied — status → replied`)
+          logLeadActivity(req.params.id, lead.id, 'replied')
         }
 
         // Trigger AI reply if not paused

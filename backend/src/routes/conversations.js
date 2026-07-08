@@ -6,6 +6,7 @@ import { getAgentById } from './agents.js'
 import { supabase } from '../services/supabase.js'
 import { isWithinSchedule, consumeDailyLimit } from '../services/limits.js'
 import { fetchAndSummarizeProfile } from './campaigns.js'
+import { logSend } from '../services/usageLog.js'
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -529,6 +530,7 @@ export async function generateAIReply(conversationId) {
     if (conv.linkedinChatId) {
       try {
         await chats.sendMessage(conv.linkedinChatId, replyText)
+        logSend(conv.linkedinAccountId, 'message')
         console.log(`[AI] Sent reply to chat ${conv.linkedinChatId}: "${replyText.slice(0, 60)}…"`)
       } catch (sendErr) {
         const errMsg = sendErr.message || ''
@@ -652,6 +654,7 @@ export async function generateOpeningMessage({ agentId, accountId, providerUserI
     // Send directly as a LinkedIn message via Unipile
     const { linkedin } = await import('../services/unipile.js')
     const chatResult = await linkedin.sendMessage({ accountId, providerUserId, text })
+    logSend(accountId, 'message')
     const chatId = chatResult?.chat_id || chatResult?.id || null
     console.log(`[AI] Sent opening message to ${providerUserId}, chatId=${chatId}: "${text.slice(0, 60)}…"`)
 

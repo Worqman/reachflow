@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { campaigns as campaignsApi, leads as leadsApi, leadLists as listsApi, unipile } from "../lib/api";
-import ImportContactsModal from "../components/ImportContactsModal";
 import "./LeadFinder.css";
 
 // LinkedIn industry list with official numeric IDs (used as facetIndustry in search)
@@ -220,9 +219,9 @@ export default function LeadFinder() {
   const [leadLists, setLeadLists] = useState([]);
   const [savingToList, setSavingToList] = useState(false);
   const [savedToList, setSavedToList] = useState(false);
-
-  // ── Workspace members ─────────────────────────────────────────
-  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [showNewList, setShowNewList] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [creatingList, setCreatingList] = useState(false);
 
   // ── Results table search + sort ───────────────────────────────
   const [tableSearch, setTableSearch] = useState("");
@@ -254,13 +253,6 @@ export default function LeadFinder() {
     listsApi.list().then((data) => setLeadLists(Array.isArray(data) ? data : [])).catch(() => {});
   }, []);
 
-  // Load LinkedIn accounts for ImportContactsModal user picker
-  useEffect(() => {
-    unipile.getAccounts().then((data) => {
-      setWorkspaceMembers(Array.isArray(data?.items) ? data.items : []);
-    }).catch(() => {});
-  }, []);
-
   function openCampaignPicker(leads) {
     setPendingLeads(leads);
     setPickerOpen(true);
@@ -282,12 +274,22 @@ export default function LeadFinder() {
     setListPickerOpen(true);
   }
 
+  function closeListPicker() {
+    setListPickerOpen(false);
+    setPendingListLeads(null);
+    setShowNewList(false);
+    setNewListName("");
+  }
+
   async function handleCreateList(name) {
     const created = await listsApi.create(name);
     setLeadLists((prev) => [...prev, created]);
     return created;
   }
 
+  // Clicking a list row saves immediately — no separate "select a user"
+  // step or Confirm button, so the picker closes itself as soon as the
+  // save succeeds instead of staying open waiting for more input.
   async function saveToList(listId) {
     const leadsToSave = pendingListLeads || tableRows.filter((r) => selected.includes(r.id));
     if (!leadsToSave.length) return;
@@ -296,16 +298,22 @@ export default function LeadFinder() {
     try {
       await leadsApi.bulkCreate(leadsToSave, listId);
       setSavedToList(true);
-      setListPickerOpen(false);
-      setPendingListLeads(null);
+      closeListPicker();
       setSelected([]);
       setTimeout(() => setSavedToList(false), 3000);
     } catch {}
     setSavingToList(false);
   }
 
-  async function handleImportConfirm({ listId }) {
-    await saveToList(listId);
+  async function handleCreateListAndSave() {
+    const name = newListName.trim();
+    if (!name) return;
+    setCreatingList(true);
+    try {
+      const created = await handleCreateList(name);
+      await saveToList(created.id);
+    } catch {}
+    setCreatingList(false);
   }
 
   // ── Filters mode ─────────────────────────────────────────────
@@ -926,15 +934,79 @@ export default function LeadFinder() {
       </div>
 
       {/* Modals */}
-      <ImportContactsModal
-        open={listPickerOpen}
-        onClose={() => { setListPickerOpen(false); setPendingListLeads(null); }}
-        onConfirm={handleImportConfirm}
-        members={workspaceMembers}
-        lists={leadLists}
-        onCreateList={handleCreateList}
-        saving={savingToList}
-      />
+      {listPickerOpen && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && closeListPicker()}>
+          <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Save to List</h2>
+              <button className="modal-close" onClick={closeListPicker}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>
+                Saving {(pendingListLeads || tableRows.filter((r) => selected.includes(r.id))).length} lead
+                {(pendingListLeads || tableRows.filter((r) => selected.includes(r.id))).length !== 1 ? "s" : ""} — choose a list:
+              </p>
+              {leadLists.length === 0 ? (
+                <div style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>No lists yet — create one below.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                  {leadLists.map((l) => (
+                    <button key={l.id} className="campaign-picker-row" disabled={savingToList} onClick={() => saveToList(l.id)}>
+                      <span className="campaign-picker-name">{l.name}</span>
+                      <span className="campaign-picker-meta">{savingToList ? "Saving…" : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showNewList ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    autoFocus
+                    className="input"
+                    placeholder="List name…"
+                    value={newListName}
+                    onChange={(e) => setNewListName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreateListAndSave();
+                      if (e.key === "Escape") { setShowNewList(false); setNewListName(""); }
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={creatingList || !newListName.trim()}
+                    onClick={handleCreateListAndSave}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {creatingList ? "…" : "Create"}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => { setShowNewList(false); setNewListName(""); }}
+                    style={{ flexShrink: 0, padding: "5px 8px" }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setShowNewList(true)}
+                  style={{
+                    border: "1px dashed var(--border-2)",
+                    color: "var(--signal)",
+                    justifyContent: "center",
+                    gap: 6,
+                    fontSize: 13,
+                    width: "100%",
+                  }}
+                >
+                  + Create a new list
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {pickerOpen && (
         <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setPickerOpen(false)}>

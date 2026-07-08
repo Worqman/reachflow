@@ -113,6 +113,9 @@ export const campaigns = {
     post(`/campaigns/${id}/leads/${leadId}/send-message`, {}),
   updateLeadStatus: (id, leadId, status) =>
     post(`/campaigns/${id}/leads/${leadId}/status`, { status }),
+  updateLeadQualification: (id, leadId, leadStatus) =>
+    post(`/campaigns/${id}/leads/${leadId}/lead-status`, { leadStatus }),
+  getLeadActivity: (id, leadId) => get(`/campaigns/${id}/leads/${leadId}/activity`),
   deleteLead: (id, leadId) => del(`/campaigns/${id}/leads/${leadId}`),
 };
 
@@ -183,8 +186,8 @@ export const unipile = {
     const qs = params.toString();
     return get(`/unipile/chats/${chatId}/messages${qs ? `?${qs}` : ""}`);
   },
-  sendChatMessage: (chatId, text) =>
-    post(`/unipile/chats/${chatId}/messages`, { text }),
+  sendChatMessage: (chatId, text, accountId) =>
+    post(`/unipile/chats/${chatId}/messages`, { text, accountId }),
 
   // Outreach
   sendInvite: (data) => post("/unipile/invite", data),

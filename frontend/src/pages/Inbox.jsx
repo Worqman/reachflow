@@ -4,6 +4,7 @@ import {
   meetings as meetingsApi,
   unipile,
   agents as agentsApi,
+  campaigns as campaignsApi,
 } from "../lib/api";
 import { SkeletonConvItems } from "../components/Skeleton";
 import Modal from "../components/Modal";
@@ -100,6 +101,7 @@ function chatToConversation(chat, backendConvMap) {
     unread,
     convId: backend?.id || null,
     agentId: backend?.agentId || null,
+    campaignId: backend?.campaignId || null,
     providerId: personId || null,
     bookedAt: backend?.bookedAt || null,
     picture: chat._enrichedPicture || null,
@@ -127,6 +129,30 @@ const LI_ICON = (
     <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H6.477v-7H9v7zM7.694 8.717c-.771 0-1.286-.514-1.286-1.2s.514-1.2 1.371-1.2c.771 0 1.286.514 1.286 1.2s-.514 1.2-1.371 1.2zM18 17h-2.442v-3.826c0-1.058-.651-1.302-.895-1.302s-1.058.163-1.058 1.302V17h-2.523v-7h2.523v.977C13.93 10.407 14.581 10 15.802 10 17.023 10 18 10.977 18 13.174V17z" />
   </svg>
 );
+
+const WARN_ICON = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const PEOPLE_ICON = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+
+const STATUS_FILTER_OPTIONS = [
+  { key: "all", label: "All" },
+  { key: "ai", label: "AI Active" },
+  { key: "review", label: "Needs Review" },
+  { key: "booked", label: "Booked" },
+];
 
 function ConvItem({ c, active, onSelect }) {
   const chipType = c.status === 'booked' ? 'booked' : c.status === 'review' ? 'review' : c.status === 'ai_active' ? 'ai' : c.convId ? 'lead' : null;
@@ -176,8 +202,25 @@ export default function Inbox() {
   const [agentsList, setAgentsList] = useState([]);
   const [agentPicker, setAgentPicker] = useState(false); // show agent picker modal
   const [hidingId, setHidingId] = useState(null);
+  const [campaignsList, setCampaignsList] = useState([]);
+  const [campaignFilter, setCampaignFilter] = useState("all");
+  const [onlyCampaignLeads, setOnlyCampaignLeads] = useState(false); // on = only leads from campaigns
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const accountIdRef = useRef(null);
+  const statusMenuRef = useRef(null);
+
+  // Close the Lead Status popover when clicking outside it
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    function onDocClick(e) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) {
+        setStatusMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [statusMenuOpen]);
 
   // Keep ref in sync so the interval can read current accountId
   useEffect(() => {
@@ -272,13 +315,15 @@ export default function Inbox() {
       setLoading(true);
       setError("");
       try {
-        const [accData, agentData] = await Promise.all([
+        const [accData, agentData, campaignData] = await Promise.all([
           unipile.getAccounts(),
           agentsApi.list().catch(() => ({ items: [] })),
+          campaignsApi.list().catch(() => []),
         ]);
         const accs = accData?.items || [];
         setAccounts(accs);
         setAgentsList(agentData?.items || agentData || []);
+        setCampaignsList(campaignData?.items || campaignData || []);
         const firstId = accs[0]?.id || null;
         setAccountId(firstId);
         if (!firstId) {
@@ -477,7 +522,7 @@ export default function Inbox() {
     setSending(true);
     const text = reply.trim();
     try {
-      await unipile.sendChatMessage(active.id, text);
+      await unipile.sendChatMessage(active.id, text, active.accountId);
       // Record in backend store so AI context includes this human reply
       if (active.convId) {
         conversationsApi.reply(active.convId, { text }).catch(() => {});
@@ -504,6 +549,8 @@ export default function Inbox() {
 
   const filtered = conversations
     .filter((c) => filter === "all" || c?.status === (FILTER_STATUS[filter] || filter))
+    .filter((c) => campaignFilter === "all" || c.campaignId === campaignFilter)
+    .filter((c) => !onlyCampaignLeads || !!c.campaignId)
     .filter((c) => !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.preview?.toLowerCase().includes(search.toLowerCase()));
 
   const needsReview = conversations.filter(
@@ -513,14 +560,14 @@ export default function Inbox() {
 
   return (
     <div className="inbox-layout">
-      {/* Left: conversation list */}
-      <div className="inbox-list">
-        <div className="inbox-list-header">
+      {/* Full-width toolbar: title/accounts/toggle row + search/campaign/status row */}
+      <div className="inbox-toolbar">
+        <div className="inbox-toolbar-row">
           <div className="inbox-list-title">Inbox</div>
           <div className="inbox-header-actions">
             {accounts.length > 1 && (
               <select
-                style={{ fontSize: 12, padding: "4px 8px", border: "1.5px solid #e5e7eb", borderRadius: 8, background: "#fff", color: "#374151", cursor: "pointer", fontFamily: "inherit" }}
+                className="inbox-select"
                 value={accountId || ""}
                 onChange={(e) => loadChatsForAccount(e.target.value)}
               >
@@ -529,6 +576,24 @@ export default function Inbox() {
                 ))}
               </select>
             )}
+            <label
+              className="inbox-toggle-wrap"
+              title={
+                onlyCampaignLeads
+                  ? "Only showing messages from leads in your campaigns"
+                  : "Showing all messages, including personal ones."
+              }
+            >
+              <span className={`inbox-toggle-icon ${onlyCampaignLeads ? "on" : ""}`}>{WARN_ICON}</span>
+              <span className="inbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={onlyCampaignLeads}
+                  onChange={(e) => setOnlyCampaignLeads(e.target.checked)}
+                />
+                <span className="inbox-toggle-track" />
+              </span>
+            </label>
             <button
               className="inbox-refresh-btn"
               disabled={refreshing}
@@ -542,32 +607,72 @@ export default function Inbox() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="inbox-search-wrap">
-          <div className="inbox-search-inner">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              placeholder="Search messages…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <div className="inbox-toggle-message">
+          {onlyCampaignLeads
+            ? "Only showing messages from leads in your campaigns."
+            : "Showing all messages, including personal ones."}
+        </div>
+
+        <div className="inbox-toolbar-row">
+          {/* Search */}
+          <div className="inbox-search-wrap">
+            <div className="inbox-search-inner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                placeholder="Search messages…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="inbox-header-actions">
+            <select
+              className="inbox-select"
+              value={campaignFilter}
+              onChange={(e) => setCampaignFilter(e.target.value)}
+            >
+              <option value="all">All Campaigns</option>
+              {campaignsList.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+
+            <div className="inbox-status-dropdown" ref={statusMenuRef}>
+              <button
+                className={`inbox-status-btn ${filter !== "all" ? "active" : ""}`}
+                onClick={() => setStatusMenuOpen((o) => !o)}
+              >
+                {PEOPLE_ICON}
+                Lead Status
+                {filter !== "all" && <span className="inbox-status-dot" />}
+              </button>
+              {statusMenuOpen && (
+                <div className="inbox-status-menu">
+                  {STATUS_FILTER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.key}
+                      className={filter === opt.key ? "active" : ""}
+                      onClick={() => {
+                        setFilter(opt.key);
+                        setStatusMenuOpen(false);
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
 
-        <div className="inbox-filters">
-          {["all", "ai", "review", "booked"].map((f) => (
-            <button
-              key={f}
-              className={`filter-tab ${filter === f ? "active" : ""}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === "all" ? "All" : STATUS_META[FILTER_STATUS[f]]?.label || f}
-            </button>
-          ))}
-        </div>
-
+      <div className="inbox-body">
+      {/* Left: conversation list */}
+      <div className="inbox-list">
         <div className="conv-list">
           {loading ? (
             <SkeletonConvItems rows={8} />
@@ -756,6 +861,7 @@ export default function Inbox() {
           </div>
         </div>
       )}
+      </div>
 
       {/* Agent picker modal */}
       <Modal

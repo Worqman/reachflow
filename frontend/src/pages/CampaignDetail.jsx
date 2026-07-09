@@ -1579,9 +1579,9 @@ export default function CampaignDetail() {
             initialNodes={campaign.sequence?.nodes || []}
             linkedinAccounts={linkedinAccounts}
             leads={leads}
-            onSaved={(updated) => {
+            onSaved={(updated, { advanceSetup = true } = {}) => {
               setCampaign((prev) => ({ ...prev, sequence: updated }));
-              if (isSetup) setTab("schedule");
+              if (isSetup && advanceSetup) setTab("schedule");
             }}
             toast={toast}
             campaignStatus={campaign.status}
@@ -1630,10 +1630,12 @@ export default function CampaignDetail() {
         {tab === "schedule" && isSetup && (
           <ScheduleSetupTab
             campaign={campaign}
-            onSaved={(updated) => {
+            onSaved={(updated, { advanceSetup = true } = {}) => {
               setCampaign(updated);
-              setTab("leads");
-              navigate(`/campaigns/${id}`, { replace: true });
+              if (advanceSetup) {
+                setTab("leads");
+                navigate(`/campaigns/${id}`, { replace: true });
+              }
             }}
             toast={toast}
           />
@@ -3987,7 +3989,7 @@ function BuilderTab({
     }, 0);
   }
 
-  async function saveSequence(updatedNodes) {
+  async function saveSequence(updatedNodes, { advanceSetup = true } = {}) {
     // The tree already matches the persisted shape 1:1 — just strip the
     // UI-only `_new` flag (used for the entrance animation) recursively.
     function stripUiFields(list) {
@@ -4022,7 +4024,7 @@ function BuilderTab({
     try {
       const payload = { nodes: stripUiFields(updatedNodes) };
       const result = await campaignsApi.updateSequence(campaignId, payload);
-      onSaved(result);
+      onSaved(result, { advanceSetup });
       toast?.("Sequence saved", "success");
     } catch (err) {
       toast?.(err.message || "Could not save sequence", "danger");
@@ -4055,7 +4057,10 @@ function BuilderTab({
     // put a branch wait, so voice_note and visit_profile keep the old
     // flat-sibling insert — visit_profile always gets a default "Wait 1d"
     // right after it, same as voice_note.
-    if (nodeHasBranches(type)) {
+    // cond_1st_level ("Is Connected") checks current connection state
+    // instantly — there's no outcome to wait out, so unlike other branching
+    // nodes its Yes/No branches start empty instead of pre-filled with a wait.
+    if (nodeHasBranches(type) && type !== "cond_1st_level") {
       newNode.config = {
         ...newNode.config,
         yesBranch: [makeWaitNode()],
@@ -4415,12 +4420,20 @@ function BuilderTab({
     const noBranchNodes = node.config?.noBranch || [];
     const yesBranchNodes = node.config?.yesBranch || [];
     const labels = getBranchLabels(node.type);
-    // No/"Not Accepted" reads as the outcome of waiting it out, so its tag
-    // sits under the branch's first step (the default wait) rather than
-    // above it — only the first step renders before the label; anything
-    // added after it renders below. Yes/"Accepted" is the immediate,
-    // happy-path outcome, so its tag stays above the wait, on the fork bar.
+    // No/"Not Accepted" reads as the outcome of waiting it out, so when the
+    // branch leads with a plain, non-forking step (e.g. connection_request's
+    // default wait) its tag sits under that step rather than above it.
+    // Otherwise — the branch is empty (e.g. a freshly-added cond_1st_level,
+    // which has nothing to wait out), or its first child itself forks (e.g.
+    // connection_request added straight into an empty No branch, with no
+    // wait ahead of it) — there's no plain leading step to sit under, so the
+    // tag is anchored on the fork bar instead, mirroring how Yes/"Accepted"
+    // always sits on the bar. (A forking first child renders its own nested
+    // fork right below it, which would otherwise strand the tag far beneath
+    // the whole nested subtree instead of at this branch's own fork point.)
     const [noFirst, ...noRest] = noBranchNodes;
+    const noLeadsWithFork = !!noFirst && nodeHasBranches(noFirst.type);
+    const noLabelOnBar = !noFirst || noLeadsWithFork;
     // Once a branch's last step itself forks, it already ends in its own
     // real Stop pills one level down — this branch's own "add here" + Stop
     // would just float below that entire nested fork, redundant and
@@ -4437,12 +4450,27 @@ function BuilderTab({
         <div className="builder-connector" />
         <div className="builder-dot" />
         <div className="builder-branch-fork">
-          {/* ── No column (left) — first step (the wait), then the "Not
-              Accepted" tag under it, then anything added after. ── */}
+          {/* ── No column (left) — tag on the bar unless a plain leading
+              step (the wait) precedes it, in which case the tag sits under
+              that step instead; then anything added after. ── */}
           <div className="builder-branch-col branch-col-no">
-            {noFirst && renderBranchChild(noFirst, "no")}
-            <div className="branch-nb-connector" />
-            <span className="branch-label branch-label-no">{labels.no}</span>
+            {noLabelOnBar ? (
+              <>
+                <span className="branch-label branch-label-no branch-col-no-label">
+                  {labels.no}
+                </span>
+                <div className="branch-nb-connector" />
+                {noFirst && renderBranchChild(noFirst, "no")}
+              </>
+            ) : (
+              <>
+                {renderBranchChild(noFirst, "no")}
+                <div className="branch-nb-connector" />
+                <span className="branch-label branch-label-no">
+                  {labels.no}
+                </span>
+              </>
+            )}
             {noRest.map((nb) => renderBranchChild(nb, "no"))}
             {!noTailForks && (
               <>
@@ -4688,20 +4716,37 @@ function BuilderTab({
         </div>
         {/* /builder-inner */}
 
-        {/* Save button — fixed to the canvas corner, not the pannable/
-            zoomable inner content, so it's always reachable regardless of
-            scroll position or zoom level. */}
-        <button
-          className="btn btn-primary btn-sm builder-save-btn"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            saveSequence(nodes);
-          }}
-          disabled={saving}
-        >
-          {saving ? "Saving…" : "Save Sequence"}
-        </button>
+        {/* Save button(s) — fixed to the canvas corner, not the pannable/
+            zoomable inner content, so they're always reachable regardless
+            of scroll position or zoom level. During setup, saving just
+            persists the sequence and stays put — "Next: Schedule" is the
+            explicit, separate action for moving on to the next step. */}
+        <div className="builder-save-btn-group">
+          <button
+            className="btn btn-primary btn-sm"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              saveSequence(nodes, { advanceSetup: false });
+            }}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : "Save Sequence"}
+          </button>
+          {isSetup && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                saveSequence(nodes);
+              }}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Next: Schedule →"}
+            </button>
+          )}
+        </div>
 
         {/* Zoom controls */}
         <div
@@ -5216,7 +5261,7 @@ function BuilderTab({
               <button
                 className="btn btn-primary btn-sm"
                 style={{ flex: 1, fontSize: 12 }}
-                onClick={() => saveSequence(nodes)}
+                onClick={() => saveSequence(nodes, { advanceSetup: false })}
                 disabled={saving}
               >
                 {saving ? "Saving…" : "Save"}
@@ -6231,14 +6276,10 @@ function SettingsTab({
     }
   }
 
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
   async function handleDelete() {
-    // eslint-disable-next-line no-alert
-    if (
-      !window.confirm(
-        `Delete campaign "${campaign.name}"? This cannot be undone.`,
-      )
-    )
-      return;
+    setConfirmDeleteOpen(false);
     setDeleting(true);
     try {
       await campaignsApi.delete(campaign.id);
@@ -6754,7 +6795,7 @@ function SettingsTab({
         </h3>
         <button
           className="btn btn-danger"
-          onClick={handleDelete}
+          onClick={() => setConfirmDeleteOpen(true)}
           disabled={deleting}
         >
           {deleting ? "Deleting…" : "Delete Campaign"}
@@ -6762,6 +6803,47 @@ function SettingsTab({
       </div>
       )}
       </div>
+
+      {confirmDeleteOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) =>
+            e.target === e.currentTarget && setConfirmDeleteOpen(false)
+          }
+        >
+          <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Delete Campaign</h2>
+              <button
+                className="btn btn-icon btn-ghost"
+                onClick={() => setConfirmDeleteOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>
+                Delete campaign "{campaign.name}"? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setConfirmDeleteOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting…" : "Delete Campaign"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -6979,6 +7061,8 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
       DEFAULT_FREQUENCY.messages,
   });
   const [saving, setSaving] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [savingFrequency, setSavingFrequency] = useState(false);
 
   const [now, setNow] = useState(() => new Date());
   React.useEffect(() => {
@@ -7033,6 +7117,45 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
     } catch (err) {
       toast?.(err.message || "Could not save schedule", "danger");
       setSaving(false);
+    }
+  }
+
+  // Persists just the schedule (+ timezone) without activating the
+  // campaign or leaving setup — lets the user save this section on its own
+  // and keep going, same as every earlier setup step already allows.
+  async function handleSaveSchedule() {
+    setSavingSchedule(true);
+    try {
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: { ...campaign.settings, timezone, schedule },
+      });
+      toast?.("Schedule saved", "success");
+      onSaved(updated, { advanceSetup: false });
+    } catch (err) {
+      toast?.(err.message || "Could not save schedule", "danger");
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  // Persists just the frequency limits, same as handleSaveSchedule above.
+  async function handleSaveFrequency() {
+    setSavingFrequency(true);
+    try {
+      const updated = await campaignsApi.update(campaign.id, {
+        settings: {
+          ...campaign.settings,
+          frequency,
+          dailyConnectionLimit: frequency.connectionRequests,
+          dailyMessageLimit: frequency.messages,
+        },
+      });
+      toast?.("Frequency saved", "success");
+      onSaved(updated, { advanceSetup: false });
+    } catch (err) {
+      toast?.(err.message || "Could not save frequency", "danger");
+    } finally {
+      setSavingFrequency(false);
     }
   }
 
@@ -7154,6 +7277,22 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
             </div>
           ))}
         </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: 20,
+          }}
+        >
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleSaveSchedule}
+            disabled={savingSchedule}
+          >
+            {savingSchedule ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
 
       <div className="card">
@@ -7165,6 +7304,7 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
                 fontSize: 12,
                 color: "var(--text-muted)",
                 lineHeight: 1.5,
+                marginBottom: 12,
               }}
             >
               Daily limits per action. Leave as default to stay within LinkedIn
@@ -7252,6 +7392,22 @@ function ScheduleSetupTab({ campaign, onSaved, toast }) {
               </div>
             ))}
           </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: 20,
+          }}
+        >
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleSaveFrequency}
+            disabled={savingFrequency}
+          >
+            {savingFrequency ? "Saving…" : "Save"}
+          </button>
         </div>
       </div>
 

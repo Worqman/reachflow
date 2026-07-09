@@ -469,14 +469,18 @@
   will-change: transform;
 }
 
-/* ── Save button — fixed to the canvas, not the pannable/zoomable inner
-   content, so it stays reachable no matter where the diagram is scrolled
+/* ── Save button(s) — fixed to the canvas, not the pannable/zoomable inner
+   content, so they stay reachable no matter where the diagram is scrolled
    or how far it's zoomed. ── */
-.builder-save-btn {
+.builder-save-btn-group {
   position: absolute;
   top: 20px;
   right: 20px;
   z-index: 10;
+  display: flex;
+  gap: 8px;
+}
+.builder-save-btn-group .btn {
   font-size: 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
 }
@@ -937,6 +941,16 @@
    column's own center so it stays put regardless of column width. Solid
    background masks the dashed line behind it. */
 .branch-col-yes-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+
+/* Mirrors .branch-col-yes-label — used for an empty No branch (no leading
+   step to sit under), so its tag sits on the fork bar too, level with Yes. */
+.branch-col-no-label {
   position: absolute;
   top: 0;
   left: 50%;

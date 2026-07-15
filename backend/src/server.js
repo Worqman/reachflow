@@ -197,7 +197,7 @@ if (process.env.REDIS_URL) {
   console.warn("⚠️  REDIS_URL not set — campaign sending is disabled until it's configured (see backend/.env.example).");
 }
 
-const server = app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🚀 ReachFlow API running at http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health\n`);
 

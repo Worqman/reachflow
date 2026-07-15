@@ -21,5 +21,6 @@ create index if not exists leads_workspace_id_idx on leads(workspace_id);
 
 alter table leads enable row level security;
 
+drop policy if exists "service role full access" on leads;
 create policy "service role full access" on leads
   for all using (true) with check (true);

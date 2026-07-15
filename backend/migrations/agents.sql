@@ -25,5 +25,6 @@ create index if not exists agents_workspace_id_idx on agents(workspace_id);
 
 alter table agents enable row level security;
 
+drop policy if exists "service role full access" on agents;
 create policy "service role full access" on agents
   for all using (true) with check (true);

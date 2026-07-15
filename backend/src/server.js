@@ -19,6 +19,7 @@ import dashboardRouter from "./routes/dashboard.js";
 import unipileWebhook from "./webhooks/unipile.js";
 import { startScheduler } from "./services/scheduler.js";
 import { initConversationStore } from "./services/store.js";
+import { startCampaignQueueWorker, closeCampaignQueue } from "./services/campaignQueue.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,7 +27,6 @@ const PORT = process.env.PORT || 3001;
 // ── Middleware ────────────────────────────────────────────────
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://dev-reachflow.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
@@ -56,34 +56,36 @@ function requireAuth(req, res, next) {
 
 // Verifies the authenticated user is the owner or a member of req.workspaceId
 async function verifyWorkspaceMembership(req, res, next) {
-  const ws = req.workspaceId
+  const ws = req.workspaceId;
   // Skip for legacy default workspace (single-tenant dev mode)
-  if (!ws || ws === 'ws_default') return next()
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' })
+  if (!ws || ws === "ws_default") return next();
+  if (!req.user) return res.status(401).json({ message: "Unauthorized" });
 
   try {
     // Check if owner
     const { data: ownedWs } = await supabase
-      .from('workspaces')
-      .select('id')
-      .eq('id', ws)
-      .eq('owner_id', req.user.id)
-      .maybeSingle()
-    if (ownedWs) return next()
+      .from("workspaces")
+      .select("id")
+      .eq("id", ws)
+      .eq("owner_id", req.user.id)
+      .maybeSingle();
+    if (ownedWs) return next();
 
     // Check if member
     const { data: membership } = await supabase
-      .from('workspace_members')
-      .select('id')
-      .eq('workspace_id', ws)
-      .eq('user_id', req.user.id)
-      .maybeSingle()
-    if (membership) return next()
+      .from("workspace_members")
+      .select("id")
+      .eq("workspace_id", ws)
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+    if (membership) return next();
 
-    return res.status(403).json({ message: 'Access denied to this workspace' })
+    return res.status(403).json({ message: "Access denied to this workspace" });
   } catch (err) {
-    console.error('[workspace-auth]', err.message)
-    return res.status(500).json({ message: 'Workspace authorization check failed' })
+    console.error("[workspace-auth]", err.message);
+    return res
+      .status(500)
+      .json({ message: "Workspace authorization check failed" });
   }
 }
 
@@ -106,19 +108,64 @@ app.get("/health", (req, res) => {
 
 // ── API Routes ────────────────────────────────────────────────
 
-app.use("/api/workspaces",       requireAuth, verifyWorkspaceMembership, workspaceRouter);
-app.use("/api/company-profiles", requireAuth, verifyWorkspaceMembership, companyProfilesRouter);
-app.use("/api/settings",         requireAuth, verifyWorkspaceMembership, settingsRouter);
-app.use("/api/agents",           requireAuth, verifyWorkspaceMembership, agentsRouter);
-app.use("/api/campaigns",        requireAuth, verifyWorkspaceMembership, campaignsRouter);
-app.use("/api/leads",            requireAuth, verifyWorkspaceMembership, leadsRouter);
-app.use("/api/lead-lists",       requireAuth, verifyWorkspaceMembership, leadListsRouter);
-app.use("/api/conversations",    requireAuth, verifyWorkspaceMembership, conversationsRouter);
-app.use("/api/meetings",         requireAuth, verifyWorkspaceMembership, meetingsRouter);
-app.use("/api/profiles",         requireAuth, verifyWorkspaceMembership, profilesRouter);
-app.use("/api/members",          requireAuth, verifyWorkspaceMembership, membersRouter);
-app.use("/api/unipile",          requireAuth, verifyWorkspaceMembership, unipileRouter);
-app.use("/api/dashboard",        requireAuth, verifyWorkspaceMembership, dashboardRouter);
+app.use(
+  "/api/workspaces",
+  requireAuth,
+  verifyWorkspaceMembership,
+  workspaceRouter,
+);
+app.use(
+  "/api/company-profiles",
+  requireAuth,
+  verifyWorkspaceMembership,
+  companyProfilesRouter,
+);
+app.use(
+  "/api/settings",
+  requireAuth,
+  verifyWorkspaceMembership,
+  settingsRouter,
+);
+app.use("/api/agents", requireAuth, verifyWorkspaceMembership, agentsRouter);
+app.use(
+  "/api/campaigns",
+  requireAuth,
+  verifyWorkspaceMembership,
+  campaignsRouter,
+);
+app.use("/api/leads", requireAuth, verifyWorkspaceMembership, leadsRouter);
+app.use(
+  "/api/lead-lists",
+  requireAuth,
+  verifyWorkspaceMembership,
+  leadListsRouter,
+);
+app.use(
+  "/api/conversations",
+  requireAuth,
+  verifyWorkspaceMembership,
+  conversationsRouter,
+);
+app.use(
+  "/api/meetings",
+  requireAuth,
+  verifyWorkspaceMembership,
+  meetingsRouter,
+);
+app.use(
+  "/api/profiles",
+  requireAuth,
+  verifyWorkspaceMembership,
+  profilesRouter,
+);
+app.use("/api/members", requireAuth, verifyWorkspaceMembership, membersRouter);
+app.use("/api/unipile", requireAuth, verifyWorkspaceMembership, unipileRouter);
+app.use(
+  "/api/dashboard",
+  requireAuth,
+  verifyWorkspaceMembership,
+  dashboardRouter,
+);
 
 // ── Webhooks (no auth — called by Unipile externally) ─────────
 app.use("/api/webhooks", unipileWebhook);
@@ -140,8 +187,17 @@ app.use((err, req, res, next) => {
 // ── Start ─────────────────────────────────────────────────────
 startScheduler();
 initConversationStore();
+// Campaign sending (connection requests, messages, wait/reply resumption)
+// runs through this worker — see services/campaignQueue.js. Requires Redis;
+// skipped with a warning if REDIS_URL isn't set, same as other optional
+// integrations, but campaign sending itself will fail until it's configured.
+if (process.env.REDIS_URL) {
+  startCampaignQueueWorker();
+} else {
+  console.warn("⚠️  REDIS_URL not set — campaign sending is disabled until it's configured (see backend/.env.example).");
+}
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🚀 ReachFlow API running at http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health\n`);
 
@@ -151,6 +207,7 @@ app.listen(PORT, () => {
   if (!process.env.UNIPILE_DSN) missing.push("UNIPILE_DSN");
   if (!process.env.APOLLO_API_KEY) missing.push("APOLLO_API_KEY");
   if (!process.env.TRIGIFY_API_KEY) missing.push("TRIGIFY_API_KEY");
+  if (!process.env.REDIS_URL) missing.push("REDIS_URL");
   if (!process.env.SUPABASE_URL) missing.push("SUPABASE_URL");
   if (
     !process.env.SUPABASE_SERVICE_ROLE_KEY &&
@@ -166,3 +223,16 @@ app.listen(PORT, () => {
     console.log("✅ All API keys configured\n");
   }
 });
+
+// ── Graceful shutdown ─────────────────────────────────────────
+// Closes the BullMQ worker/queue cleanly so an in-flight job finishes (or
+// is released back for another worker to pick up) instead of being cut off
+// mid-processing while still holding an account lock.
+async function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down…`);
+  server.close();
+  await closeCampaignQueue().catch((err) => console.error("[shutdown] queue close error:", err.message));
+  process.exit(0);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

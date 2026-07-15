@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
-import { campaigns as campaignsApi, unipile } from "../lib/api";
+import { agents as agentsApi, campaigns as campaignsApi, unipile } from "../lib/api";
 import { normaliseProfile } from "./LeadFinderModal";
 
-export default function PostEngagersModal({ open, onClose, onImport, campaignId }) {
+// Signal types that have a real, automatic detection path today (post
+// engagement via Unipile). job_change/funding_round/company_growth also
+// exist in the model but have no data source yet — not offered here.
+const SIGNAL_TYPE_OPTIONS = [
+  { value: "keyword_post", label: "Pain-point post" },
+  { value: "competitor_follow", label: "Competitor engagement" },
+  { value: "post_activity", label: "General post activity" },
+];
+
+export default function PostEngagersModal({ open, onClose, onImport, campaignId, agentId }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [postUrl, setPostUrl] = useState("");
@@ -13,6 +22,10 @@ export default function PostEngagersModal({ open, onClose, onImport, campaignId 
   const [error, setError] = useState("");
   const [selected, setSelected] = useState([]);
   const [importing, setImporting] = useState(false);
+  const [signalType, setSignalType] = useState("keyword_post");
+  const [signalTopic, setSignalTopic] = useState("");
+  const [markingSignal, setMarkingSignal] = useState(false);
+  const [signalResult, setSignalResult] = useState(null);
 
   useEffect(() => {
     if (!open) return;
@@ -28,7 +41,7 @@ export default function PostEngagersModal({ open, onClose, onImport, campaignId 
   useEffect(() => {
     if (!open) {
       setPostUrl(""); setResults([]); setSearched(false);
-      setError(""); setSelected([]);
+      setError(""); setSelected([]); setSignalResult(null); setSignalTopic("");
     }
   }, [open]);
 
@@ -59,12 +72,44 @@ export default function PostEngagersModal({ open, onClose, onImport, campaignId 
     const leadsToAdd = selected.map((id) => results.find((r) => r.id === id)).filter(Boolean);
     if (!leadsToAdd.length) return;
     setImporting(true);
+    setError("");
     try {
       await campaignsApi.importLeads(campaignId, { leads: leadsToAdd });
       onImport();
       onClose();
-    } catch {}
+    } catch (err) {
+      setError(err.message || "Import failed");
+    }
     setImporting(false);
+  }
+
+  async function handleMarkAsSignal() {
+    const chosen = selected.map((id) => results.find((r) => r.id === id)).filter(Boolean);
+    if (!chosen.length || !agentId) return;
+    setMarkingSignal(true);
+    setSignalResult(null);
+    try {
+      const events = chosen.map((r) => ({
+        providerId: r.providerId,
+        leadName: r.name,
+        company: r.company,
+        title: r.title,
+        location: r.location,
+        linkedinUrl: r.linkedinUrl,
+        profilePictureUrl: r.profilePictureUrl,
+        type: signalType,
+        metadata: {
+          engagementType: engagerType === "comments" ? "comment" : "like",
+          postUrl: postUrl.trim(),
+          ...(signalTopic.trim() ? { postTopic: signalTopic.trim() } : {}),
+        },
+      }));
+      const data = await agentsApi.createSignalEventsBulk(agentId, events);
+      setSignalResult({ count: data?.inserted || events.length });
+    } catch (err) {
+      setSignalResult({ error: err.message || "Could not log signal" });
+    }
+    setMarkingSignal(false);
   }
 
   if (!open) return null;
@@ -207,7 +252,43 @@ export default function PostEngagersModal({ open, onClose, onImport, campaignId 
           )}
         </div>
 
-        <div className="modal-footer">
+        {signalResult && (
+          <div style={{ padding: "0 20px", fontSize: 12, color: signalResult.error ? "var(--danger, #e55)" : "var(--text-secondary)" }}>
+            {signalResult.error ? signalResult.error : `Logged ${signalResult.count} signal event(s) — intent scores updated.`}
+          </div>
+        )}
+
+        <div className="modal-footer" style={{ flexWrap: "wrap", gap: 8 }}>
+          {agentId && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginRight: "auto" }}>
+              <select
+                className="input"
+                style={{ fontSize: 12, padding: "5px 8px", height: "auto" }}
+                value={signalType}
+                onChange={(e) => setSignalType(e.target.value)}
+              >
+                {SIGNAL_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <input
+                className="input"
+                placeholder="Topic (optional) — e.g. pricing"
+                style={{ fontSize: 12, padding: "5px 8px", height: "auto", width: 160 }}
+                value={signalTopic}
+                onChange={(e) => setSignalTopic(e.target.value)}
+                title="What was the post about? Powers the {recentPostTopic}/{painPoint} sequence variables — leave blank if unsure."
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={selected.length === 0 || markingSignal}
+                onClick={handleMarkAsSignal}
+                title="Log selected engagers as a buying-intent signal for this campaign's agent"
+              >
+                {markingSignal ? "Marking…" : `Mark as Signal${selected.length > 0 ? ` (${selected.length})` : ""}`}
+              </button>
+            </div>
+          )}
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"

@@ -55,8 +55,13 @@ alter table campaigns enable row level security;
 alter table campaign_leads enable row level security;
 
 -- Allow service role full access (used by backend)
+-- Note: fix_rls_policies.sql later drops these (they grant PUBLIC access,
+-- not just service_role — see that file's header). Kept idempotent here
+-- via drop-then-create so this file can be safely re-run on its own.
+drop policy if exists "service role full access" on campaigns;
 create policy "service role full access" on campaigns
   for all using (true) with check (true);
 
+drop policy if exists "service role full access" on campaign_leads;
 create policy "service role full access" on campaign_leads
   for all using (true) with check (true);

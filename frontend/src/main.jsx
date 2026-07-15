@@ -17,6 +17,7 @@ const Inbox = lazy(() => import('./pages/Inbox'))
 const LeadFinder = lazy(() => import('./pages/LeadFinder'))
 const MyLeads = lazy(() => import('./pages/MyLeads'))
 const Agents = lazy(() => import('./pages/Agents'))
+const SignalFeed = lazy(() => import('./pages/SignalFeed'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Login = lazy(() => import('./pages/Login'))
@@ -294,6 +295,7 @@ function AppRoutes() {
         <Route path="/leads"         element={<LeadFinder />} />
         <Route path="/my-leads"      element={<MyLeads />} />
         <Route path="/agents"        element={<Agents />} />
+        <Route path="/signals"       element={<SignalFeed />} />
         <Route path="/workspaces"    element={<Workspaces />} />
         <Route path="/members"       element={<Members />} />
         <Route path="/invite"        element={<Navigate to={`/members${location.search || ''}`} replace />} />

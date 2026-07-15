@@ -2,6 +2,13 @@ import { Router } from 'express'
 import { accounts, chats, linkedin, relations, isConfigured } from '../services/unipile.js'
 import { supabase } from '../services/supabase.js'
 import { logSend, getDailyUsage } from '../services/usageLog.js'
+import {
+  getAccountSafety,
+  checkAccountSendAllowed,
+  getEffectiveLimits,
+  DEFAULT_SAFETY_SETTINGS,
+} from '../services/accountSafety.js'
+import { withAccountLock } from '../services/accountLock.js'
 
 function wsId(req) { return req.workspaceId || 'ws_default' }
 
@@ -191,6 +198,37 @@ async function withUsage(items) {
   }))
 }
 
+// Attaches each account's safety settings (paused + daily limits/active
+// hours/delay/warm-up) so the LinkedIn Accounts page can render status and
+// usage limits without a separate round trip per account. Falls back to
+// defaults (paused: false, DEFAULT_SAFETY_SETTINGS) when there's no DB or
+// the row/migration doesn't exist yet.
+async function withSafety(items) {
+  if (!supabase || !items.length) {
+    return items.map(a => ({ paused: false, safety: DEFAULT_SAFETY_SETTINGS, ...a }))
+  }
+  const ids = items.map(a => a.id).filter(Boolean)
+  const { data, error } = await supabase
+    .from('workspace_linkedin_accounts')
+    .select('unipile_account_id, paused, safety_settings')
+    .in('unipile_account_id', ids)
+
+  const byId = {}
+  if (!error) {
+    for (const row of data || []) {
+      byId[row.unipile_account_id] = {
+        paused: !!row.paused,
+        safety: { ...DEFAULT_SAFETY_SETTINGS, ...(row.safety_settings || {}) },
+      }
+    }
+  }
+  return items.map(a => ({
+    ...a,
+    paused: byId[a.id]?.paused ?? false,
+    safety: byId[a.id]?.safety ?? DEFAULT_SAFETY_SETTINGS,
+  }))
+}
+
 // In-memory cache for the connected account's own LinkedIn profile picture:
 // accountId → { picture, expiresAt }. Avoids re-fetching on every page load.
 const _accountPictureCache = new Map()
@@ -241,7 +279,7 @@ router.get('/accounts', async (req, res) => {
 
     // No DB / dev mode — return everything
     if (!supabase || ws === 'ws_default') {
-      return res.json({ items: await withPicture(await withUsage(all)), object: 'AccountList' })
+      return res.json({ items: await withSafety(await withPicture(await withUsage(all))), object: 'AccountList' })
     }
 
     // Fetch workspace account associations from DB
@@ -253,12 +291,12 @@ router.get('/accounts', async (req, res) => {
     if (dbErr) {
       // Table likely not created yet — return all accounts so the UI isn't broken
       console.warn('[unipile/accounts] DB error (migration not run?):', dbErr.message)
-      return res.json({ items: await withPicture(await withUsage(all)), object: 'AccountList' })
+      return res.json({ items: await withSafety(await withPicture(await withUsage(all))), object: 'AccountList' })
     }
 
     const knownIds = (rows || []).map(r => r.unipile_account_id)
     const filtered = all.filter(a => knownIds.includes(a.id))
-    res.json({ items: await withPicture(await withUsage(filtered)), object: 'AccountList' })
+    res.json({ items: await withSafety(await withPicture(await withUsage(filtered))), object: 'AccountList' })
   } catch (err) {
     console.error('[unipile/accounts] error:', err.status, err.message, JSON.stringify(err.data || {}))
     res.status(err.status || 500).json({ message: err.message })
@@ -394,6 +432,70 @@ router.delete('/accounts/:id', async (req, res) => {
   }
 })
 
+// Verifies the account belongs to the current workspace before any
+// safety-settings read/write — same check DELETE /accounts/:id uses.
+async function assertOwnsAccount(req, res) {
+  const ws = wsId(req)
+  if (!supabase || ws === 'ws_default') return true // dev mode — no workspace scoping
+  const { data: row } = await supabase
+    .from('workspace_linkedin_accounts')
+    .select('id')
+    .eq('workspace_id', ws)
+    .eq('unipile_account_id', req.params.id)
+    .maybeSingle()
+  if (!row) {
+    res.status(403).json({ message: 'Account does not belong to this workspace' })
+    return false
+  }
+  return true
+}
+
+// GET /api/unipile/accounts/:id/safety
+router.get('/accounts/:id/safety', async (req, res) => {
+  try {
+    if (!(await assertOwnsAccount(req, res))) return
+    const safety = await getAccountSafety(req.params.id)
+    const usage = await getDailyUsage([req.params.id])
+    res.json({
+      ...safety,
+      effective: getEffectiveLimits(safety),
+      usage: usage[req.params.id] || { requests: 0, messages: 0 },
+    })
+  } catch (err) {
+    console.error('[unipile/accounts/safety/get] error:', err.status, err.message)
+    res.status(err.status || 500).json({ message: err.message })
+  }
+})
+
+// PATCH /api/unipile/accounts/:id/safety
+// Body may include: paused, dailyConnectionLimit, dailyMessageLimit,
+// activeDays, activeHours, timezone, sendingDelay, warmupMode.
+// Merges over the account's existing safety_settings (partial update).
+router.patch('/accounts/:id/safety', async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ message: 'Supabase not configured' })
+    if (!(await assertOwnsAccount(req, res))) return
+
+    const { paused, ...settingsPatch } = req.body || {}
+    const current = await getAccountSafety(req.params.id)
+    const { paused: _currentPaused, ...currentSettings } = current
+    const nextSettings = { ...currentSettings, ...settingsPatch }
+    const nextPaused = typeof paused === 'boolean' ? paused : current.paused
+
+    const { error } = await supabase
+      .from('workspace_linkedin_accounts')
+      .update({ paused: nextPaused, safety_settings: nextSettings })
+      .eq('unipile_account_id', req.params.id)
+
+    if (error) throw Object.assign(new Error(error.message), { status: 500 })
+
+    res.json({ paused: nextPaused, ...nextSettings })
+  } catch (err) {
+    console.error('[unipile/accounts/safety/patch] error:', err.status, err.message)
+    res.status(err.status || 500).json({ message: err.message })
+  }
+})
+
 // ── Chats ─────────────────────────────────────────────────────
 
 // GET /api/unipile/chats?account_id=...&limit=...&cursor=...
@@ -444,10 +546,23 @@ router.get('/chats/:chatId/messages', async (req, res) => {
 // POST /api/unipile/chats/:chatId/messages
 router.post('/chats/:chatId/messages', async (req, res) => {
   try {
-    const { text } = req.body
+    const { text, accountId } = req.body
     if (!text) return res.status(400).json({ message: 'text required' })
-    const data = await chats.sendMessage(req.params.chatId, text)
-    if (req.body.accountId) logSend(req.body.accountId, 'message')
+    // Locked so this manual send can't race a queued campaign send on the
+    // same account past the account's daily message limit.
+    const data = accountId
+      ? await withAccountLock(accountId, async () => {
+          const acctCheck = await checkAccountSendAllowed(accountId, 'message')
+          if (acctCheck.allowed === false) {
+            const err = new Error(acctCheck.reason)
+            err.status = 429
+            throw err
+          }
+          const result = await chats.sendMessage(req.params.chatId, text)
+          logSend(accountId, 'message')
+          return result
+        })
+      : await chats.sendMessage(req.params.chatId, text)
     res.json(data)
   } catch (err) {
     console.error('[unipile/chats/send] error:', err.status, err.message, JSON.stringify(err.data || {}))
@@ -472,8 +587,19 @@ router.post('/invite', async (req, res) => {
     }
     if (!pid) return res.status(400).json({ message: 'Could not resolve providerUserId from linkedinUrl' })
 
-    const data = await linkedin.sendInvite({ accountId, providerUserId: pid, message })
-    logSend(accountId, 'connection_request')
+    // Locked so this manual send can't race a queued campaign send on the
+    // same account past the account's daily connection-request limit.
+    const data = await withAccountLock(accountId, async () => {
+      const acctCheck = await checkAccountSendAllowed(accountId, 'connection_request')
+      if (!acctCheck.allowed) {
+        const err = new Error(acctCheck.reason)
+        err.status = 429
+        throw err
+      }
+      const result = await linkedin.sendInvite({ accountId, providerUserId: pid, message })
+      logSend(accountId, 'connection_request')
+      return result
+    })
     res.json(data)
   } catch (err) {
     console.error('[unipile/invite] error:', err.status, err.message, JSON.stringify(err.data || {}))
@@ -674,8 +800,19 @@ router.post('/message', async (req, res) => {
       return res.status(400).json({ message: 'linkedinUrl or providerUserId required' })
     if (!text) return res.status(400).json({ message: 'text required' })
 
-    const data = await linkedin.sendMessage({ accountId, linkedinUrl, providerUserId, text })
-    logSend(accountId, 'message')
+    // Locked so this manual send can't race a queued campaign send on the
+    // same account past the account's daily message limit.
+    const data = await withAccountLock(accountId, async () => {
+      const acctCheck = await checkAccountSendAllowed(accountId, 'message')
+      if (!acctCheck.allowed) {
+        const err = new Error(acctCheck.reason)
+        err.status = 429
+        throw err
+      }
+      const result = await linkedin.sendMessage({ accountId, linkedinUrl, providerUserId, text })
+      logSend(accountId, 'message')
+      return result
+    })
     res.json(data)
   } catch (err) {
     console.error('[unipile/message] error:', err.status, err.message, JSON.stringify(err.data || {}))

@@ -73,7 +73,14 @@ const SIGNAL_TYPE_OPTIONS = [
   { value: "competitor_follow", label: "Competitor Follow" },
   { value: "company_growth", label: "Company Growth" },
   { value: "funding_round", label: "Funding Round" },
+  { value: "post_activity", label: "Post Activity" },
 ];
+
+const INTENT_CLASSIFICATION_LABELS = {
+  high_intent: "High intent",
+  warm: "Warm",
+  low_intent: "Low intent",
+};
 
 const SIGNAL_TYPE_LABELS = Object.fromEntries(
   SIGNAL_TYPE_OPTIONS.map((o) => [o.value, o.label]),
@@ -439,6 +446,19 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
       .finally(() => setEventsLoading(false));
   }, [agent.id]);
 
+  // Computed lead-intent scores — one row per lead this agent has signal
+  // history for (see backend/src/services/signalScoring.js)
+  const [scores, setScores] = useState([]);
+  const [scoresLoading, setScoresLoading] = useState(true);
+
+  useEffect(() => {
+    agentsApi
+      .listScores(agent.id)
+      .then((data) => setScores(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setScoresLoading(false));
+  }, [agent.id]);
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -721,6 +741,40 @@ function AgentDetailModal({ agent, onClose, onUpdated, onDeleted, toast }) {
                     ) : (
                       <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>✓ Actioned</span>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Lead Intent Scores */}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#374151" }}>Lead Intent Scores</div>
+            {scoresLoading ? (
+              <div style={{ fontSize: 13, color: "#9ca3af" }}>Loading scores…</div>
+            ) : scores.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#9ca3af", padding: "20px 0", textAlign: "center" }}>
+                No scored leads yet — scores appear once this agent has signal events for a lead.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {scores.map((s) => (
+                  <div key={s.id} className="agent-event-row">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>{s.leadName || s.providerId}</span>
+                        {s.company && <span style={{ fontSize: 12, color: "#9ca3af" }}>· {s.company}</span>}
+                        <span className="agent-event-type-badge">{INTENT_CLASSIFICATION_LABELS[s.classification] || s.classification}</span>
+                        <span className={`agent-event-intent${s.score < 70 ? " low" : ""}`}>
+                          {s.score}/100
+                        </span>
+                      </div>
+                      {s.reason && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>{s.reason}</div>}
+                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                        {s.signalCount} signal{s.signalCount !== 1 ? "s" : ""} · last evaluated{" "}
+                        {new Date(s.lastEvaluatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

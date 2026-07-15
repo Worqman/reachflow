@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { workspaceStore } from '../services/store.js'
+import { redis } from '../services/redis.js'
 
 const router = Router()
 
@@ -18,13 +19,26 @@ router.put('/profile', (req, res) => {
 })
 
 // GET /api/settings/integrations
-router.get('/integrations', (req, res) => {
+router.get('/integrations', async (req, res) => {
+  // Redis backs campaign sending (services/campaignQueue.js), so this
+  // checks a live connection rather than just env-var presence — a
+  // misconfigured host/port would otherwise show as "connected".
+  let redisConnected = false
+  if (redis) {
+    try {
+      await redis.ping()
+      redisConnected = true
+    } catch {
+      redisConnected = false
+    }
+  }
+
   res.json({
     unipile:   { connected: !!process.env.UNIPILE_API_KEY,   name: 'Unipile'   },
     apollo:    { connected: !!process.env.APOLLO_API_KEY,    name: 'Apollo.io' },
     trigify:   { connected: !!process.env.TRIGIFY_API_KEY,   name: 'Trigify'   },
     anthropic: { connected: !!process.env.ANTHROPIC_API_KEY, name: 'Anthropic' },
-    redis:     { connected: !!process.env.REDIS_URL,         name: 'Redis'     },
+    redis:     { connected: redisConnected,                  name: 'Redis'     },
     supabase:  { connected: !!process.env.SUPABASE_URL,      name: 'Supabase'  },
   })
 })

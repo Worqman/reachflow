@@ -18,5 +18,6 @@ create index if not exists campaign_lead_activity_lead_idx on campaign_lead_acti
 
 alter table campaign_lead_activity enable row level security;
 
+drop policy if exists "service role full access" on campaign_lead_activity;
 create policy "service role full access" on campaign_lead_activity
   for all using (true) with check (true);

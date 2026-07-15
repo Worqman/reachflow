@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto'
 import { supabase } from './supabase.js'
-import { syncCampaignStatuses, runCampaignInvites, resumeReplyBranch, resumeFromPendingStep } from '../routes/campaigns.js'
+import { syncCampaignStatuses, runCampaignInvites, resumeFromPendingStep } from '../routes/campaigns.js'
 import { conversationStore } from './store.js'
+import { isProspectMessage } from './replyTakeover.js'
+import { enqueueResumePendingStep } from './campaignQueue.js'
 
 async function processActiveCampaigns() {
   if (!supabase) return
@@ -158,8 +160,7 @@ async function syncAIConversations() {
 
         // Unipile returns newest-first — index 0 is most recent
         const latest = msgs[0]
-        const latestIsProspect = latest.is_sender === 0 || latest.is_sender === false
-        if (!latestIsProspect) continue
+        if (!isProspectMessage(latest)) continue
 
         // Skip if we already know this message
         const alreadyKnown = conv.messages.some(m => m.id === latest.id)
@@ -181,8 +182,8 @@ async function syncAIConversations() {
 
         scheduleAIReply(conv.id)
         if (conv.prospectId && conv.campaignId) {
-          resumeReplyBranch(conv.prospectId, conv.campaignId, 'replied')
-            .catch(err => console.error(`[sync-ai-convs] resumeReplyBranch error:`, err.message))
+          enqueueResumePendingStep(conv.prospectId, conv.campaignId, { outcome: 'replied' })
+            .catch(err => console.error(`[sync-ai-convs] enqueueResumePendingStep error:`, err.message))
         }
         triggered++
       } catch (err) {

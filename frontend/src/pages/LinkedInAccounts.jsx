@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { unipile } from '../lib/api'
 import { useToast } from '../components/Toast'
 import { SkeletonTableRows } from '../components/Skeleton'
+import AccountSafetyModal from '../components/AccountSafetyModal'
 
 function timeAgo(dateStr) {
   if (!dateStr) return '—'
@@ -40,6 +41,7 @@ export default function LinkedInAccounts() {
   const [syncing, setSyncing] = useState(false)
   const [openMenu, setOpenMenu] = useState(null)   // acc.id of open menu
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
+  const [safetyAccount, setSafetyAccount] = useState(null) // acc object with open safety modal
 
   async function load() {
     setLoading(true)
@@ -122,6 +124,7 @@ export default function LinkedInAccounts() {
   }, [openMenu])
 
   function getStatus(acc) {
+    if (acc.paused) return 'paused'
     const s = (acc.connection_status || acc.status || '').toLowerCase()
     if (s === 'ok' || s === 'connected' || s === 'active' || !s) return 'active'
     if (s === 'error' || s === 'disconnected' || s === 'invalid') return 'error'
@@ -215,10 +218,11 @@ export default function LinkedInAccounts() {
                 const acctType = getType(acc)
                 const salesNav = hasSalesNav(acc)
                 const dailyReqUsed = acc.daily_requests_used ?? acc.invites_today ?? 0
-                const dailyReqLimit = acc.daily_requests_limit ?? 25
+                const dailyReqLimit = acc.safety?.dailyConnectionLimit ?? acc.daily_requests_limit ?? 25
                 const dailyMsgUsed = acc.daily_messages_used ?? acc.messages_today ?? 0
-                const dailyMsgLimit = acc.daily_messages_limit ?? 80
+                const dailyMsgLimit = acc.safety?.dailyMessageLimit ?? acc.daily_messages_limit ?? 80
                 const lastSync = acc.last_sync_at || acc.updated_at || acc.created_at
+                const warmup = !!acc.safety?.warmupMode
 
                 return (
                   <tr key={acc.id}>
@@ -249,9 +253,14 @@ export default function LinkedInAccounts() {
 
                     {/* Status */}
                     <td>
-                      <span className={`badge ${status === 'active' ? 'badge-signal' : 'badge-danger'}`}>
-                        {status === 'active' ? 'Active' : 'Error'}
+                      <span className={`badge ${status === 'active' ? 'badge-signal' : status === 'paused' ? 'badge-warning' : 'badge-danger'}`}>
+                        {status === 'active' ? 'Active' : status === 'paused' ? 'Paused' : 'Error'}
                       </span>
+                      {warmup && (
+                        <span className="badge badge-info" style={{ marginLeft: 6 }} title="Warm-up mode caps daily sending and slows the delay between sends">
+                          Warm-up
+                        </span>
+                      )}
                     </td>
 
                     {/* Type */}
@@ -277,7 +286,16 @@ export default function LinkedInAccounts() {
                     </td>
 
                     {/* Actions */}
-                    <td onClick={e => e.stopPropagation()}>
+                    <td onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        className="btn btn-icon btn-ghost"
+                        title="Sending Safety"
+                        onClick={(e) => { e.stopPropagation(); setSafetyAccount(acc) }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 15, height: 15 }}>
+                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        </svg>
+                      </button>
                       <button
                         className="btn btn-icon btn-ghost"
                         style={{ fontSize: 16, letterSpacing: 1 }}
@@ -331,6 +349,17 @@ export default function LinkedInAccounts() {
           </button>
         </div>
       )}
+
+      <AccountSafetyModal
+        open={!!safetyAccount}
+        account={safetyAccount}
+        onClose={() => setSafetyAccount(null)}
+        onSaved={(saved) => {
+          setAccounts(prev => prev.map(a => (
+            a.id === safetyAccount?.id ? { ...a, paused: saved.paused, safety: saved } : a
+          )))
+        }}
+      />
     </div>
   )
 }

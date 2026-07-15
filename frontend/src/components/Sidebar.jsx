@@ -163,6 +163,19 @@ const IconSignOut = () => (
   </svg>
 );
 
+const IconSignal = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="2 12 7 12 10 19 14 5 17 12 22 12" />
+  </svg>
+);
+
 const NAV = [
   { section: "WORKSPACE" },
   { to: "/", label: "Dashboard", exact: true, icon: <IconDashboard /> },
@@ -178,6 +191,7 @@ const NAV = [
   { to: "/my-leads", label: "Lead Database", icon: <IconDatabase /> },
   { section: "AUTOMATIONS" },
   { to: "/agents", label: "AI Agents", icon: <IconAgent /> },
+  { to: "/signals", label: "Signal Feed", icon: <IconSignal /> },
   { to: "/workspaces", label: "Workspaces", icon: <IconAutomation /> },
   { section: "GENERAL" },
   { to: "/settings", label: "Settings", icon: <IconSettings /> },

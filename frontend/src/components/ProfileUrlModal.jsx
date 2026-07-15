@@ -73,11 +73,14 @@ export default function ProfileUrlModal({ open, onClose, onImport, campaignId })
     const leadsToAdd = selected.map((id) => results.find((r) => r.id === id)).filter(Boolean);
     if (!leadsToAdd.length) return;
     setImporting(true);
+    setError("");
     try {
       await campaignsApi.importLeads(campaignId, { leads: leadsToAdd });
       onImport();
       onClose();
-    } catch {}
+    } catch (err) {
+      setError(err.message || "Import failed");
+    }
     setImporting(false);
   }
 

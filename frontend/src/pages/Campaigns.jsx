@@ -80,6 +80,10 @@ export default function Campaigns() {
   }
 
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 5
+
+  useEffect(() => { setPage(1) }, [search])
 
   const active = list.filter(c => c.status === 'active').length
   const totalSent = list.reduce((s, c) => s + (c.analytics?.sent || 0), 0)
@@ -91,6 +95,9 @@ export default function Campaigns() {
   const filteredList = search
     ? list.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
     : list
+
+  const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE))
+  const pagedList = filteredList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
     <div className="campaigns-page animate-fade-in">
@@ -230,7 +237,7 @@ export default function Campaigns() {
                 </tr>
               </thead>
               <tbody>
-                {filteredList.map(c => {
+                {pagedList.map(c => {
                   const sent = c.analytics?.sent || 0
                   const accepted = c.analytics?.accepted || 0
                   const replied = c.analytics?.replied || 0
@@ -311,6 +318,38 @@ export default function Campaigns() {
             </table>
             {filteredList.length === 0 && (
               <div className="camp-no-results">No campaigns match "{search}"</div>
+            )}
+            {filteredList.length > PAGE_SIZE && (
+              <div className="camp-pagination">
+                <span>
+                  {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredList.length)} of {filteredList.length}
+                </span>
+                <div className="camp-pagination-controls">
+                  <button
+                    className="camp-page-btn"
+                    disabled={page === 1}
+                    onClick={() => setPage(p => p - 1)}
+                  >
+                    ‹
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <button
+                      key={p}
+                      className={`camp-page-btn${page === p ? ' active' : ''}`}
+                      onClick={() => setPage(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    className="camp-page-btn"
+                    disabled={page === totalPages}
+                    onClick={() => setPage(p => p + 1)}
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
             )}
           </>
         )}

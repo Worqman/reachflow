@@ -8,6 +8,7 @@ import {
 } from "../lib/api";
 import { SkeletonConvItems } from "../components/Skeleton";
 import Modal from "../components/Modal";
+import { useToast } from "../components/Toast";
 import { setInboxUnreadCount } from "../lib/inboxState";
 import "./Inbox.css";
 
@@ -184,6 +185,7 @@ function ConvItem({ c, active, onSelect }) {
 }
 
 export default function Inbox() {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [conversations, setConversations] = useState([]);
   const [active, setActive] = useState(null);
@@ -540,8 +542,9 @@ export default function Inbox() {
         },
       ]);
       setReply("");
-    } catch {
+    } catch (err) {
       // keep text so user can retry
+      toast?.(err.message || "Failed to send message", "danger");
     } finally {
       setSending(false);
     }

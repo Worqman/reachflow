@@ -2,6 +2,9 @@ import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '../services/supabase.js'
+import { recomputeScore, getScore, listScoresForAgent, recommendedActionFor } from '../services/signalScoring.js'
+
+const SCORE_STATUS_VALUES = ['new', 'saved', 'added_to_campaign', 'dismissed', 'not_relevant']
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -268,16 +271,25 @@ router.get('/:id/signal-events', async (req, res) => {
     type:        r.type,
     leadName:    r.lead_name,
     company:     r.company,
+    providerId:  r.provider_id,
     signal:      r.signal,
     intentScore: r.intent_score,
+    metadata:    r.metadata || {},
     actioned:    r.actioned,
     createdAt:   r.created_at,
   })))
 })
 
+async function bumpSignalsDetected(agentId, by = 1) {
+  const { data: agentRow } = await supabase.from('agents').select('signals_detected').eq('id', agentId).single()
+  if (agentRow) {
+    await supabase.from('agents').update({ signals_detected: (agentRow.signals_detected || 0) + by }).eq('id', agentId)
+  }
+}
+
 // POST /api/agents/:id/signal-events
 router.post('/:id/signal-events', async (req, res) => {
-  const { type, leadName, company, signal, intentScore = 0 } = req.body
+  const { type, leadName, company, signal, intentScore = 0, providerId, metadata, title, location } = req.body
   if (!type || !leadName) return res.status(400).json({ message: 'type and leadName required' })
 
   const row = {
@@ -287,18 +299,27 @@ router.post('/:id/signal-events', async (req, res) => {
     type,
     lead_name:    leadName,
     company:      company || null,
+    provider_id:  providerId || null,
     signal:       signal || null,
     intent_score: intentScore,
+    metadata:     metadata || {},
     actioned:     false,
   }
 
   const { data, error } = await supabase.from('signal_events').insert(row).select().single()
   if (error) return res.status(500).json({ message: error.message })
 
-  // bump agent signals_detected counter
-  const { data: agentRow } = await supabase.from('agents').select('signals_detected').eq('id', req.params.id).single()
-  if (agentRow) {
-    await supabase.from('agents').update({ signals_detected: (agentRow.signals_detected || 0) + 1 }).eq('id', req.params.id)
+  await bumpSignalsDetected(req.params.id)
+
+  // Recompute the aggregate intent score for this lead if we have a stable
+  // identifier — a single manually-logged event with no providerId (e.g.
+  // legacy callers) just gets stored, no score is computed for it.
+  let score = null
+  if (providerId) {
+    score = await recomputeScore({
+      workspaceId: wsId(req), agentId: req.params.id, providerId,
+      leadSnapshot: { leadName, company, title, location },
+    })
   }
 
   res.status(201).json({
@@ -308,12 +329,122 @@ router.post('/:id/signal-events', async (req, res) => {
     type:        data.type,
     leadName:    data.lead_name,
     company:     data.company,
+    providerId:  data.provider_id,
     signal:      data.signal,
     intentScore: data.intent_score,
+    metadata:    data.metadata || {},
     actioned:    data.actioned,
     createdAt:   data.created_at,
+    score,
   })
 })
+
+// POST /api/agents/:id/signal-events/bulk
+// Used by PostEngagersModal's "Mark as signal" flow — logs several people
+// who engaged with a post as one signal type, then scores each of them.
+router.post('/:id/signal-events/bulk', async (req, res) => {
+  const { events } = req.body
+  if (!Array.isArray(events) || events.length === 0) {
+    return res.status(400).json({ message: 'events must be a non-empty array' })
+  }
+  const invalid = events.find(e => !e.type || !e.providerId)
+  if (invalid) return res.status(400).json({ message: 'each event requires type and providerId' })
+
+  const ws = wsId(req)
+  const rows = events.map(e => ({
+    id:           `sig_${randomUUID().slice(0, 8)}`,
+    workspace_id: ws,
+    agent_id:     req.params.id,
+    type:         e.type,
+    lead_name:    e.leadName || e.name || 'Unknown',
+    company:      e.company || null,
+    provider_id:  e.providerId,
+    signal:       e.signal || null,
+    intent_score: 0,
+    metadata:     e.metadata || {},
+    actioned:     false,
+  }))
+
+  const { data, error } = await supabase.from('signal_events').insert(rows).select()
+  if (error) return res.status(500).json({ message: error.message })
+
+  await bumpSignalsDetected(req.params.id, rows.length)
+
+  // One score recompute per unique lead — later events for the same
+  // person in this batch don't need a redundant recompute.
+  const byProviderId = new Map()
+  for (const e of events) if (!byProviderId.has(e.providerId)) byProviderId.set(e.providerId, e)
+
+  const scores = await Promise.all(
+    [...byProviderId.entries()].map(([providerId, e]) =>
+      recomputeScore({
+        workspaceId: ws, agentId: req.params.id, providerId,
+        leadSnapshot: {
+          leadName: e.leadName || e.name, company: e.company, title: e.title, location: e.location,
+          linkedinUrl: e.linkedinUrl, profilePictureUrl: e.profilePictureUrl,
+        },
+      })
+    )
+  )
+
+  res.status(201).json({ inserted: data.length, scores: scores.filter(Boolean) })
+})
+
+// GET /api/agents/:id/scores — all computed lead-intent scores for this agent
+router.get('/:id/scores', async (req, res) => {
+  const scores = await listScoresForAgent(req.params.id, wsId(req))
+  res.json(scores.map(scoreDbToApi))
+})
+
+// GET /api/agents/:id/scores/:providerId
+router.get('/:id/scores/:providerId', async (req, res) => {
+  const score = await getScore(req.params.id, req.params.providerId)
+  if (!score) return res.status(404).json({ message: 'No score computed for this lead yet' })
+  res.json(scoreDbToApi(score))
+})
+
+// PATCH /api/agents/:id/scores/:providerId/status — Signal Feed actions
+// (dismiss / not relevant / restore / mark saved / mark added to campaign)
+router.patch('/:id/scores/:providerId/status', async (req, res) => {
+  const { status } = req.body
+  if (!SCORE_STATUS_VALUES.includes(status)) {
+    return res.status(400).json({ message: `status must be one of: ${SCORE_STATUS_VALUES.join(', ')}` })
+  }
+  const { data, error } = await supabase
+    .from('signal_scores')
+    .update({ status, status_updated_at: new Date().toISOString() })
+    .eq('agent_id', req.params.id)
+    .eq('provider_id', req.params.providerId)
+    .select()
+    .single()
+  if (error || !data) return res.status(404).json({ message: 'No score found for this lead' })
+  res.json(scoreDbToApi(data))
+})
+
+function scoreDbToApi(r) {
+  return {
+    id:              r.id,
+    agentId:         r.agent_id,
+    workspaceId:     r.workspace_id,
+    providerId:      r.provider_id,
+    leadName:        r.lead_name,
+    company:         r.company,
+    title:           r.title,
+    location:        r.location,
+    linkedinUrl:     r.linkedin_url,
+    profilePictureUrl: r.profile_picture_url,
+    score:           r.score,
+    classification:  r.classification,
+    confidence:      r.confidence,
+    reason:          r.reason,
+    recommendedAction: recommendedActionFor(r.classification),
+    status:          r.status || 'new',
+    statusUpdatedAt: r.status_updated_at,
+    breakdown:       r.breakdown || {},
+    signalCount:     r.signal_count,
+    lastEvaluatedAt: r.last_evaluated_at,
+  }
+}
 
 // PATCH /api/agents/:id/signal-events/:eventId/action
 router.patch('/:id/signal-events/:eventId/action', async (req, res) => {

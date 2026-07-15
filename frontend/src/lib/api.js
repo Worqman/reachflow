@@ -88,8 +88,17 @@ export const agents = {
   generatePersona: (id, d) => post(`/agents/${id}/generate-persona`, d),
   // Signal events
   listSignalEvents: (id) => get(`/agents/${id}/signal-events`),
+  createSignalEvent: (id, d) => post(`/agents/${id}/signal-events`, d),
+  createSignalEventsBulk: (id, events) =>
+    post(`/agents/${id}/signal-events/bulk`, { events }),
   actionSignalEvent: (agentId, eventId) =>
     request("PATCH", `/agents/${agentId}/signal-events/${eventId}/action`),
+  // Intent scores
+  listScores: (id) => get(`/agents/${id}/scores`),
+  getScore: (agentId, providerId) =>
+    get(`/agents/${agentId}/scores/${providerId}`),
+  updateScoreStatus: (agentId, providerId, status) =>
+    request("PATCH", `/agents/${agentId}/scores/${providerId}/status`, { status }),
 };
 
 // ── Campaigns ──────────────────────────────────
@@ -109,14 +118,15 @@ export const campaigns = {
   syncStatuses: (id) => post(`/campaigns/${id}/sync-statuses`, {}),
   syncMessages: (id) => post(`/campaigns/${id}/sync-messages`, {}),
   sendInvites: (id) => post(`/campaigns/${id}/send-invites`, {}),
-  sendLeadMessage: (id, leadId) =>
-    post(`/campaigns/${id}/leads/${leadId}/send-message`, {}),
   updateLeadStatus: (id, leadId, status) =>
     post(`/campaigns/${id}/leads/${leadId}/status`, { status }),
+  updateLead: (id, leadId, d) => put(`/campaigns/${id}/leads/${leadId}`, d),
   updateLeadQualification: (id, leadId, leadStatus) =>
     post(`/campaigns/${id}/leads/${leadId}/lead-status`, { leadStatus }),
   getLeadActivity: (id, leadId) => get(`/campaigns/${id}/leads/${leadId}/activity`),
   deleteLead: (id, leadId) => del(`/campaigns/${id}/leads/${leadId}`),
+  // Signal-based sequence variables
+  previewLeadVars: (id, leadId) => get(`/campaigns/${id}/leads/${leadId}/preview-vars`),
 };
 
 // ── Leads ──────────────────────────────────────
@@ -169,6 +179,8 @@ export const unipile = {
   connectAccount: ({ name, returnTo } = {}) => post("/unipile/accounts/connect", { name, returnTo }),
   syncAccounts: () => post("/unipile/accounts/sync", {}),
   disconnectAccount: (id) => del(`/unipile/accounts/${id}`),
+  getAccountSafety: (id) => get(`/unipile/accounts/${id}/safety`),
+  updateAccountSafety: (id, data) => request("PATCH", `/unipile/accounts/${id}/safety`, data),
 
   // Inbox / chats
   getChats: (accountId, { limit, cursor } = {}) => {

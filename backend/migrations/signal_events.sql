@@ -21,5 +21,6 @@ create index if not exists signal_events_workspace_id_idx on signal_events(works
 
 alter table signal_events enable row level security;
 
+drop policy if exists "service role full access" on signal_events;
 create policy "service role full access" on signal_events
   for all using (true) with check (true);

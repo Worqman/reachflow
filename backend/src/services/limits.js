@@ -1,30 +1,12 @@
-// ── Campaign schedule & frequency enforcement ──────────────────
-// Shared by campaigns.js and conversations.js.
+// ── Campaign schedule enforcement ────────────────────────────────
+// Shared by campaigns.js and conversations.js. Daily action-frequency limits
+// used to live here as an in-memory counter, but that reset on every backend
+// restart/redeploy and wasn't shared across multiple backend processes —
+// each reset silently granted a fresh daily budget. All seven frequency
+// limits (connection requests, messages, inmails, AI comments, likes,
+// profile visits, follows) are now enforced against the persisted
+// unipile_send_log table instead — see withinDailyLimit in usageLog.js.
 
-// ── In-memory daily action counters ────────────────────────────
-// Key: `${campaignId}:${actionType}:YYYY-MM-DD`
-// Resets naturally as the date changes; cleared on server restart (acceptable).
-const _dailyCounters = new Map()
-
-function _dailyKey(campaignId, actionType) {
-  return `${campaignId}:${actionType}:${new Date().toISOString().slice(0, 10)}`
-}
-
-export function getDailyCount(campaignId, actionType) {
-  return _dailyCounters.get(_dailyKey(campaignId, actionType)) || 0
-}
-
-// Returns true and increments if under limit; false if at/over limit.
-// limit = 0 or undefined → no enforcement, just count.
-export function consumeDailyLimit(campaignId, actionType, limit) {
-  const key = _dailyKey(campaignId, actionType)
-  const current = _dailyCounters.get(key) || 0
-  if (limit && limit > 0 && current >= limit) return false
-  _dailyCounters.set(key, current + 1)
-  return true
-}
-
-// ── Schedule enforcement ────────────────────────────────────────
 // schedule: [{ day: "Monday", enabled: bool, start: "08:00", end: "18:00" }, ...]
 // timezone: IANA timezone string e.g. "Europe/London"
 export function isWithinSchedule(schedule, timezone) {

@@ -125,6 +125,14 @@ const MODES = [
   { id: "engagers", label: "◆ Post Engagers", desc: "From a post" },
 ];
 
+// A personal profile URL always lives at linkedin.com/in/… (or the legacy
+// /pub/…). Anything else — /company/, /school/, /showcase/, or a non-LinkedIn
+// domain — is an organization page or unrelated link, never the person's own
+// profile, so it must never be shown behind a "View LinkedIn profile" badge.
+function isPersonalLinkedInUrl(url) {
+  return typeof url === "string" && /linkedin\.com\/(in|pub)\//i.test(url);
+}
+
 // Normalise any Unipile person object into a table row.
 // Handles: LinkedIn search results, profile lookups, reactions/comments wrappers.
 function normaliseProfile(raw) {
@@ -162,12 +170,11 @@ function normaliseProfile(raw) {
     profilePictureUrl:
       p.profile_picture_url || p.profile_image_url || p.avatar_url || "",
     linkedinUrl:
-      p.public_profile_url ||
-      p.linkedin_url ||
+      [p.public_profile_url, p.linkedin_url].find(isPersonalLinkedInUrl) ||
       (p.public_identifier
         ? `https://www.linkedin.com/in/${p.public_identifier}`
         : "") ||
-      p.url ||
+      (isPersonalLinkedInUrl(p.url) ? p.url : "") ||
       "",
     providerId: p.provider_id || p.member_urn || p.id || "",
     status: "Not contacted",
@@ -212,6 +219,9 @@ export default function LeadFinder() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingLeads, setPendingLeads] = useState([]);
   const [addingToCampaign, setAddingToCampaign] = useState(null); // campaignId being added to
+  const [heldLeads, setHeldLeads] = useState([]); // leads held back by the intent-score threshold
+  const [addToCampaignError, setAddToCampaignError] = useState("");
+  const [forcingHeld, setForcingHeld] = useState(false);
 
   // ── Save to List state ────────────────────────────────────────
   const [listPickerOpen, setListPickerOpen] = useState(false);
@@ -255,18 +265,55 @@ export default function LeadFinder() {
 
   function openCampaignPicker(leads) {
     setPendingLeads(leads);
+    setHeldLeads([]);
+    setAddToCampaignError("");
     setPickerOpen(true);
   }
 
   async function addToCampaign(campaignId) {
     setAddingToCampaign(campaignId);
+    setAddToCampaignError("");
     try {
-      await campaignsApi.importLeads(campaignId, { leads: pendingLeads });
-      setPickerOpen(false);
-      setPendingLeads([]);
-      setSelected([]);
-    } catch {}
+      const res = await campaignsApi.importLeads(campaignId, { leads: pendingLeads });
+      if (res?.held?.length) {
+        // Some leads scored below the campaign's intent threshold and
+        // weren't added — keep the picker open so the user can force them.
+        setHeldLeads(res.held.map((h) => ({ ...h, campaignId })));
+        setPendingLeads([]);
+        setSelected([]);
+      } else {
+        setPickerOpen(false);
+        setPendingLeads([]);
+        setHeldLeads([]);
+        setSelected([]);
+      }
+    } catch (err) {
+      setAddToCampaignError(err.message || "Could not add leads to campaign");
+    }
     setAddingToCampaign(null);
+  }
+
+  function closePicker() {
+    setPickerOpen(false);
+    setHeldLeads([]);
+    setAddToCampaignError("");
+  }
+
+  async function forceAddHeldLeads() {
+    if (!heldLeads.length) return;
+    const campaignId = heldLeads[0].campaignId;
+    setForcingHeld(true);
+    setAddToCampaignError("");
+    try {
+      await campaignsApi.importLeads(campaignId, {
+        leads: heldLeads.map((h) => ({ ...h, force: true })),
+      });
+      setPickerOpen(false);
+      setHeldLeads([]);
+    } catch (err) {
+      setAddToCampaignError(err.message || "Could not add leads to campaign");
+    }
+    setForcingHeld(false);
   }
 
   function openListPicker(overrideLeads) {
@@ -1009,29 +1056,59 @@ export default function LeadFinder() {
       )}
 
       {pickerOpen && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setPickerOpen(false)}>
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && closePicker()}>
           <div className="modal-box animate-fade-in" style={{ maxWidth: 440 }}>
             <div className="modal-header">
-              <h2 className="modal-title">Add to Campaign</h2>
-              <button className="modal-close" onClick={() => setPickerOpen(false)}>✕</button>
+              <h2 className="modal-title">{heldLeads.length > 0 ? "Held — below intent threshold" : "Add to Campaign"}</h2>
+              <button className="modal-close" onClick={closePicker}>✕</button>
             </div>
             <div className="modal-body">
-              <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>
-                Adding {pendingLeads.length} lead{pendingLeads.length !== 1 ? "s" : ""} — choose a campaign:
-              </p>
-              {campaignList.length === 0 ? (
-                <div style={{ color: "#9ca3af", fontSize: 13 }}>No campaigns found. Create one first.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {campaignList.map((c) => (
-                    <button key={c.id} className="campaign-picker-row" disabled={addingToCampaign === c.id} onClick={() => addToCampaign(c.id)}>
-                      <span className="campaign-picker-name">{c.name}</span>
-                      <span className="campaign-picker-meta">
-                        {addingToCampaign === c.id ? "Adding…" : c.status === "active" ? "● Active" : "Paused"}
-                      </span>
-                    </button>
-                  ))}
+              {addToCampaignError && (
+                <div style={{ color: "var(--danger, #e55)", fontSize: 13, marginBottom: 14 }}>
+                  {addToCampaignError}
                 </div>
+              )}
+              {heldLeads.length > 0 ? (
+                <>
+                  <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>
+                    {heldLeads.length} lead{heldLeads.length !== 1 ? "s" : ""} scored below this campaign's intent
+                    threshold and {heldLeads.length !== 1 ? "weren't" : "wasn't"} added automatically.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14, maxHeight: 260, overflowY: "auto" }}>
+                    {heldLeads.map((h, i) => (
+                      <div key={h.providerId || i} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{h.name}</span>
+                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{h.score}/100 · {h.threshold} required</span>
+                        </div>
+                        {h.reason && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{h.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-primary" style={{ width: "100%" }} disabled={forcingHeld} onClick={forceAddHeldLeads}>
+                    {forcingHeld ? "Adding…" : `Add anyway (${heldLeads.length})`}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 14 }}>
+                    Adding {pendingLeads.length} lead{pendingLeads.length !== 1 ? "s" : ""} — choose a campaign:
+                  </p>
+                  {campaignList.length === 0 ? (
+                    <div style={{ color: "#9ca3af", fontSize: 13 }}>No campaigns found. Create one first.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {campaignList.map((c) => (
+                        <button key={c.id} className="campaign-picker-row" disabled={addingToCampaign === c.id} onClick={() => addToCampaign(c.id)}>
+                          <span className="campaign-picker-name">{c.name}</span>
+                          <span className="campaign-picker-meta">
+                            {addingToCampaign === c.id ? "Adding…" : c.status === "active" ? "● Active" : "Paused"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

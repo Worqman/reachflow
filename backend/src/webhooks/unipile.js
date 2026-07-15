@@ -1,9 +1,10 @@
 import { Router } from 'express'
 import { conversationStore } from '../services/store.js'
-import { scheduleAIReply, scheduleOpeningMessage } from '../routes/conversations.js'
-import { executePostConnectionSteps, resumeReplyBranch } from '../routes/campaigns.js'
+import { scheduleAIReply } from '../routes/conversations.js'
 import { supabase } from '../services/supabase.js'
 import { logLeadActivity } from '../services/leadActivity.js'
+import { canAiTakeOver } from '../services/replyTakeover.js'
+import { enqueuePostConnection, enqueueResumePendingStep } from '../services/campaignQueue.js'
 
 const router = Router()
 
@@ -21,7 +22,7 @@ router.use((req, res, next) => {
 
 // ── Shared helper: handle a new connection (accepted invite) ────
 // Called from both the webhook and the polling sync endpoint
-export async function handleNewConnection({ providerUserId, prospectName, accountId }) {
+export async function handleNewConnection({ providerUserId, accountId }) {
   if (!providerUserId || !accountId) return
   console.log('[Connection] Handling new connection for:', providerUserId)
 
@@ -54,52 +55,11 @@ export async function handleNewConnection({ providerUserId, prospectName, accoun
     if (leadRow?.id) logLeadActivity(campaignId, leadRow.id, 'connected')
   }
 
-  // Execute builder sequence message steps after connection_request node
+  // Execute builder sequence message steps after connection_request node —
+  // via the durable queue rather than inline, so a crash mid-processing
+  // doesn't silently drop the post-connection sequence (see campaignQueue.js).
   if (campaignId) {
-    await executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId)
-  }
-
-  // Trigger AI opening message only if no sequence message nodes would also fire
-  // (avoids the prospect receiving two messages simultaneously after connecting)
-  // Profile analysis is NOT done here — it happens lazily when the prospect replies.
-  const agentId = await findAgentForProspect(providerUserId)
-  if (!agentId) {
-    console.log(`[Connection] No active agent found for ${providerUserId} — skipping AI opening message`)
-  } else {
-    const hasSequenceMessages = await sequenceHasPostConnectionMessages(campaignId)
-    if (hasSequenceMessages) {
-      console.log(`[Connection] Skipping AI opening for ${providerUserId} — campaign has sequence message nodes`)
-    } else {
-      console.log(`[Connection] Scheduling AI opening message for ${providerUserId} (agentId=${agentId})`)
-      scheduleOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId })
-    }
-  }
-}
-
-// Depth-first search for any message-type node anywhere in the tree
-// (root, or nested inside a No/Yes branch at any depth).
-function treeHasMessageNode(nodeList) {
-  return (nodeList || []).some(n =>
-    ['message', 'message_open', 'inmail'].includes(n.type) ||
-    treeHasMessageNode(n.config?.noBranch) ||
-    treeHasMessageNode(n.config?.yesBranch)
-  )
-}
-
-// Returns true if the campaign sequence has any message nodes anywhere in
-// the tree. Used to avoid sending both a sequence message AND an AI opening
-// message simultaneously.
-async function sequenceHasPostConnectionMessages(campaignId) {
-  if (!supabase || !campaignId) return false
-  try {
-    const { data } = await supabase
-      .from('campaigns')
-      .select('sequence')
-      .eq('id', campaignId)
-      .maybeSingle()
-    return treeHasMessageNode(data?.sequence?.nodes)
-  } catch {
-    return false
+    await enqueuePostConnection({ providerUserId, accountId, campaignId, workspaceId })
   }
 }
 
@@ -252,12 +212,14 @@ router.post('/unipile', async (req, res) => {
 
         // Resume any sequence paused on this lead's Replied/Not Replied branch
         if (senderId && conv.campaignId) {
-          resumeReplyBranch(senderId, conv.campaignId, 'replied')
-            .catch(err => console.error('[Webhook] resumeReplyBranch error:', err.message))
+          enqueueResumePendingStep(senderId, conv.campaignId, { outcome: 'replied' })
+            .catch(err => console.error('[Webhook] enqueueResumePendingStep error:', err.message))
         }
 
-        // Use scheduleAIReply (45-min delay) — same as the polling path
-        if (!conv.aiPaused) scheduleAIReply(conv.id)
+        // Use scheduleAIReply (45-min delay) — same as the polling path.
+        // isFromProspect is always true here — the isOurMessage branch above
+        // already returned for our own outgoing messages.
+        if (canAiTakeOver({ isFromProspect: true, aiPaused: conv.aiPaused })) scheduleAIReply(conv.id)
         break
       }
 

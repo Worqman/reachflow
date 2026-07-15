@@ -4,9 +4,11 @@ import { conversationStore } from '../services/store.js'
 import { chats } from '../services/unipile.js'
 import { getAgentById } from './agents.js'
 import { supabase } from '../services/supabase.js'
-import { isWithinSchedule, consumeDailyLimit } from '../services/limits.js'
+import { isWithinSchedule } from '../services/limits.js'
 import { fetchAndSummarizeProfile } from './campaigns.js'
-import { logSend } from '../services/usageLog.js'
+import { logSend, withinDailyLimit } from '../services/usageLog.js'
+import { canAiTakeOver } from '../services/replyTakeover.js'
+import { checkAccountSendAllowed } from '../services/accountSafety.js'
 
 const router = Router()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -39,15 +41,11 @@ async function getWorkspaceProfile(workspaceId) {
 
 // ── AI Reply delay ─────────────────────────────────────────────
 // Override with env vars for testing: AI_REPLY_DELAY_MS=5000 (5 seconds)
-const OPENING_MSG_DELAY_MS = parseInt(process.env.OPENING_MSG_DELAY_MS || '') || 45 * 60 * 1000
 const AI_REPLY_DELAY_MS    = parseInt(process.env.AI_REPLY_DELAY_MS    || '') || 5 * 60 * 1000
 const LONG_REPLY_DELAY_MS  = parseInt(process.env.LONG_REPLY_DELAY_MS  || '') || 30 * 60 * 1000
 
 // Map<conversationId, timeoutId> — tracks pending delayed replies
 const pendingReplies = new Map()
-
-// Map<"campaignId:providerUserId", timeoutId> — tracks pending opening messages
-const pendingOpenings = new Map()
 
 export function scheduleAIReply(conversationId) {
   // Don't schedule if one is already pending for this conversation
@@ -67,20 +65,6 @@ export function scheduleAIReply(conversationId) {
   }, delayMs)
   pendingReplies.set(conversationId, timer)
   console.log(`[sync] AI reply scheduled in ${delayMin} min for conv ${conversationId} (${aiMessageCount} AI msgs so far)`)
-}
-
-// Schedule the opening message with a 45-min delay after connection is accepted
-export function scheduleOpeningMessage(params) {
-  const key = `${params.campaignId}:${params.providerUserId}`
-  if (pendingOpenings.has(key)) return
-  const timer = setTimeout(() => {
-    pendingOpenings.delete(key)
-    generateOpeningMessage(params).catch(err =>
-      console.error('[sync] generateOpeningMessage error:', err)
-    )
-  }, OPENING_MSG_DELAY_MS)
-  pendingOpenings.set(key, timer)
-  console.log(`[sync] Opening message scheduled in ${Math.round(OPENING_MSG_DELAY_MS / 60000)} min for ${params.providerUserId}`)
 }
 
 function cancelPendingReply(conversationId) {
@@ -213,8 +197,7 @@ router.post('/:id/sync', async (req, res) => {
     const lastMsg = unipileMsgs[0]
     const lastIsProspect = lastMsg && lastMsg.is_sender !== 1 && lastMsg.is_sender !== true
 
-
-    if (lastIsProspect && !conv.aiPaused) {
+    if (canAiTakeOver({ isFromProspect: lastIsProspect, aiPaused: conv.aiPaused })) {
       scheduleAIReply(conv.id)
       return res.json({ triggered: true, scheduled: true })
     }
@@ -467,10 +450,18 @@ export async function generateAIReply(conversationId) {
       return null
     }
     const msgLimit = settings.frequency?.messages
-    if (!consumeDailyLimit(campaignData.id, 'messages', msgLimit)) {
+    if (!(await withinDailyLimit(conv.linkedinAccountId, 'message', msgLimit))) {
       console.log(`[AI reply] skipped for ${conv.prospectId} — daily message limit (${msgLimit}) reached`)
       return null
     }
+  }
+
+  // Account-level safety gate — paused, outside active hours, or the
+  // account's own daily message cap reached.
+  const acctCheck = await checkAccountSendAllowed(conv.linkedinAccountId, 'message')
+  if (!acctCheck.allowed) {
+    console.log(`[AI reply] skipped for ${conv.prospectId} — ${acctCheck.reason}`)
+    return null
   }
 
   const profile = await getWorkspaceProfile(conv.workspaceId)
@@ -592,103 +583,6 @@ export async function generateAIReply(conversationId) {
     return replyText
   } catch (err) {
     console.error('[AI] Reply generation failed:', err.message)
-    return null
-  }
-}
-
-// Internal: generate and send an opening message after connection accepted
-export async function generateOpeningMessage({ agentId, accountId, providerUserId, prospectName, campaignId, workspaceId, profileSummary }) {
-  console.log(`[AI opening] generateOpeningMessage called — agentId=${agentId} providerUserId=${providerUserId} campaignId=${campaignId}`)
-  const agent = await getAgentById(agentId)
-  if (!agent) {
-    console.error(`[AI opening] agent not found for agentId=${agentId} — aborting`)
-    return null
-  }
-  if (!agent.persona) {
-    console.error(`[AI opening] agent ${agentId} has no persona configured — aborting`)
-    return null
-  }
-
-  // Enforce campaign schedule and message frequency limit
-  if (campaignId && supabase) {
-    try {
-      const { data: campaign } = await supabase
-        .from('campaigns').select('settings').eq('id', campaignId).single()
-      if (campaign) {
-        const settings = campaign.settings || {}
-        if (settings.schedule?.length && !isWithinSchedule(settings.schedule, settings.timezone)) {
-          console.log(`[AI opening] skipped for ${providerUserId} — outside campaign schedule`)
-          return null
-        }
-        const msgLimit = settings.frequency?.messages
-        if (!consumeDailyLimit(campaignId, 'messages', msgLimit)) {
-          console.log(`[AI opening] skipped for ${providerUserId} — daily message limit (${msgLimit}) reached`)
-          return null
-        }
-      }
-    } catch (err) {
-      console.log(`[AI opening] could not check schedule/frequency: ${err.message}`)
-    }
-  }
-
-  const profile = await getWorkspaceProfile(workspaceId)
-
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 200,
-      system: buildSystemPrompt(agent, profile, profileSummary || null),
-      messages: [{
-        role: 'user',
-        content: `[SYSTEM: Write the first opening message to send to ${prospectName || 'this new connection'} who just accepted my connection request on LinkedIn.${profileSummary ? ' Use the PROSPECT CONTEXT to make the message feel personal and relevant to them.' : ''} Do not greet with "Hi [Name]," — just write the message body. Be natural, brief, and curious. Do not pitch immediately.]`,
-      }],
-    })
-
-    const openingBlock = message.content?.[0]
-    if (!openingBlock || openingBlock.type !== 'text' || !openingBlock.text?.trim()) {
-      console.warn(`[AI opening] Empty or non-text response for ${providerUserId} — stop_reason: ${message.stop_reason}`)
-      return null
-    }
-    const text = openingBlock.text.trim()
-
-    // Send directly as a LinkedIn message via Unipile
-    const { linkedin } = await import('../services/unipile.js')
-    const chatResult = await linkedin.sendMessage({ accountId, providerUserId, text })
-    logSend(accountId, 'message')
-    const chatId = chatResult?.chat_id || chatResult?.id || null
-    console.log(`[AI] Sent opening message to ${providerUserId}, chatId=${chatId}: "${text.slice(0, 60)}…"`)
-
-    // Create a conversation record so future replies can be routed to this AI agent
-    if (chatId) {
-      const existing = conversationStore.findByChatId(chatId)
-      if (!existing) {
-        conversationStore.create(workspaceId, {
-          linkedinChatId:    chatId,
-          linkedinAccountId: accountId,
-          prospectId:        providerUserId,
-          agentId,
-          campaignId:        campaignId || null,
-          source:   'campaign',
-          status:   'ai_active',
-          aiPaused: false,
-        })
-        console.log(`[AI] Created conversation record for chat ${chatId}`)
-      }
-
-      // Persist chatId on the campaign lead so sync-messages can find the chat
-      if (campaignId) {
-        const { supabase } = await import('../services/supabase.js')
-        await supabase.from('campaign_leads')
-          .update({ chat_id: chatId })
-          .eq('provider_id', providerUserId)
-          .eq('campaign_id', campaignId)
-          .catch(() => {}) // column may not exist yet — ignore
-      }
-    }
-
-    return text
-  } catch (err) {
-    console.error('[AI] Opening message failed:', err.message)
     return null
   }
 }

@@ -9,6 +9,20 @@ const INDUSTRIES = [
 const SIZES = ["1–10", "11–50", "51–200", "201–500", "501–1000", "1001–5000", "5001+"];
 const SENIORITY = ["Owner", "C-Suite", "VP / Director", "Manager", "Senior IC", "IC"];
 
+// A personal profile URL always lives at linkedin.com/in/… (or the legacy
+// /pub/…). Anything else — /company/, /school/, /showcase/, or a non-LinkedIn
+// domain — is an organization page or unrelated link, never the person's own
+// profile, so it must never be shown behind a "View LinkedIn profile" badge.
+function isPersonalLinkedInUrl(url) {
+  return typeof url === "string" && /linkedin\.com\/(in|pub)\//i.test(url);
+}
+
+// Company fields sometimes come back as a URL (company website or a
+// linkedin.com/company/… page) instead of a plain name — never show those.
+function isUrlLike(v) {
+  return typeof v === "string" && /^(https?:\/\/|www\.)/i.test(v.trim());
+}
+
 function normaliseProfile(raw) {
   const p = raw?.user || raw?.author || raw;
   const pos = p.current_positions?.[0];
@@ -36,14 +50,17 @@ function normaliseProfile(raw) {
     id: p.id || p.provider_id || p.member_id || String(Math.random()),
     name: displayName,
     title: pos?.role || p.headline || p.job_title || p.title || p.occupation || "",
-    company: pos?.company || p.company_name || p.company || p.current_company || "",
+    company:
+      [pos?.company, p.company_name, p.company, p.current_company].find(
+        (v) => v && !isUrlLike(v)
+      ) || "",
     location: p.location || p.geo_location || p.country || "",
     profilePictureUrl: p.profile_picture_url || p.profile_image_url || p.avatar_url || "",
     linkedinUrl:
-      p.public_profile_url ||
-      p.linkedin_url ||
+      [p.public_profile_url, p.linkedin_url].find(isPersonalLinkedInUrl) ||
       (p.public_identifier ? `https://www.linkedin.com/in/${p.public_identifier}` : "") ||
-      p.url || "",
+      (isPersonalLinkedInUrl(p.url) ? p.url : "") ||
+      "",
     providerId: p.provider_id || p.member_urn || p.id || "",
     status: "Not contacted",
   };
@@ -145,11 +162,14 @@ export default function LeadFinderModal({ open, onClose, onImport, campaignId })
     const leadsToAdd = selected.map((id) => results.find((r) => r.id === id)).filter(Boolean);
     if (!leadsToAdd.length) return;
     setImporting(true);
+    setError("");
     try {
       await campaignsApi.importLeads(campaignId, { leads: leadsToAdd });
       onImport();
       onClose();
-    } catch {}
+    } catch (err) {
+      setError(err.message || "Import failed");
+    }
     setImporting(false);
   }
 

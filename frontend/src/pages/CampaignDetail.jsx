@@ -2174,7 +2174,6 @@ const CSV_FIELD_TYPES = [
   { value: "company", label: "Company" },
   { value: "location", label: "Location" },
   { value: "email", label: "Email" },
-  { value: "website", label: "Website" },
   { value: "headline", label: "Headline" },
   { value: "summary", label: "Summary" },
   { value: "industry", label: "Industry" },
@@ -2212,7 +2211,6 @@ function detectFieldType(header) {
   )
     return "location";
   if (h.includes("email") || h.includes("mail")) return "email";
-  if (h === "website" || h === "web" || h === "url") return "website";
   if (h.includes("headline") || h === "bio") return "headline";
   if (h.includes("summary") || h.includes("about")) return "summary";
   if (h.includes("industry") || h.includes("sector")) return "industry";
@@ -2244,12 +2242,37 @@ function parseCsvRaw(text) {
     .filter((l) => l.trim());
   if (lines.length < 2) return { headers: [], sampleRows: [], allRows: [] };
   const rawHeaders = splitRow(lines[0]);
-  const headers = rawHeaders.map((h) => h.replace(/^"|"$/g, "").trim());
+  const allHeaders = rawHeaders.map((h) => h.replace(/^"|"$/g, "").trim());
+
+  // Columns we never want to offer for mapping/import, even if present in
+  // the uploaded CSV (e.g. "company_website"/"company_linkedin" columns some
+  // exports include) — company_linkedin is a company page URL, not a
+  // personal profile URL, so it must never compete with the required
+  // "linkedin" (personal) column for the unique LinkedIn URL field.
+  const excludedHeaders = [
+    "company_website",
+    "companywebsite",
+    "website",
+    "company_linkedin",
+    "companylinkedin",
+  ];
+  const keepIdx = allHeaders
+    .map((h, i) => i)
+    .filter(
+      (i) =>
+        !excludedHeaders.includes(
+          allHeaders[i].toLowerCase().replace(/[^a-z0-9]/g, ""),
+        ),
+    );
+  const headers = keepIdx.map((i) => allHeaders[i]);
+
   const allRows = [];
   for (let i = 1; i < lines.length; i++) {
-    const cells = splitRow(lines[i]).map((c) => c.replace(/^"|"$/g, "").trim());
-    if (cells.every((c) => !c)) continue;
-    allRows.push(cells);
+    const rawCells = splitRow(lines[i]).map((c) =>
+      c.replace(/^"|"$/g, "").trim(),
+    );
+    if (rawCells.every((c) => !c)) continue;
+    allRows.push(keepIdx.map((idx) => rawCells[idx]));
   }
   return { headers, sampleRows: allRows.slice(0, 3), allRows };
 }

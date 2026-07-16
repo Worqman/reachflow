@@ -42,11 +42,35 @@ router.get('/', async (req, res) => {
   res.json(data.map(dbToApi))
 })
 
+// Finds an existing lead in this workspace with the same provider_id or
+// linkedin_url, so we never create two rows for the same LinkedIn profile.
+async function findDuplicateLead(workspaceId, providerId, linkedinUrl) {
+  if (providerId) {
+    const { data } = await supabase.from('leads').select('*')
+      .eq('workspace_id', workspaceId).eq('provider_id', providerId).maybeSingle()
+    if (data) return data
+  }
+  if (linkedinUrl) {
+    const { data } = await supabase.from('leads').select('*')
+      .eq('workspace_id', workspaceId).eq('linkedin_url', linkedinUrl).maybeSingle()
+    if (data) return data
+  }
+  return null
+}
+
 // POST /api/leads
 router.post('/', async (req, res) => {
   if (!supabase) {
     const lead = leadStore.create(undefined, req.body)
     return res.status(201).json(lead)
+  }
+
+  const providerId = req.body.providerId || null
+  const linkedinUrl = req.body.linkedinUrl || null
+
+  if (providerId || linkedinUrl) {
+    const existing = await findDuplicateLead(wsId(req), providerId, linkedinUrl)
+    if (existing) return res.status(200).json({ ...dbToApi(existing), duplicate: true })
   }
 
   const row = {
@@ -56,8 +80,8 @@ router.post('/', async (req, res) => {
     title:             req.body.title || null,
     company:           req.body.company || null,
     location:          req.body.location || null,
-    linkedin_url:      req.body.linkedinUrl || null,
-    provider_id:       req.body.providerId || null,
+    linkedin_url:      linkedinUrl,
+    provider_id:       providerId,
     profile_picture_url: req.body.profilePictureUrl || null,
     status:            req.body.status || 'Not contacted',
     list_id:           req.body.listId || null,
@@ -81,24 +105,62 @@ router.post('/bulk', async (req, res) => {
   }
 
   const listId = req.body.list_id || null
+  const workspaceId = wsId(req)
 
-  const rows = leads.map(l => ({
-    id:                `lead_${randomUUID().slice(0, 8)}`,
-    workspace_id:      wsId(req),
-    name:              l.name || null,
-    title:             l.title || null,
-    company:           l.company || null,
-    location:          l.location || null,
-    linkedin_url:      l.linkedinUrl || null,
-    provider_id:       l.providerId || null,
-    profile_picture_url: l.profilePictureUrl || null,
-    status:            l.status || 'Not contacted',
-    list_id:           listId,
-  }))
+  // Dedupe against leads already saved in this workspace, and against
+  // duplicates within the incoming batch itself (e.g. a CSV with repeats).
+  const providerIds = [...new Set(leads.map(l => l.providerId).filter(Boolean))]
+  const linkedinUrls = [...new Set(leads.map(l => l.linkedinUrl).filter(Boolean))]
+
+  const [byProvider, byUrl] = await Promise.all([
+    providerIds.length
+      ? supabase.from('leads').select('provider_id').eq('workspace_id', workspaceId).in('provider_id', providerIds)
+      : Promise.resolve({ data: [] }),
+    linkedinUrls.length
+      ? supabase.from('leads').select('linkedin_url').eq('workspace_id', workspaceId).in('linkedin_url', linkedinUrls)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const existingProviderIds = new Set((byProvider.data || []).map(r => r.provider_id))
+  const existingUrls = new Set((byUrl.data || []).map(r => r.linkedin_url))
+  const seenProviderIds = new Set()
+  const seenUrls = new Set()
+  let skipped = 0
+
+  const rows = []
+  for (const l of leads) {
+    const providerId = l.providerId || null
+    const linkedinUrl = l.linkedinUrl || null
+    const isDuplicate =
+      (providerId && (existingProviderIds.has(providerId) || seenProviderIds.has(providerId))) ||
+      (linkedinUrl && (existingUrls.has(linkedinUrl) || seenUrls.has(linkedinUrl)))
+
+    if (isDuplicate) { skipped++; continue }
+    if (providerId) seenProviderIds.add(providerId)
+    if (linkedinUrl) seenUrls.add(linkedinUrl)
+
+    rows.push({
+      id:                `lead_${randomUUID().slice(0, 8)}`,
+      workspace_id:      workspaceId,
+      name:              l.name || null,
+      title:             l.title || null,
+      company:           l.company || null,
+      location:          l.location || null,
+      linkedin_url:      linkedinUrl,
+      provider_id:       providerId,
+      profile_picture_url: l.profilePictureUrl || null,
+      status:            l.status || 'Not contacted',
+      list_id:           listId,
+    })
+  }
+
+  if (!rows.length) {
+    return res.status(201).json({ leads: [], added: 0, skipped })
+  }
 
   const { data, error } = await supabase.from('leads').insert(rows).select()
   if (error) return res.status(500).json({ message: error.message })
-  res.status(201).json(data.map(dbToApi))
+  res.status(201).json({ leads: data.map(dbToApi), added: data.length, skipped })
 })
 
 // GET /api/leads/:id

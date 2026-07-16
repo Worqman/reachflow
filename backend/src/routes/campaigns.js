@@ -356,19 +356,53 @@ router.post('/:id/leads', async (req, res) => {
     const { data: camp } = await supabase.from('campaigns').select('id, settings').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
     if (!camp) return res.status(404).json({ message: 'Campaign not found' })
 
+    // Dedupe against leads already in this campaign, and against duplicates
+    // within the incoming batch itself, before scoring/inserting.
+    const incomingProviderIds = [...new Set(leads.map(l => l.providerId || l.provider_id).filter(Boolean))]
+    const incomingUrls = [...new Set(leads.map(l => l.linkedinUrl || l.linkedin_url).filter(Boolean))]
+
+    const [existingByProvider, existingByUrl] = await Promise.all([
+      incomingProviderIds.length
+        ? supabase.from('campaign_leads').select('provider_id').eq('campaign_id', req.params.id).in('provider_id', incomingProviderIds)
+        : Promise.resolve({ data: [] }),
+      incomingUrls.length
+        ? supabase.from('campaign_leads').select('linkedin_url').eq('campaign_id', req.params.id).in('linkedin_url', incomingUrls)
+        : Promise.resolve({ data: [] }),
+    ])
+
+    const existingProviderIds = new Set((existingByProvider.data || []).map(r => r.provider_id))
+    const existingUrls = new Set((existingByUrl.data || []).map(r => r.linkedin_url))
+    const seenProviderIds = new Set()
+    const seenUrls = new Set()
+    let duplicateCount = 0
+
+    const uniqueLeads = []
+    for (const l of leads) {
+      const providerId = l.providerId || l.provider_id || null
+      const linkedinUrl = l.linkedinUrl || l.linkedin_url || null
+      const isDuplicate =
+        (providerId && (existingProviderIds.has(providerId) || seenProviderIds.has(providerId))) ||
+        (linkedinUrl && (existingUrls.has(linkedinUrl) || seenUrls.has(linkedinUrl)))
+
+      if (isDuplicate) { duplicateCount++; continue }
+      if (providerId) seenProviderIds.add(providerId)
+      if (linkedinUrl) seenUrls.add(linkedinUrl)
+      uniqueLeads.push(l)
+    }
+
     const agentId = camp.settings?.agentId
     const toInsert = []
     const held = []
 
     if (agentId) {
-      const providerIds = [...new Set(leads.map(l => l.providerId || l.provider_id).filter(Boolean))]
+      const providerIds = [...new Set(uniqueLeads.map(l => l.providerId || l.provider_id).filter(Boolean))]
       const [scoreByProviderId, config] = await Promise.all([
         getScoresForProviderIds(agentId, providerIds),
         loadScoringConfig(wsId(req)),
       ])
       const threshold = Number.isFinite(req.body.threshold) ? req.body.threshold : config.campaignGateThreshold
 
-      for (const l of leads) {
+      for (const l of uniqueLeads) {
         const providerId = l.providerId || l.provider_id || null
         const scoreRow = providerId ? scoreByProviderId[providerId] : null
         if (scoreRow && scoreRow.score < threshold && !l.force) {
@@ -378,11 +412,11 @@ router.post('/:id/leads', async (req, res) => {
         }
       }
     } else {
-      toInsert.push(...leads)
+      toInsert.push(...uniqueLeads)
     }
 
     if (!toInsert.length) {
-      return res.status(201).json({ added: [], count: 0, held, heldCount: held.length })
+      return res.status(201).json({ added: [], count: 0, held, heldCount: held.length, duplicateCount })
     }
 
     const rows = toInsert.map(l => ({
@@ -402,7 +436,7 @@ router.post('/:id/leads', async (req, res) => {
     const { data, error } = await supabase.from('campaign_leads').insert(rows).select()
     if (error) return res.status(500).json({ message: error.message })
     for (const row of data) logLeadActivity(req.params.id, row.id, 'added', source || null)
-    res.status(201).json({ added: data.map(leadDbToApi), count: data.length, held, heldCount: held.length })
+    res.status(201).json({ added: data.map(leadDbToApi), count: data.length, held, heldCount: held.length, duplicateCount })
   } catch (err) {
     console.error('[import-leads]', err)
     res.status(500).json({ message: err.message || 'Failed to import leads' })

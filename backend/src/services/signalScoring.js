@@ -10,6 +10,7 @@
 // below.
 import { randomUUID } from 'crypto'
 import { supabase } from './supabase.js'
+import { enqueueAutoEnroll } from './campaignQueue.js'
 
 // Pure function of `classification` — not stored, computed at read time so
 // it can never drift from the classification actually persisted. Drives
@@ -69,6 +70,15 @@ export function buildSignalVars(scoreRow, lead = {}) {
     companySignal: companySignalEvent?.signal || '',
     sourceUrl: top?.metadata?.postUrl || scoreRow.linkedin_url || lead?.linkedin_url || '',
   }
+}
+
+// Ordering used to detect a classification *upgrade* (see recomputeScore's
+// auto-enroll trigger and campaigns.runSignalAutoEnroll's rule matching) —
+// not just a threshold compare, since 'warm' and 'high_intent' aren't
+// numeric.
+const CLASSIFICATION_RANK = { low_intent: 0, warm: 1, high_intent: 2 }
+export function classificationRank(classification) {
+  return CLASSIFICATION_RANK[classification] ?? -1
 }
 
 export const SIGNAL_TYPE_LABELS = {
@@ -367,7 +377,7 @@ export async function recomputeScore({ workspaceId, agentId, providerId, leadSna
   const result = scoreLead({ lead, icp: agent?.icp || {}, events: events || [], config, now: new Date() })
 
   const { data: existing } = await supabase
-    .from('signal_scores').select('id, status, status_updated_at')
+    .from('signal_scores').select('id, status, status_updated_at, classification')
     .eq('agent_id', agentId).eq('provider_id', providerId).maybeSingle()
 
   // A dismissed/not-relevant lead should stay hidden from the feed until a
@@ -413,6 +423,22 @@ export async function recomputeScore({ workspaceId, agentId, providerId, leadSna
     console.error('[signalScoring] failed to upsert signal_scores:', error.message)
     return null
   }
+
+  // Auto-enroll trigger: fire only on the transition *into* a higher tier,
+  // not on every recompute while already there — otherwise a lead sitting
+  // at high_intent would re-enqueue a job on every subsequent weak signal.
+  // Queue enqueue is fire-and-forget so a slow/unavailable Redis never adds
+  // latency to (or fails) the scoring call itself; requireRedis() throws
+  // synchronously if REDIS_URL isn't set, so skip the check entirely in
+  // that case rather than let campaignQueue.getQueue() throw here (Redis
+  // is optional for scoring — it's only required for campaign sending).
+  const newRank = classificationRank(result.classification)
+  if (process.env.REDIS_URL && newRank > 0 && newRank > classificationRank(existing?.classification)) {
+    enqueueAutoEnroll({ workspaceId: workspaceId || 'ws_default', agentId, providerId }).catch(err => {
+      console.error('[signalScoring] enqueueAutoEnroll failed:', err.message)
+    })
+  }
+
   return data
 }
 

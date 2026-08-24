@@ -71,12 +71,15 @@ function chatToConversation(chat, backendConvMap) {
         null)
     : null;
 
-  // Backend enrichment sets _enrichedName/_enrichedHeadline after profile lookup
+  // Backend enrichment sets _enrichedName/_enrichedCompany after profile/DB lookup.
+  // Company must come from an actual company field — never from headline/occupation,
+  // which is a free-text description (e.g. "Helping SaaS teams scale outbound").
   const name = chat._enrichedName || chat.name || attendeeName || "LinkedIn User";
   const company =
-    chat._enrichedHeadline ||
-    matchedAttendee?.headline ||
-    matchedAttendee?.occupation ||
+    chat._enrichedCompany ||
+    matchedAttendee?.company_name ||
+    matchedAttendee?.company ||
+    matchedAttendee?.current_company ||
     "";
   const preview = chat.last_message?.text || chat.last_message?.content || "";
   const time = chat.last_message?.created_at

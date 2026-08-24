@@ -22,6 +22,12 @@
 //                          resumption.
 //   post-connection     — webhook-triggered post-connection sequence
 //                          steps (new_relation).
+//   auto-enroll-signal   — a lead's signal_scores classification crossed
+//                          into a tier a signal_automations rule cares
+//                          about; enrolls it into the rule's campaign.
+//                          Enqueued from signalScoring.recomputeScore(),
+//                          decoupling that DB-only call from the
+//                          campaign-lookup/insert work done here.
 //
 // Processors are wired up via a lazy `import('../routes/campaigns.js')`
 // inside the worker callback rather than a static top-level import —
@@ -70,9 +76,25 @@ export async function isSendBatchRunning(campaignId) {
 // first if the caller needs to distinguish "started" from "already
 // running" for its own response.
 export async function enqueueSendBatch(campaignId, workspaceId) {
-  return getQueue().add('send-batch', { campaignId, workspaceId }, {
+  const q = getQueue()
+  const jobId = sendBatchJobId(campaignId)
+
+  // BullMQ dedups on jobId for as long as the job record exists in Redis —
+  // not just while it's live. A finished send-batch kept around by the
+  // removeOnComplete/removeOnFail retention above therefore swallows every
+  // later add() for the same campaign, silently and without error: the chain
+  // that stops itself at the daily limit ("stopping chain for today") could
+  // never be restarted the next day, and neither could a re-launched
+  // campaign. Drop the finished record first so the add actually takes.
+  const existing = await q.getJob(jobId)
+  if (existing && !ACTIVE_STATES.has(await existing.getState())) {
+    await existing.remove().catch(err =>
+      console.warn(`[campaign-queue] could not clear finished job ${jobId}:`, err.message))
+  }
+
+  return q.add('send-batch', { campaignId, workspaceId }, {
     ...JOB_OPTS,
-    jobId: sendBatchJobId(campaignId),
+    jobId,
   })
 }
 
@@ -89,6 +111,10 @@ export async function enqueueResumePendingStep(providerUserId, campaignId, { out
 
 export async function enqueuePostConnection({ providerUserId, accountId, campaignId, workspaceId }) {
   return getQueue().add('post-connection', { providerUserId, accountId, campaignId, workspaceId }, JOB_OPTS)
+}
+
+export async function enqueueAutoEnroll({ workspaceId, agentId, providerId }) {
+  return getQueue().add('auto-enroll-signal', { workspaceId, agentId, providerId }, JOB_OPTS)
 }
 
 // Lightweight status read for GET /api/campaigns/:id/queue-status.
@@ -135,6 +161,11 @@ export function startCampaignQueueWorker() {
       case 'post-connection': {
         const { providerUserId, accountId, campaignId, workspaceId } = job.data
         await campaigns.executePostConnectionSteps(providerUserId, accountId, campaignId, workspaceId)
+        return
+      }
+      case 'auto-enroll-signal': {
+        const { workspaceId, agentId, providerId } = job.data
+        await campaigns.runSignalAutoEnroll(workspaceId, agentId, providerId)
         return
       }
       default:

@@ -459,4 +459,93 @@ router.patch('/:id/signal-events/:eventId/action', async (req, res) => {
   res.json({ actioned: data.actioned })
 })
 
+const AUTOMATION_CLASSIFICATIONS = ['warm', 'high_intent']
+
+function automationDbToApi(r) {
+  return {
+    id:                r.id,
+    agentId:           r.agent_id,
+    workspaceId:       r.workspace_id,
+    campaignId:        r.campaign_id,
+    minClassification: r.min_classification,
+    enabled:           r.enabled,
+    createdAt:         r.created_at,
+  }
+}
+
+// GET /api/agents/:id/automations — rules that auto-enroll a lead into a
+// campaign once its signal score crosses minClassification. Executed by
+// services/campaignQueue.js's 'auto-enroll-signal' job, triggered from
+// signalScoring.recomputeScore() (see that file for the trigger logic).
+router.get('/:id/automations', async (req, res) => {
+  const { data, error } = await supabase
+    .from('signal_automations')
+    .select('*')
+    .eq('agent_id', req.params.id)
+    .eq('workspace_id', wsId(req))
+    .order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ message: error.message })
+  res.json(data.map(automationDbToApi))
+})
+
+// POST /api/agents/:id/automations
+router.post('/:id/automations', async (req, res) => {
+  const { campaignId, minClassification = 'high_intent', enabled = true } = req.body
+  if (!campaignId) return res.status(400).json({ message: 'campaignId required' })
+  if (!AUTOMATION_CLASSIFICATIONS.includes(minClassification)) {
+    return res.status(400).json({ message: `minClassification must be one of: ${AUTOMATION_CLASSIFICATIONS.join(', ')}` })
+  }
+
+  const { data: campaign } = await supabase
+    .from('campaigns').select('id').eq('id', campaignId).eq('workspace_id', wsId(req)).maybeSingle()
+  if (!campaign) return res.status(404).json({ message: 'Campaign not found' })
+
+  const row = {
+    id:                 `auto_${randomUUID().slice(0, 8)}`,
+    workspace_id:       wsId(req),
+    agent_id:           req.params.id,
+    campaign_id:        campaignId,
+    min_classification: minClassification,
+    enabled,
+  }
+  const { data, error } = await supabase.from('signal_automations').insert(row).select().single()
+  if (error) return res.status(500).json({ message: error.message })
+  res.status(201).json(automationDbToApi(data))
+})
+
+// PATCH /api/agents/:id/automations/:automationId
+router.patch('/:id/automations/:automationId', async (req, res) => {
+  const patch = {}
+  if (req.body.minClassification !== undefined) {
+    if (!AUTOMATION_CLASSIFICATIONS.includes(req.body.minClassification)) {
+      return res.status(400).json({ message: `minClassification must be one of: ${AUTOMATION_CLASSIFICATIONS.join(', ')}` })
+    }
+    patch.min_classification = req.body.minClassification
+  }
+  if (req.body.enabled !== undefined) patch.enabled = req.body.enabled
+
+  const { data, error } = await supabase
+    .from('signal_automations')
+    .update(patch)
+    .eq('id', req.params.automationId)
+    .eq('agent_id', req.params.id)
+    .eq('workspace_id', wsId(req))
+    .select()
+    .single()
+  if (error || !data) return res.status(404).json({ message: 'Automation rule not found' })
+  res.json(automationDbToApi(data))
+})
+
+// DELETE /api/agents/:id/automations/:automationId
+router.delete('/:id/automations/:automationId', async (req, res) => {
+  const { error } = await supabase
+    .from('signal_automations')
+    .delete()
+    .eq('id', req.params.automationId)
+    .eq('agent_id', req.params.id)
+    .eq('workspace_id', wsId(req))
+  if (error) return res.status(500).json({ message: error.message })
+  res.json({ success: true })
+})
+
 export default router

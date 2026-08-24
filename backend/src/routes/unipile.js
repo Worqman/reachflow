@@ -33,6 +33,16 @@ function extractName(obj) {
   )
 }
 
+// Extract the actual company name from a Unipile user/attendee object — never the
+// headline/occupation string, which is a free-text description (e.g. "Helping SaaS
+// teams scale outbound") and must not be shown where a company name is expected.
+function extractCompany(obj) {
+  if (!obj) return null
+  const inner = obj.user || obj.author || obj
+  const pos = inner.current_positions?.[0]
+  return pos?.company || inner.company_name || inner.company || inner.current_company || null
+}
+
 // Extract a display name from a Unipile attendee object (handles all known field shapes).
 function extractAttendeeName(attendee) {
   if (!attendee) return null
@@ -54,7 +64,7 @@ function extractAttendeeName(attendee) {
 // This costs zero extra API calls — the data is already in the chat list payload.
 function extractNamesFromAttendees(chatList) {
   return chatList.map(chat => {
-    if (chat._enrichedName) return chat
+    if (chat._enrichedName && chat._enrichedCompany) return chat
     if (!chat.attendees?.length) return chat
 
     // For 1:1 chats find the attendee matching the known provider_id, else take first
@@ -63,13 +73,20 @@ function extractNamesFromAttendees(chatList) {
         a => a.provider_id === chat.attendee_provider_id || a.id === chat.attendee_provider_id,
       ) || chat.attendees[0]
 
+    if (chat._enrichedName) {
+      const company = extractCompany(attendee)
+      return company ? { ...chat, _enrichedCompany: company } : chat
+    }
+
     const name = extractAttendeeName(attendee)
     if (!name) return chat
 
+    const company = extractCompany(attendee)
     return {
       ...chat,
       _enrichedName: name,
       _enrichedHeadline: attendee.headline || attendee.occupation || attendee.job_title || '',
+      ...(company && { _enrichedCompany: company }),
     }
   })
 }
@@ -81,7 +98,7 @@ const PROFILE_CACHE_TTL = 6 * 60 * 60 * 1000 // 6 hours
 // Layer 3: fetch names from Unipile's GET /users/{provider_id} for any still-unenriched chats.
 // Results are cached for 6 hours so polls never re-fetch.
 async function enrichWithProfileApi(chatList) {
-  const unenriched = chatList.filter(c => c.attendee_provider_id && !c._enrichedName)
+  const unenriched = chatList.filter(c => c.attendee_provider_id && (!c._enrichedName || !c._enrichedCompany))
   if (!unenriched.length) return chatList
 
   const FAILURE_TTL = 60 * 60 * 1000 // cache failures for 1 hour to avoid repeated calls
@@ -113,59 +130,69 @@ async function enrichWithProfileApi(chatList) {
         _profileCache.set(chat.attendee_provider_id, {
           name: name || null,
           headline: profile.headline || profile.occupation || profile.job_title || '',
+          company: extractCompany(profile) || null,
           picture: profile.profile_picture_url || profile.profile_picture_url_large || null,
           expiresAt: Date.now() + (name ? PROFILE_CACHE_TTL : FAILURE_TTL),
         })
       } catch {
         // Cache the failure so we don't retry until TTL expires
-        _profileCache.set(chat.attendee_provider_id, { name: null, headline: '', expiresAt: Date.now() + FAILURE_TTL })
+        _profileCache.set(chat.attendee_provider_id, { name: null, headline: '', company: null, expiresAt: Date.now() + FAILURE_TTL })
       }
     })
   )
 
   return chatList.map(chat => {
-    if (chat._enrichedName) return chat
+    if (chat._enrichedName && chat._enrichedCompany) return chat
     const hit = _profileCache.get(chat.attendee_provider_id)
     if (!hit || hit.expiresAt < Date.now()) return chat
     return {
       ...chat,
-      ...(hit.name    && { _enrichedName: hit.name }),
-      ...(hit.headline && { _enrichedHeadline: hit.headline }),
+      ...(!chat._enrichedName && hit.name && { _enrichedName: hit.name }),
+      ...(!chat._enrichedName && hit.headline && { _enrichedHeadline: hit.headline }),
+      ...(!chat._enrichedCompany && hit.company && { _enrichedCompany: hit.company }),
       ...(hit.picture  && { _enrichedPicture: hit.picture }),
     }
   })
 }
 
-// Enrich a list of chats: look up names from campaign_leads AND leads tables by provider_id.
+// Enrich a list of chats: look up names + companies from campaign_leads AND leads
+// tables by provider_id. `company` is a real, separately-tracked column on both
+// tables — it must never be backfilled from `title` (job title/headline), which
+// is a free-text description, not the lead's company name.
 async function enrichChats(chatList) {
   if (!supabase) return chatList
 
-  // Collect all attendee provider IDs that still need a name
+  // Collect all attendee provider IDs still missing a name and/or a company
   const pids = chatList
-    .filter(c => c.attendee_provider_id && !c._enrichedName)
+    .filter(c => c.attendee_provider_id && (!c._enrichedName || !c._enrichedCompany))
     .map(c => c.attendee_provider_id)
 
   if (!pids.length) return chatList
 
-  const nameMap = {}
+  const infoMap = {}
 
   // Query both tables in parallel
   const [campaignLeadsRes, leadsRes] = await Promise.all([
-    supabase.from('campaign_leads').select('provider_id, name, title').in('provider_id', pids),
-    supabase.from('leads').select('provider_id, name, title').in('provider_id', pids),
+    supabase.from('campaign_leads').select('provider_id, name, title, company').in('provider_id', pids),
+    supabase.from('leads').select('provider_id, name, title, company').in('provider_id', pids),
   ])
 
   for (const lead of [...(campaignLeadsRes.data || []), ...(leadsRes.data || [])]) {
-    if (lead.provider_id && lead.name && !nameMap[lead.provider_id]) {
-      nameMap[lead.provider_id] = { name: lead.name, headline: lead.title || '' }
-    }
+    if (!lead.provider_id) continue
+    const info = infoMap[lead.provider_id] || (infoMap[lead.provider_id] = {})
+    if (lead.name && !info.name) info.name = lead.name
+    if (lead.title && !info.headline) info.headline = lead.title
+    if (lead.company && !info.company) info.company = lead.company
   }
 
   return chatList.map(chat => {
-    if (chat._enrichedName) return chat
-    const match = nameMap[chat.attendee_provider_id]
+    const match = infoMap[chat.attendee_provider_id]
     if (!match) return chat
-    return { ...chat, _enrichedName: match.name, _enrichedHeadline: match.headline }
+    return {
+      ...chat,
+      ...(!chat._enrichedName && match.name && { _enrichedName: match.name, _enrichedHeadline: match.headline || '' }),
+      ...(!chat._enrichedCompany && match.company && { _enrichedCompany: match.company }),
+    }
   })
 }
 
@@ -514,7 +541,7 @@ router.get('/chats', async (req, res) => {
     const withAttendeeNames = extractNamesFromAttendees(items)
 
     // Layer 2: fill remaining gaps from campaign_leads + leads DB tables
-    const afterDb = withAttendeeNames.filter(c => c.attendee_provider_id && !c._enrichedName).length > 0
+    const afterDb = withAttendeeNames.some(c => c.attendee_provider_id && (!c._enrichedName || !c._enrichedCompany))
       ? await enrichChats(withAttendeeNames)
       : withAttendeeNames
 

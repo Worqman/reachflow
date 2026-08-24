@@ -2179,6 +2179,24 @@ const CSV_FIELD_TYPES = [
   { value: "industry", label: "Industry" },
 ];
 
+// A header containing "company" is not automatically the company NAME —
+// scraper/CRM exports also ship company_description, company_industry,
+// company_size, company_about … Auto-mapping one of those onto the company
+// field is what put 600-character company descriptions where names belong,
+// so every "company X" header whose X is a descriptor is rejected here and
+// left for the user to map manually if they actually want it.
+const COMPANY_DESCRIPTOR_TERMS = [
+  "description", "overview", "summary", "about", "bio", "tagline", "slogan",
+  "industry", "sector", "specialties", "specialities", "keywords", "tags",
+  "size", "headcount", "employees", "staff", "revenue", "funding", "founded",
+  "type", "followers", "logo", "domain", "url", "website", "linkedin",
+  "phone", "email", "address", "street", "city", "country", "region", "id",
+];
+
+function isCompanyDescriptorHeader(h) {
+  return COMPANY_DESCRIPTOR_TERMS.some((t) => h.includes(t));
+}
+
 function detectFieldType(header) {
   const h = header.toLowerCase().replace(/[^a-z0-9]/g, "_");
   if (h.includes("linkedin") || h === "profile_url") return "linkedin_url";
@@ -2201,7 +2219,10 @@ function detectFieldType(header) {
     h === "role"
   )
     return "job_title";
-  if (h.includes("company") || h.includes("organization") || h === "employer")
+  if (
+    (h.includes("company") || h.includes("organization") || h === "employer") &&
+    !isCompanyDescriptorHeader(h)
+  )
     return "company";
   if (
     h.includes("location") ||
@@ -2745,22 +2766,32 @@ function parseCsv(text) {
       .replace(/^_|_$/g, ""),
   );
 
-  // Map common CSV column names to lead fields
-  function pickCol(candidates) {
+  // Map common CSV column names to lead fields. Exact header matches are
+  // tried across every candidate before any substring match, so a CSV that
+  // has both "company_name" and "company_description" can't have the
+  // description win just by appearing first. `reject` drops headers that
+  // contain the candidate word but mean something else entirely.
+  function pickCol(candidates, reject) {
+    const eligible = headers
+      .map((_, i) => i)
+      .filter((i) => !reject || !reject(headers[i]));
     for (const c of candidates) {
-      const idx = headers.findIndex((h) => h === c || h.includes(c));
-      if (idx !== -1) return idx;
+      const idx = eligible.find((i) => headers[i] === c);
+      if (idx !== undefined) return idx;
+    }
+    for (const c of candidates) {
+      const idx = eligible.find((i) => headers[i].includes(c));
+      if (idx !== undefined) return idx;
     }
     return -1;
   }
 
-  const nameIdx = pickCol([
-    "name",
-    "full_name",
-    "fullname",
-    "contact_name",
-    "first_name",
-  ]);
+  // Reject company/organization headers here — the "name" substring
+  // otherwise matches "company_name" and imports the employer as the person.
+  const nameIdx = pickCol(
+    ["name", "full_name", "fullname", "contact_name", "first_name"],
+    (h) => h.includes("company") || h.includes("organization"),
+  );
   const firstIdx = pickCol(["first_name", "firstname", "first"]);
   const lastIdx = pickCol(["last_name", "lastname", "last", "surname"]);
   const titleIdx = pickCol([
@@ -2771,12 +2802,10 @@ function parseCsv(text) {
     "role",
     "headline",
   ]);
-  const companyIdx = pickCol([
-    "company",
-    "company_name",
-    "organization",
-    "employer",
-  ]);
+  const companyIdx = pickCol(
+    ["company", "company_name", "organization", "employer"],
+    isCompanyDescriptorHeader,
+  );
   const locationIdx = pickCol(["location", "city", "country", "region", "geo"]);
   const linkedinIdx = pickCol([
     "linkedin",

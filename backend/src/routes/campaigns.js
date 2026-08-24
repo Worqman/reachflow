@@ -7,7 +7,7 @@ import { isWithinSchedule } from '../services/limits.js'
 import { logSend, getDailyUsage, withinDailyLimit } from '../services/usageLog.js'
 import { checkAccountAvailable, checkAccountSendAllowed, getAccountSafety, getEffectiveLimits } from '../services/accountSafety.js'
 import { logLeadActivity, getLeadActivity } from '../services/leadActivity.js'
-import { getScoresForProviderIds, loadScoringConfig, getScore, buildSignalVars } from '../services/signalScoring.js'
+import { getScoresForProviderIds, loadScoringConfig, getScore, buildSignalVars, classificationRank } from '../services/signalScoring.js'
 import { canAiTakeOver, isProspectMessage } from '../services/replyTakeover.js'
 import { withAccountLock } from '../services/accountLock.js'
 import { enqueueSendBatch, isSendBatchRunning, enqueueResumePendingStep, getCampaignQueueStatus } from '../services/campaignQueue.js'
@@ -91,14 +91,17 @@ export async function fetchAndSummarizeProfile(providerUserId, accountId, campai
 
     console.log(`[profile] Summarised profile for ${providerUserId}: "${summary.slice(0, 80)}…"`)
 
-    // Cache on the campaign lead so we don't re-fetch on every message
+    // Cache on the campaign lead so we don't re-fetch on every message.
+    // Supabase's query builder is thenable but not a real Promise (no
+    // .catch()) — await it and check `error` instead of chaining .catch(),
+    // which throws synchronously ("...catch is not a function").
     if (supabase) {
-      await supabase
+      const { error } = await supabase
         .from('campaign_leads')
         .update({ profile_summary: summary })
         .eq('provider_id', providerUserId)
         .eq('campaign_id', campaignId)
-        .catch(() => {}) // ignore if column not yet migrated
+      if (error) console.warn('[profile] cache write failed (migration not run?):', error.message)
     }
 
     return summary
@@ -276,6 +279,18 @@ router.put('/:id', async (req, res) => {
     .single()
 
   if (error || !data) return res.status(404).json({ message: error?.message || 'Campaign not found' })
+
+  // Flipping a campaign to 'active' has to actually start it. Without this
+  // the row just changed state and nothing sent until either the user hit
+  // "Send invites" by hand or the hourly scheduler tick happened to notice
+  // it — and the campaigns-list toggle never calls send-invites at all.
+  // Fire-and-forget: runCampaignInvites no-ops if a chain is already live.
+  if (patch.status === 'active') {
+    runCampaignInvites(req.params.id, wsId(req))
+      .then(r => console.log(`[campaigns] activated ${req.params.id} — ${r.message}`))
+      .catch(err => console.error(`[campaigns] activation of ${req.params.id} could not start sending:`, err.message))
+  }
+
   res.json(dbToApi(data))
 })
 
@@ -323,120 +338,141 @@ router.get('/:id/leads', async (req, res) => {
   }))
 })
 
+// ── enrollLeadsIntoCampaign ─────────────────────────────────────
+// Shared by POST /:id/leads (manual import, below) and runSignalAutoEnroll
+// (automatic enrollment when a signal_automations rule matches, see
+// bottom of file). Leads with a computed intent score below the
+// campaign's agent's configured threshold are held out of campaign_leads
+// rather than added — see `held` in the return value. A lead is only ever
+// held if it actually has a computed score below threshold; leads with no
+// provider_id or no signal history (the common case) are added as-is.
+//
+// Returns { error, message } for a caller-facing failure (bad input,
+// campaign not found, DB not configured) instead of throwing, so both the
+// HTTP route and the queue worker can each translate it their own way.
+export async function enrollLeadsIntoCampaign(campaignId, workspaceId, leads, { source = null, thresholdOverride } = {}) {
+  if (!Array.isArray(leads) || !leads.length) return { added: [], count: 0, held: [], heldCount: 0, duplicateCount: 0 }
+  if (!supabase) return { error: 'no_db', message: 'Database not configured' }
+
+  // Every lead needs something we can actually send an invite to: either a
+  // LinkedIn URL (resolved to a provider_id at send time) or an already-
+  // known provider_id (e.g. leads sourced live from a Unipile search).
+  // Without one, the send silently fails later with "Cannot resolve
+  // provider_id for lead" — reject the whole import up front instead, the
+  // same way the CSV import UI blocks on missing linkedin_url.
+  const missingLinkedin = leads.filter(l => {
+    const hasUrl = !!(l.linkedinUrl || l.linkedin_url)
+    const hasProviderId = isValidLinkedInUrn(l.providerId || l.provider_id)
+    return !hasUrl && !hasProviderId
+  })
+  if (missingLinkedin.length) {
+    const names = missingLinkedin.slice(0, 3).map(l => l.name || 'unnamed lead').join(', ')
+    return {
+      error: 'missing_linkedin',
+      message: `LinkedIn URL is required for leads. ${missingLinkedin.length} of ${leads.length} lead(s) are missing one (e.g. ${names}${missingLinkedin.length > 3 ? ', …' : ''}).`,
+    }
+  }
+
+  const { data: camp } = await supabase.from('campaigns').select('id, settings').eq('id', campaignId).eq('workspace_id', workspaceId).maybeSingle()
+  if (!camp) return { error: 'not_found', message: 'Campaign not found' }
+
+  // Dedupe against leads already in this campaign, and against duplicates
+  // within the incoming batch itself, before scoring/inserting.
+  const incomingProviderIds = [...new Set(leads.map(l => l.providerId || l.provider_id).filter(Boolean))]
+  const incomingUrls = [...new Set(leads.map(l => l.linkedinUrl || l.linkedin_url).filter(Boolean))]
+
+  const [existingByProvider, existingByUrl] = await Promise.all([
+    incomingProviderIds.length
+      ? supabase.from('campaign_leads').select('provider_id').eq('campaign_id', campaignId).in('provider_id', incomingProviderIds)
+      : Promise.resolve({ data: [] }),
+    incomingUrls.length
+      ? supabase.from('campaign_leads').select('linkedin_url').eq('campaign_id', campaignId).in('linkedin_url', incomingUrls)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const existingProviderIds = new Set((existingByProvider.data || []).map(r => r.provider_id))
+  const existingUrls = new Set((existingByUrl.data || []).map(r => r.linkedin_url))
+  const seenProviderIds = new Set()
+  const seenUrls = new Set()
+  let duplicateCount = 0
+
+  const uniqueLeads = []
+  for (const l of leads) {
+    const providerId = l.providerId || l.provider_id || null
+    const linkedinUrl = l.linkedinUrl || l.linkedin_url || null
+    const isDuplicate =
+      (providerId && (existingProviderIds.has(providerId) || seenProviderIds.has(providerId))) ||
+      (linkedinUrl && (existingUrls.has(linkedinUrl) || seenUrls.has(linkedinUrl)))
+
+    if (isDuplicate) { duplicateCount++; continue }
+    if (providerId) seenProviderIds.add(providerId)
+    if (linkedinUrl) seenUrls.add(linkedinUrl)
+    uniqueLeads.push(l)
+  }
+
+  const agentId = camp.settings?.agentId
+  const toInsert = []
+  const held = []
+
+  if (agentId) {
+    const providerIds = [...new Set(uniqueLeads.map(l => l.providerId || l.provider_id).filter(Boolean))]
+    const [scoreByProviderId, config] = await Promise.all([
+      getScoresForProviderIds(agentId, providerIds),
+      loadScoringConfig(workspaceId),
+    ])
+    const threshold = Number.isFinite(thresholdOverride) ? thresholdOverride : config.campaignGateThreshold
+
+    for (const l of uniqueLeads) {
+      const providerId = l.providerId || l.provider_id || null
+      const scoreRow = providerId ? scoreByProviderId[providerId] : null
+      if (scoreRow && scoreRow.score < threshold && !l.force) {
+        held.push({ ...l, providerId, score: scoreRow.score, classification: scoreRow.classification, reason: scoreRow.reason, threshold })
+      } else {
+        toInsert.push(l)
+      }
+    }
+  } else {
+    toInsert.push(...uniqueLeads)
+  }
+
+  if (!toInsert.length) {
+    return { added: [], count: 0, held, heldCount: held.length, duplicateCount }
+  }
+
+  const rows = toInsert.map(l => ({
+    id:           `lead_${randomUUID()}`,
+    campaign_id:  campaignId,
+    workspace_id: workspaceId,
+    name:         l.name || null,
+    title:        l.title || null,
+    company:      l.company || null,
+    location:     l.location || null,
+    linkedin_url: l.linkedinUrl || l.linkedin_url || null,
+    provider_id:  l.providerId || l.provider_id || null,
+    status:       'pending',
+    source:       source || l.source || null,
+  }))
+
+  const { data, error } = await supabase.from('campaign_leads').insert(rows).select()
+  if (error) return { error: 'insert_failed', message: error.message }
+  for (const row of data) logLeadActivity(campaignId, row.id, 'added', source || null)
+  return { added: data.map(leadDbToApi), count: data.length, held, heldCount: held.length, duplicateCount }
+}
+
 // ── POST /api/campaigns/:id/leads ──────────────────────────────
-// Leads with a computed intent score below the campaign's agent's
-// configured threshold are held out of campaign_leads rather than
-// auto-added — see `held` in the response. A lead is only ever held if it
-// actually has a computed score below threshold; leads with no provider_id
-// or no signal history (the common case) are added exactly as before.
 router.post('/:id/leads', async (req, res) => {
   try {
-    const { leads, source } = req.body
+    const { leads, source, threshold } = req.body
     if (!Array.isArray(leads)) return res.status(400).json({ message: 'leads array required' })
-    if (!supabase) return res.status(503).json({ message: 'Database not configured' })
 
-    // Every lead needs something we can actually send an invite to: either a
-    // LinkedIn URL (resolved to a provider_id at send time) or an already-
-    // known provider_id (e.g. leads sourced live from a Unipile search).
-    // Without one, the send silently fails later with "Cannot resolve
-    // provider_id for lead" — reject the whole import up front instead, the
-    // same way the CSV import UI blocks on missing linkedin_url.
-    const missingLinkedin = leads.filter(l => {
-      const hasUrl = !!(l.linkedinUrl || l.linkedin_url)
-      const hasProviderId = isValidLinkedInUrn(l.providerId || l.provider_id)
-      return !hasUrl && !hasProviderId
-    })
-    if (missingLinkedin.length) {
-      const names = missingLinkedin.slice(0, 3).map(l => l.name || 'unnamed lead').join(', ')
-      return res.status(400).json({
-        message: `LinkedIn URL is required for leads. ${missingLinkedin.length} of ${leads.length} lead(s) are missing one (e.g. ${names}${missingLinkedin.length > 3 ? ', …' : ''}).`,
-      })
-    }
+    const result = await enrollLeadsIntoCampaign(req.params.id, wsId(req), leads, { source, thresholdOverride: threshold })
 
-    const { data: camp } = await supabase.from('campaigns').select('id, settings').eq('id', req.params.id).eq('workspace_id', wsId(req)).maybeSingle()
-    if (!camp) return res.status(404).json({ message: 'Campaign not found' })
+    if (result.error === 'no_db') return res.status(503).json({ message: result.message })
+    if (result.error === 'missing_linkedin') return res.status(400).json({ message: result.message })
+    if (result.error === 'not_found') return res.status(404).json({ message: result.message })
+    if (result.error) return res.status(500).json({ message: result.message })
 
-    // Dedupe against leads already in this campaign, and against duplicates
-    // within the incoming batch itself, before scoring/inserting.
-    const incomingProviderIds = [...new Set(leads.map(l => l.providerId || l.provider_id).filter(Boolean))]
-    const incomingUrls = [...new Set(leads.map(l => l.linkedinUrl || l.linkedin_url).filter(Boolean))]
-
-    const [existingByProvider, existingByUrl] = await Promise.all([
-      incomingProviderIds.length
-        ? supabase.from('campaign_leads').select('provider_id').eq('campaign_id', req.params.id).in('provider_id', incomingProviderIds)
-        : Promise.resolve({ data: [] }),
-      incomingUrls.length
-        ? supabase.from('campaign_leads').select('linkedin_url').eq('campaign_id', req.params.id).in('linkedin_url', incomingUrls)
-        : Promise.resolve({ data: [] }),
-    ])
-
-    const existingProviderIds = new Set((existingByProvider.data || []).map(r => r.provider_id))
-    const existingUrls = new Set((existingByUrl.data || []).map(r => r.linkedin_url))
-    const seenProviderIds = new Set()
-    const seenUrls = new Set()
-    let duplicateCount = 0
-
-    const uniqueLeads = []
-    for (const l of leads) {
-      const providerId = l.providerId || l.provider_id || null
-      const linkedinUrl = l.linkedinUrl || l.linkedin_url || null
-      const isDuplicate =
-        (providerId && (existingProviderIds.has(providerId) || seenProviderIds.has(providerId))) ||
-        (linkedinUrl && (existingUrls.has(linkedinUrl) || seenUrls.has(linkedinUrl)))
-
-      if (isDuplicate) { duplicateCount++; continue }
-      if (providerId) seenProviderIds.add(providerId)
-      if (linkedinUrl) seenUrls.add(linkedinUrl)
-      uniqueLeads.push(l)
-    }
-
-    const agentId = camp.settings?.agentId
-    const toInsert = []
-    const held = []
-
-    if (agentId) {
-      const providerIds = [...new Set(uniqueLeads.map(l => l.providerId || l.provider_id).filter(Boolean))]
-      const [scoreByProviderId, config] = await Promise.all([
-        getScoresForProviderIds(agentId, providerIds),
-        loadScoringConfig(wsId(req)),
-      ])
-      const threshold = Number.isFinite(req.body.threshold) ? req.body.threshold : config.campaignGateThreshold
-
-      for (const l of uniqueLeads) {
-        const providerId = l.providerId || l.provider_id || null
-        const scoreRow = providerId ? scoreByProviderId[providerId] : null
-        if (scoreRow && scoreRow.score < threshold && !l.force) {
-          held.push({ ...l, providerId, score: scoreRow.score, classification: scoreRow.classification, reason: scoreRow.reason, threshold })
-        } else {
-          toInsert.push(l)
-        }
-      }
-    } else {
-      toInsert.push(...uniqueLeads)
-    }
-
-    if (!toInsert.length) {
-      return res.status(201).json({ added: [], count: 0, held, heldCount: held.length, duplicateCount })
-    }
-
-    const rows = toInsert.map(l => ({
-      id:           `lead_${randomUUID()}`,
-      campaign_id:  req.params.id,
-      workspace_id: wsId(req),
-      name:         l.name || null,
-      title:        l.title || null,
-      company:      l.company || null,
-      location:     l.location || null,
-      linkedin_url: l.linkedinUrl || l.linkedin_url || null,
-      provider_id:  l.providerId || l.provider_id || null,
-      status:       'pending',
-      source:       source || l.source || null,
-    }))
-
-    const { data, error } = await supabase.from('campaign_leads').insert(rows).select()
-    if (error) return res.status(500).json({ message: error.message })
-    for (const row of data) logLeadActivity(req.params.id, row.id, 'added', source || null)
-    res.status(201).json({ added: data.map(leadDbToApi), count: data.length, held, heldCount: held.length, duplicateCount })
+    res.status(201).json(result)
   } catch (err) {
     console.error('[import-leads]', err)
     res.status(500).json({ message: err.message || 'Failed to import leads' })
@@ -702,11 +738,17 @@ function normalizeLegacyFlatSequence(list) {
 async function persistPendingStep(ctx, { kind, path, deadline }) {
   const claimId = randomUUID()
   if (!supabase) return claimId
-  await supabase.from('campaign_leads')
+  // Supabase's query builder is thenable but not a real Promise — it has no
+  // .catch(), so calling one directly throws synchronously instead of being
+  // swallowed. Await it and inspect `error` instead (previously this threw
+  // "...catch is not a function" on every lead pausing mid-sequence, which
+  // propagated up as an unhandled error and got the lead wrongly marked
+  // 'failed' right after its connection request had actually gone out).
+  const { error } = await supabase.from('campaign_leads')
     .update({ pending_step: { kind, path, deadline, claimId } })
     .eq('provider_id', ctx.providerUserId)
     .eq('campaign_id', ctx.campaignId)
-    .catch(() => {}) // ignore if column not yet migrated
+  if (error) console.warn('[persistPendingStep] update failed (migration not run?):', error.message)
   return claimId
 }
 
@@ -1878,18 +1920,38 @@ router.get('/:id/analytics', async (req, res) => {
   const byDay = {}
   for (const d of days) byDay[d] = { sent: 0, accepted: 0, replied: 0 }
 
-  for (const r of rows) {
-    const day = r.added_at?.slice(0, 10)
-    if (!day || !byDay[day]) continue
+  // Bucket by when each action actually happened (campaign_lead_activity),
+  // not by campaign_leads.added_at — dating events by the lead's import time
+  // piled every request onto the day the CSV was uploaded, so a campaign
+  // sending today drew its bars four days back and today's column stayed
+  // empty.
+  const { data: events, error: evErr } = await supabase
+    .from('campaign_lead_activity')
+    .select('action, created_at')
+    .eq('campaign_id', req.params.id)
+    .in('action', ['invite_sent', 'connected', 'replied', 'booked'])
+    .gte('created_at', `${days[0]}T00:00:00Z`)
 
-    if (['invited','connected','replied','booked','rejected'].includes(r.status)) {
-      byDay[day].sent += 1
+  if (evErr) console.warn('[analytics] activity read failed:', evErr.message)
+
+  if (events?.length) {
+    for (const e of events) {
+      const day = e.created_at?.slice(0, 10)
+      if (!day || !byDay[day]) continue
+      if (e.action === 'invite_sent') byDay[day].sent += 1
+      if (e.action === 'connected')   byDay[day].accepted += 1
+      if (e.action === 'replied' || e.action === 'booked') byDay[day].replied += 1
     }
-    if (['connected','replied','booked'].includes(r.status)) {
-      byDay[day].accepted += 1
-    }
-    if (['replied','booked'].includes(r.status)) {
-      byDay[day].replied += 1
+  } else {
+    // Campaign predates the activity log (or it isn't migrated) — fall back
+    // to the old added_at bucketing so historical charts aren't blanked.
+    for (const r of rows) {
+      const day = r.added_at?.slice(0, 10)
+      if (!day || !byDay[day]) continue
+
+      if (['invited','connected','replied','booked','rejected'].includes(r.status)) byDay[day].sent += 1
+      if (['connected','replied','booked'].includes(r.status)) byDay[day].accepted += 1
+      if (['replied','booked'].includes(r.status)) byDay[day].replied += 1
     }
   }
 
@@ -1908,26 +1970,33 @@ router.get('/:id/analytics', async (req, res) => {
 })
 
 // ── GET /api/campaigns/:id/activity ───────────────────────────
-router.get('/:id/activity', async (req, res) => {
-  const page  = Math.max(1, parseInt(req.query.page)  || 1)
-  const limit = Math.min(50, parseInt(req.query.limit) || 10)
-  const offset = (page - 1) * limit
+// Sourced from campaign_lead_activity, which stamps each action at the
+// moment it happens. This used to read campaign_leads.added_at — when the
+// lead was *imported* — so a request sent a minute ago was displayed as
+// having gone out whenever the CSV was uploaded ("4 days ago"), and a lead
+// only ever produced one feed row no matter how many steps it ran.
+const ACTIVITY_FEED_TEXT = {
+  invite_sent:     'Connection request sent to',
+  connected:       'Connection accepted by',
+  replied:         'Reply received from',
+  booked:          'Meeting booked with',
+  message_sent:    'Message sent to',
+  inmail_sent:     'InMail sent to',
+  commented:       'Commented on a post by',
+  liked_post:      'Liked a post by',
+  visited_profile: 'Profile viewed:',
+  followed:        'Followed',
+  failed:          'Failed to send request to',
+  rejected:        'Connection request declined by',
+  skipped:         'Skipped (condition not met) for',
+}
 
-  const { data, error, count } = await supabase
-    .from('campaign_leads')
-    .select('id, name, linkedin_url, status, added_at', { count: 'exact' })
-    .eq('campaign_id', req.params.id)
-    .in('status', ['invited', 'connected', 'replied', 'booked', 'failed', 'rejected', 'skipped'])
-    .order('added_at', { ascending: false })
-    .range(offset, offset + limit - 1)
-
-  if (error) {
-    console.error('[activity] error:', error.message)
-    return res.status(500).json({ message: error.message })
-  }
-  console.log(`[activity] campaign=${req.params.id} page=${page} count=${count} items=${data?.length}`)
-
-  const ACTION_TEXT = {
+// Legacy fallback for campaigns that ran before campaign_lead_activity
+// existed: derive one row per actioned lead from its status, dated by
+// added_at as before. Only used when a campaign has no activity rows at
+// all — otherwise a campaign from June would show an empty feed.
+async function legacyActivityFromLeads(campaignId, offset, limit) {
+  const LEGACY_TEXT = {
     invited:   'Connection request sent to',
     connected: 'Connection accepted by',
     replied:   'Reply received from',
@@ -1936,15 +2005,70 @@ router.get('/:id/activity', async (req, res) => {
     rejected:  'Connection request declined by',
     skipped:   'Skipped (condition not met) for',
   }
+  const { data, error, count } = await supabase
+    .from('campaign_leads')
+    .select('id, name, linkedin_url, status, added_at', { count: 'exact' })
+    .eq('campaign_id', campaignId)
+    .in('status', Object.keys(LEGACY_TEXT))
+    .order('added_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (error) throw new Error(error.message)
+  return {
+    items: (data || []).map(r => ({
+      id:          r.id,
+      name:        r.name,
+      linkedinUrl: r.linkedin_url,
+      status:      r.status,
+      action:      LEGACY_TEXT[r.status] || r.status,
+      timestamp:   r.added_at,
+    })),
+    total: count || 0,
+  }
+}
+
+router.get('/:id/activity', async (req, res) => {
+  const page  = Math.max(1, parseInt(req.query.page)  || 1)
+  const limit = Math.min(50, parseInt(req.query.limit) || 10)
+  const offset = (page - 1) * limit
+
+  // 'added' (the import itself) and manual lead_status_changed edits are
+  // bookkeeping rather than outreach — they'd bury the real actions under
+  // one row per imported lead.
+  const { data, error, count } = await supabase
+    .from('campaign_lead_activity')
+    .select('id, action, detail, created_at, lead:campaign_leads(id, name, linkedin_url, status)', { count: 'exact' })
+    .eq('campaign_id', req.params.id)
+    .in('action', Object.keys(ACTIVITY_FEED_TEXT))
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (error) {
+    console.error('[activity] error:', error.message)
+    return res.status(500).json({ message: error.message })
+  }
+
+  if (!count) {
+    try {
+      const legacy = await legacyActivityFromLeads(req.params.id, offset, limit)
+      return res.json({ ...legacy, page, limit })
+    } catch (err) {
+      console.error('[activity] legacy fallback error:', err.message)
+      return res.status(500).json({ message: err.message })
+    }
+  }
+
+  console.log(`[activity] campaign=${req.params.id} page=${page} count=${count} items=${data?.length}`)
 
   res.json({
     items: (data || []).map(r => ({
-      id:         r.id,
-      name:       r.name,
-      linkedinUrl: r.linkedin_url,
-      status:     r.status,
-      action:     ACTION_TEXT[r.status] || r.status,
-      timestamp:  r.added_at,
+      id:          r.id,
+      name:        r.lead?.name || 'Unknown lead',
+      linkedinUrl: r.lead?.linkedin_url || null,
+      status:      r.lead?.status || null,
+      action:      ACTIVITY_FEED_TEXT[r.action] || r.action,
+      detail:      r.detail || null,
+      timestamp:   r.created_at,
     })),
     total: count || 0,
     page,
@@ -1952,7 +2076,6 @@ router.get('/:id/activity', async (req, res) => {
   })
 })
 
-// POST /api/campaigns/generate-message
 router.post('/generate-message', async (req, res) => {
   try {
     const { prompt } = req.body
@@ -1988,5 +2111,49 @@ Rules:
     res.status(500).json({ message: 'Generation failed', error: err.message })
   }
 })
+
+// ── runSignalAutoEnroll ─────────────────────────────────────────
+// Queue-worker entry point for the 'auto-enroll-signal' job (see
+// services/campaignQueue.js). Enqueued by signalScoring.recomputeScore()
+// when a lead's classification crosses into a tier a signal_automations
+// rule cares about. Loads that lead's current score + this agent's
+// enabled rules and enrolls into each matching rule's campaign via the
+// same path (enrollLeadsIntoCampaign) manual imports use, so dedupe and
+// the score gate apply identically — a lead already in the campaign is
+// silently skipped rather than double-inserted.
+export async function runSignalAutoEnroll(workspaceId, agentId, providerId) {
+  if (!supabase || !agentId || !providerId) return
+
+  const [{ data: scoreRow }, { data: rules }] = await Promise.all([
+    supabase.from('signal_scores').select('*').eq('agent_id', agentId).eq('provider_id', providerId).maybeSingle(),
+    supabase.from('signal_automations').select('*').eq('agent_id', agentId).eq('enabled', true),
+  ])
+  if (!scoreRow || !rules?.length) return
+
+  const matching = rules.filter(r => classificationRank(scoreRow.classification) >= classificationRank(r.min_classification))
+  if (!matching.length) return
+
+  const lead = {
+    name:        scoreRow.lead_name,
+    title:       scoreRow.title,
+    company:     scoreRow.company,
+    location:    scoreRow.location,
+    linkedinUrl: scoreRow.linkedin_url,
+    providerId:  scoreRow.provider_id,
+  }
+
+  for (const rule of matching) {
+    try {
+      const result = await enrollLeadsIntoCampaign(rule.campaign_id, workspaceId, [lead], { source: 'signal_auto_enroll' })
+      if (result?.error) {
+        console.warn(`[signal-auto-enroll] rule ${rule.id} -> campaign ${rule.campaign_id} skipped:`, result.error, result.message)
+      } else if (result?.count > 0) {
+        console.log(`[signal-auto-enroll] enrolled ${providerId} into campaign ${rule.campaign_id} via rule ${rule.id}`)
+      }
+    } catch (err) {
+      console.error(`[signal-auto-enroll] rule ${rule.id} -> campaign ${rule.campaign_id} error:`, err.message)
+    }
+  }
+}
 
 export default router

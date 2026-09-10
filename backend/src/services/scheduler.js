@@ -3,7 +3,7 @@ import { supabase } from './supabase.js'
 import { syncCampaignStatuses, runCampaignInvites, resumeFromPendingStep } from '../routes/campaigns.js'
 import { conversationStore } from './store.js'
 import { isProspectMessage } from './replyTakeover.js'
-import { enqueueResumePendingStep } from './campaignQueue.js'
+import { enqueueResumePendingStep, isSendBatchStale, clearStaleSendBatch } from './campaignQueue.js'
 
 async function processActiveCampaigns() {
   if (!supabase) return
@@ -38,16 +38,25 @@ async function processActiveCampaigns() {
 
     // Resume invite sending for pending leads — recovers loops killed by a
     // server restart. runCampaignInvites enforces schedule, daily limits and
-    // skips campaigns whose loop is already running.
-    runCampaignInvites(campaign.id, campaign.workspace_id)
-      .then(result => {
+    // skips campaigns whose loop is already running — except a chain that
+    // only *looks* running because its job is stuck (worker died and never
+    // came back to it), which isSendBatchStale below catches and clears
+    // first so runCampaignInvites actually starts a fresh one instead of
+    // silently no-op'ing forever.
+    ;(async () => {
+      try {
+        if (await isSendBatchStale(campaign.id)) {
+          console.warn(`[scheduler] Campaign ${campaign.id}: send-batch chain looks stalled — clearing and restarting`)
+          await clearStaleSendBatch(campaign.id)
+        }
+        const result = await runCampaignInvites(campaign.id, campaign.workspace_id)
         if (result.queued > 0) {
           console.log(`[scheduler] Campaign ${campaign.id}: resumed invites for ${result.queued} pending lead(s)`)
         }
-      })
-      .catch(err => {
+      } catch (err) {
         console.error(`[scheduler] Campaign ${campaign.id} invite error:`, err.message)
-      })
+      }
+    })()
   }
 }
 

@@ -117,6 +117,50 @@ export async function enqueueAutoEnroll({ workspaceId, agentId, providerId }) {
   return getQueue().add('auto-enroll-signal', { workspaceId, agentId, providerId }, JOB_OPTS)
 }
 
+// How long past its scheduled time a send-batch job can sit before it's
+// treated as stalled (worker crashed/restarted and never resumed it, or got
+// wedged on an earlier job) rather than legitimately pending. Generous
+// relative to the largest normal inter-lead delay (up to 60 min under the
+// warmup preset, 20 min for a schedule-blocked recheck) so a healthy chain
+// is never mistaken for stuck.
+const STALE_GRACE_MS = 30 * 60 * 1000
+
+// True if this campaign's send-batch chain looks abandoned. isSendBatchRunning
+// alone can't tell "healthy, waiting for its next hop" apart from "dead, will
+// never run again" — both report the same BullMQ state ('waiting'/'delayed')
+// — so without this, a stalled chain silently blocks every future retry
+// forever: enqueueSendBatch's dedup keys on jobId and only clears *finished*
+// jobs, never a job that's stuck alive. This is what let a campaign sit fully
+// active with pending leads and zero sends for days — see scheduler.js,
+// which calls this every tick and clears+restarts a stale chain automatically.
+//
+// Only 'waiting' and 'delayed' are checked — an 'active' job is currently
+// locked by some worker, and force-clearing it risks colliding with a send
+// that's genuinely in flight (worse than leaving it: a duplicate connection
+// request), so a long-stuck 'active' job is left for BullMQ's own
+// stalled-job/lock-expiry recovery instead.
+export async function isSendBatchStale(campaignId) {
+  const job = await getQueue().getJob(sendBatchJobId(campaignId))
+  if (!job) return false
+  const state = await job.getState()
+  const now = Date.now()
+  if (state === 'waiting') return (now - job.timestamp) > STALE_GRACE_MS
+  if (state === 'delayed') {
+    const dueAt = job.timestamp + (job.opts?.delay || 0)
+    return (now - dueAt) > STALE_GRACE_MS
+  }
+  return false
+}
+
+// Drops a stalled send-batch job so the next enqueueSendBatch() call starts
+// a fresh chain instead of deduping against the dead one.
+export async function clearStaleSendBatch(campaignId) {
+  const job = await getQueue().getJob(sendBatchJobId(campaignId))
+  if (!job) return
+  await job.remove().catch(err =>
+    console.warn(`[campaign-queue] could not clear stalled job for ${campaignId}:`, err.message))
+}
+
 // Lightweight status read for GET /api/campaigns/:id/queue-status.
 export async function getCampaignQueueStatus(campaignId) {
   const job = await getQueue().getJob(sendBatchJobId(campaignId))

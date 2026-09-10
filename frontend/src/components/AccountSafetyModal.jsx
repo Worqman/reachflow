@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { unipile } from "../lib/api";
+import { unipile, campaigns as campaignsApi } from "../lib/api";
 import { useToast } from "./Toast";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -26,6 +26,7 @@ export default function AccountSafetyModal({ open, account, onClose, onSaved }) 
   const [form, setForm] = useState(DEFAULT_SETTINGS);
   const [usage, setUsage] = useState({ requests: 0, messages: 0 });
   const [effective, setEffective] = useState(null);
+  const [linkedCampaigns, setLinkedCampaigns] = useState([]);
 
   useEffect(() => {
     if (!open || !account?.id) return;
@@ -41,6 +42,29 @@ export default function AccountSafetyModal({ open, account, onClose, onSaved }) 
       .catch(() => toast("Could not load safety settings", "danger"))
       .finally(() => setLoading(false));
   }, [open, account?.id]);
+
+  // Campaigns that send through this account — the account's active-hours
+  // gate and each campaign's own schedule both have to pass for a send to go
+  // out (see backend isWithinSchedule), so a timezone mismatch between them
+  // silently shrinks (or zeroes out) the real sending window without either
+  // setting looking wrong on its own. Used below to flag/fix that mismatch.
+  useEffect(() => {
+    if (!open || !account?.id) return;
+    campaignsApi
+      .list()
+      .then((data) => {
+        const matches = (Array.isArray(data) ? data : []).filter(
+          (c) => (c.settings?.linkedinAccountId || c.settings?.accountId) === account.id,
+        );
+        setLinkedCampaigns(matches);
+      })
+      .catch(() => setLinkedCampaigns([]));
+  }, [open, account?.id]);
+
+  const campaignTimezones = [...new Set(linkedCampaigns.map((c) => c.settings?.timezone).filter(Boolean))];
+  const singleCampaignTimezone = campaignTimezones.length === 1 ? campaignTimezones[0] : null;
+  const timezoneMismatch = !loading && singleCampaignTimezone && singleCampaignTimezone !== form.timezone;
+  const timezoneConflict = !loading && campaignTimezones.length > 1;
 
   function toggleDay(day) {
     setForm((f) => ({
@@ -212,6 +236,26 @@ export default function AccountSafetyModal({ open, account, onClose, onSaved }) 
                     </select>
                   </div>
                 </div>
+                {timezoneMismatch && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--warning-subtle, rgba(245,158,11,0.1))", border: "1px solid var(--warning, #f59e0b)" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                      Doesn't match {linkedCampaigns.length === 1 ? `campaign "${linkedCampaigns[0].name}"` : "this account's campaigns"} ({singleCampaignTimezone}) — the two schedules are checked independently, so a mismatch can silently shrink or zero out the real sending window.
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ flexShrink: 0 }}
+                      onClick={() => setForm((f) => ({ ...f, timezone: singleCampaignTimezone }))}
+                    >
+                      Match campaign
+                    </button>
+                  </div>
+                )}
+                {timezoneConflict && (
+                  <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--warning-subtle, rgba(245,158,11,0.1))", border: "1px solid var(--warning, #f59e0b)", fontSize: 12, color: "var(--text-secondary)" }}>
+                    This account sends for campaigns in different timezones ({campaignTimezones.join(", ")}) — pick the timezone that matches this account's actual active hours.
+                  </div>
+                )}
               </div>
 
               {/* Delay range */}

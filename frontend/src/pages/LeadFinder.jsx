@@ -3,7 +3,7 @@ import { campaigns as campaignsApi, leads as leadsApi, leadLists as listsApi, un
 import "./LeadFinder.css";
 
 // LinkedIn industry list with official numeric IDs (used as facetIndustry in search)
-const INDUSTRIES = [
+export const INDUSTRIES = [
   { id: "1",   name: "Accounting" },
   { id: "3",   name: "Airlines / Aviation" },
   { id: "5",   name: "Alternative Medicine" },
@@ -101,7 +101,7 @@ const INDUSTRIES = [
   { id: "147", name: "Wireless" },
   { id: "148", name: "Writing & Editing" },
 ];
-const SIZES = [
+export const SIZES = [
   "1–10",
   "11–50",
   "51–200",
@@ -110,7 +110,7 @@ const SIZES = [
   "1001–5000",
   "5001+",
 ];
-const SENIORITY = [
+export const SENIORITY = [
   "Owner",
   "C-Suite",
   "VP / Director",
@@ -129,13 +129,13 @@ const MODES = [
 // /pub/…). Anything else — /company/, /school/, /showcase/, or a non-LinkedIn
 // domain — is an organization page or unrelated link, never the person's own
 // profile, so it must never be shown behind a "View LinkedIn profile" badge.
-function isPersonalLinkedInUrl(url) {
+export function isPersonalLinkedInUrl(url) {
   return typeof url === "string" && /linkedin\.com\/(in|pub)\//i.test(url);
 }
 
 // Normalise any Unipile person object into a table row.
 // Handles: LinkedIn search results, profile lookups, reactions/comments wrappers.
-function normaliseProfile(raw) {
+export function normaliseProfile(raw) {
   const p = raw?.user || raw?.author || raw;
   const pos = p.current_positions?.[0];
   const fullName = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();

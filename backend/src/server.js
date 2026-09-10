@@ -3,6 +3,24 @@ import express from "express";
 import cors from "cors";
 import { supabase } from "./services/supabase.js";
 
+// ── Process-level crash safety net ───────────────────────────────
+// Without these, Node's default behavior is to kill the entire process on
+// any unhandled promise rejection or uncaught exception — which, with no
+// process supervisor auto-restarting it, means a single unrelated bug
+// anywhere (a fire-and-forget call missing a .catch, a thrown error in an
+// async route handler) takes down every active campaign's sending
+// indefinitely, silently, until someone happens to notice and restart the
+// process by hand. Logging and continuing trades a small risk (carrying on
+// after an exception whose blast radius is unknown) for a much larger,
+// already-observed one (total, silent, unbounded outage). Register these
+// before anything else initializes so nothing during startup is unguarded.
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[process] Uncaught exception:", err);
+});
+
 import workspaceRouter from "./routes/workspace.js";
 import settingsRouter from "./routes/settings.js";
 import agentsRouter from "./routes/agents.js";

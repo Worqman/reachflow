@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useLocation, useParams } from "react-router-dom";
 import LeadFinderModal from "../components/LeadFinderModal";
+import LeadExtractorModal from "../components/LeadExtractorModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
 import LinkedInProfileModal from "../components/LinkedInProfileModal";
@@ -1289,6 +1290,7 @@ export default function CampaignDetail() {
 
   const [showImport, setShowImport] = useState(false);
   const [lfOpen, setLfOpen] = useState(false);
+  const [leadExtractorOpen, setLeadExtractorOpen] = useState(false);
   const [profileUrlOpen, setProfileUrlOpen] = useState(false);
   const [linkedInProfileOpen, setLinkedInProfileOpen] = useState(false);
   const [postEngagersOpen, setPostEngagersOpen] = useState(false);
@@ -1630,6 +1632,13 @@ export default function CampaignDetail() {
         campaignId={id}
       />
 
+      <LeadExtractorModal
+        open={leadExtractorOpen}
+        onClose={() => setLeadExtractorOpen(false)}
+        onImport={isSetup ? handleSetupImportDone : refreshLeads}
+        campaignId={id}
+      />
+
       <ProfileUrlModal
         open={profileUrlOpen}
         onClose={() => setProfileUrlOpen(false)}
@@ -1669,6 +1678,7 @@ export default function CampaignDetail() {
               if (which === "url") setProfileUrlOpen(true);
               else if (which === "post") setPostEngagersOpen(true);
               else if (which === "profile") setLinkedInProfileOpen(true);
+              else if (which === "extractor") setLeadExtractorOpen(true);
               else setLfOpen(true);
             }}
             onSendInvites={handleSendInvites}
@@ -2322,9 +2332,10 @@ function applyColumnMapping(allRows, headers, mapping) {
 }
 
 // ── CSV Setup Wizard steps ─────────────────────────────────────
-function CsvSourceStep({ onSelectCsv, onSelectMyLeads }) {
+function CsvSourceStep({ onSelectCsv, onSelectMyLeads, onSelectLeadFinder }) {
   const cardStyle = {
-    width: 320,
+    flex: "1 1 260px",
+    maxWidth: 320,
     border: "1px solid var(--border)",
     borderRadius: 12,
     padding: 28,
@@ -2442,6 +2453,59 @@ function CsvSourceStep({ onSelectCsv, onSelectMyLeads }) {
             onClick={(e) => {
               e.stopPropagation();
               onSelectCsv();
+            }}
+          >
+            Select →
+          </button>
+        </div>
+        <div
+          style={cardStyle}
+          onClick={onSelectLeadFinder}
+          onMouseEnter={hover}
+          onMouseLeave={unhover}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            style={{
+              width: 32,
+              height: 32,
+              marginBottom: 14,
+              color: "var(--signal)",
+            }}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              x1="21"
+              y1="21"
+              x2="16.65"
+              y2="16.65"
+            />
+          </svg>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+            Lead Extractor
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              marginBottom: 20,
+              lineHeight: 1.5,
+            }}
+          >
+            Search LinkedIn by filters, look up a profile URL, or pull a
+            post's engagers — straight into this campaign.
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectLeadFinder();
             }}
           >
             Select →
@@ -3207,7 +3271,7 @@ function LeadsTab({
   // Setup mode: show CSV wizard phases inline (not the old list/import-panel flow)
   if (isSetup && csvPhase !== "done") {
     return (
-      <div style={{ padding: "24px 32px", maxWidth: 900 }}>
+      <div style={{ padding: "24px 32px", maxWidth: 1040 }}>
         <MyLeadsPickerModal
           open={myLeadsOpen}
           onClose={() => setMyLeadsOpen(false)}
@@ -3221,6 +3285,7 @@ function LeadsTab({
           <CsvSourceStep
             onSelectCsv={() => setCsvPhase("upload")}
             onSelectMyLeads={() => setMyLeadsOpen(true)}
+            onSelectLeadFinder={() => onOpenLeadFinder?.("extractor")}
           />
         )}
         {csvPhase === "upload" && (

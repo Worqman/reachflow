@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { dashboard as dashboardApi, unipile, workspace as workspaceApi } from '../lib/api'
+import { dashboard as dashboardApi, unipile, workspace as workspaceApi, entitlements as entitlementsApi } from '../lib/api'
 import { useToast } from '../components/Toast'
 import { Sk } from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -74,12 +74,12 @@ const PLANS = [
     price: 149,
     currency: 'gbp',
     oneOff: true,
-    // Real Stripe Payment Link for the £149 one-off lifetime deal — clicking
-    // this plan's button sends the user to Stripe to actually pay, rather
-    // than through the local mock card flow the other (fake) plans use.
+    // Clicking this plan's button starts a real Stripe Checkout Session for
+    // the logged-in user (POST /api/entitlements/checkout) rather than going
+    // through the local mock card flow the other (fake) plans use below.
     // Activation happens via the checkout.session.completed webhook
-    // (backend/src/webhooks/stripe.js), not by this page calling our API.
-    checkoutUrl: 'https://buy.stripe.com/5kQ5kDeZJ48U5KfapcfQI05',
+    // (backend/src/webhooks/stripe.js), not by this page directly.
+    isLifetime: true,
     tagline: 'One-time payment, yours for life',
     features: [
       '3,000 credits included',
@@ -242,10 +242,18 @@ export default function Billing() {
     }, 500)
   }
 
-  function handleUpgradeClick(plan) {
+  async function handleUpgradeClick(plan) {
     if (plan.id === currentPlanId) return
-    if (plan.checkoutUrl) {
-      window.location.href = plan.checkoutUrl
+    if (plan.isLifetime) {
+      setChangingPlan(true)
+      try {
+        const res = await entitlementsApi.checkout()
+        if (!res?.url) throw new Error('No checkout URL returned')
+        window.location.href = res.url
+      } catch (e) {
+        toast(e?.message || 'Failed to start checkout', 'error')
+        setChangingPlan(false)
+      }
       return
     }
     if (!card) {
@@ -420,7 +428,7 @@ export default function Billing() {
                 disabled={isCurrent || changingPlan}
                 onClick={() => handleUpgradeClick(p)}
               >
-                {isCurrent ? 'Current plan' : p.checkoutUrl ? `Buy ${p.name}` : changingPlan ? 'Working…' : `Upgrade to ${p.name}`}
+                {isCurrent ? 'Current plan' : changingPlan ? 'Working…' : p.isLifetime ? `Buy ${p.name}` : `Upgrade to ${p.name}`}
               </button>
             </div>
           )

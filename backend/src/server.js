@@ -39,6 +39,7 @@ import notificationsRouter from "./routes/notifications.js";
 import unipileWebhook from "./webhooks/unipile.js";
 import stripeWebhook from "./webhooks/stripe.js";
 import entitlementsRouter from "./routes/entitlements.js";
+import { getActiveEntitlement } from "./services/entitlements.js";
 import { startScheduler } from "./services/scheduler.js";
 import { initConversationStore } from "./services/store.js";
 import { startCampaignQueueWorker, closeCampaignQueue } from "./services/campaignQueue.js";
@@ -119,6 +120,27 @@ async function verifyWorkspaceMembership(req, res, next) {
   }
 }
 
+// Blocks access to the actual app (leads, campaigns, sending, etc.) for an
+// authenticated user with no active lifetime entitlement — the backend
+// half of the paywall gate (routes/workspace.js and routes/entitlements.js
+// are deliberately exempt: the frontend needs both reachable pre-purchase
+// to run onboarding and to start/poll checkout). Mirrors verifyWorkspaceMembership's
+// dev-mode escape hatch so local/no-DB dev isn't blocked.
+async function requireEntitlement(req, res, next) {
+  if (!supabase || req.workspaceId === "ws_default") return next();
+  if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  try {
+    const entitlement = await getActiveEntitlement(req.user.id);
+    if (!entitlement) {
+      return res.status(402).json({ message: "Lifetime access required", code: "entitlement_required" });
+    }
+    next();
+  } catch (err) {
+    console.error("[entitlement-check]", err.message);
+    return res.status(500).json({ message: "Entitlement check failed" });
+  }
+}
+
 app.use("/api", attachUser);
 
 // ── Health check ──────────────────────────────────────────────
@@ -147,64 +169,80 @@ app.use(
 app.use(
   "/api/company-profiles",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   companyProfilesRouter,
 );
 app.use(
   "/api/settings",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   settingsRouter,
 );
-app.use("/api/agents", requireAuth, verifyWorkspaceMembership, agentsRouter);
+app.use("/api/agents", requireAuth, requireEntitlement, verifyWorkspaceMembership, agentsRouter);
 app.use(
   "/api/campaigns",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   campaignsRouter,
 );
-app.use("/api/leads", requireAuth, verifyWorkspaceMembership, leadsRouter);
+app.use("/api/leads", requireAuth, requireEntitlement, verifyWorkspaceMembership, leadsRouter);
 app.use(
   "/api/lead-lists",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   leadListsRouter,
 );
 app.use(
   "/api/conversations",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   conversationsRouter,
 );
 app.use(
   "/api/meetings",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   meetingsRouter,
 );
 app.use(
   "/api/profiles",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   profilesRouter,
 );
+// Exempt from requireEntitlement, like /api/workspaces above: an invited
+// teammate needs to be able to accept an invite (POST /accept) before
+// they've necessarily bought their own lifetime access. The actual
+// protected app features (leads/campaigns/agents/etc. below) are still
+// individually gated, so this only exempts team-roster management itself.
 app.use("/api/members", requireAuth, verifyWorkspaceMembership, membersRouter);
-app.use("/api/unipile", requireAuth, verifyWorkspaceMembership, unipileRouter);
+app.use("/api/unipile", requireAuth, requireEntitlement, verifyWorkspaceMembership, unipileRouter);
 app.use(
   "/api/dashboard",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   dashboardRouter,
 );
 app.use(
   "/api/credits",
   requireAuth,
+  requireEntitlement,
   verifyWorkspaceMembership,
   creditsRouter,
 );
 // Notifications are per-user, not workspace-scoped — no membership check needed.
-app.use("/api/notifications", requireAuth, notificationsRouter);
-// Entitlements (Stripe purchases) are per-user too, not workspace-scoped.
+app.use("/api/notifications", requireAuth, requireEntitlement, notificationsRouter);
+// Entitlements (Stripe purchases) are exempt from requireEntitlement by
+// definition — this is the route that checks/grants it. Workspaces (above)
+// is exempt too: the frontend needs it reachable pre-purchase for onboarding.
 app.use("/api/entitlements", requireAuth, entitlementsRouter);
 
 // ── Webhooks (no auth — called by Unipile/Stripe externally) ──

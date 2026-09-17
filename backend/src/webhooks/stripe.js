@@ -1,14 +1,12 @@
 import { Router } from "express";
-import Stripe from "stripe";
 import { supabase } from "../services/supabase.js";
+import { stripe } from "../services/stripeClient.js";
 import { planForPriceId } from "../services/stripePlans.js";
 import { recordEntitlement } from "../services/entitlements.js";
 
 const router = Router();
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
 // POST /api/webhooks/stripe (this router is mounted at that full path in
 // server.js — its own route below is "/", not "/stripe").
@@ -88,8 +86,17 @@ async function handleCheckoutCompleted(session) {
     return;
   }
 
+  // For checkouts started from Eya while logged in (routes/entitlements.js
+  // POST /checkout), we set client_reference_id to our own user id when
+  // creating the session — trustworthy here since we set it ourselves
+  // server-side. This lets us assign the entitlement directly instead of
+  // matching by email, which is the fallback for the standalone Payment
+  // Link (paying before an Eya account exists — see recordEntitlement).
+  const userId = session.client_reference_id || session.metadata?.eya_user_id || null;
+
   await recordEntitlement({
     email,
+    userId,
     plan,
     stripeCustomerId: session.customer || null,
     stripeCheckoutSessionId: session.id,

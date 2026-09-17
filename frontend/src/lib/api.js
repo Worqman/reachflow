@@ -237,6 +237,9 @@ export const entitlements = {
   // Also attaches any pending entitlement bought under this account's
   // verified email before it existed — call once after login/signup.
   getMine: () => get("/entitlements/me"),
+  // Starts a Stripe Checkout Session for the logged-in user; returns { url }
+  // to redirect to. See pages/LifetimeAccess.jsx.
+  checkout: () => post("/entitlements/checkout"),
 };
 
 export const notifications = {

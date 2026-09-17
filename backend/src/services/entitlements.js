@@ -79,11 +79,22 @@ export async function attachPendingEntitlement(user) {
   return pending.id;
 }
 
-// Stores a purchase as an entitlement — attaching it to an existing account
-// by email when one exists, otherwise leaving user_id null (pending) for
-// attachPendingEntitlement to pick up once that person registers/confirms.
+// Stores a purchase as an entitlement.
+//
+// `userId`, when given, comes from a Checkout Session we created ourselves
+// for a logged-in user (client_reference_id — see routes/entitlements.js
+// POST /checkout) and is trusted directly, skipping the email scan
+// entirely. That's the primary path now: buy while logged in, get assigned
+// immediately and unambiguously.
+//
+// When `userId` is absent (the standalone Payment Link — paying before an
+// Eya account exists, or without being logged in), this falls back to
+// matching an existing account by email, otherwise leaving user_id null
+// (pending) for attachPendingEntitlement to pick up once that person
+// registers/confirms.
 export async function recordEntitlement({
   email,
+  userId: knownUserId,
   plan,
   stripeCustomerId,
   stripeCheckoutSessionId,
@@ -103,7 +114,7 @@ export async function recordEntitlement({
     .maybeSingle();
   if (existing) return existing.id;
 
-  const userId = await findUserIdByEmail(normalizedEmail);
+  const userId = knownUserId || (await findUserIdByEmail(normalizedEmail));
 
   const { data, error } = await supabase
     .from("entitlements")
@@ -130,7 +141,7 @@ export async function recordEntitlement({
 
   console.log(
     userId
-      ? `[entitlements] ${plan} entitlement activated for existing user ${userId} (${normalizedEmail})`
+      ? `[entitlements] ${plan} entitlement activated for user ${userId} (${normalizedEmail})${knownUserId ? " [direct]" : " [matched by email]"}`
       : `[entitlements] ${plan} entitlement stored as pending for ${normalizedEmail} — no Eya account yet`,
   );
   return data.id;

@@ -27,12 +27,13 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const LinkedInAccounts = lazy(() => import('./pages/LinkedInAccounts'))
 const Workspaces = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Workspaces })))
 const Members = lazy(() => import('./pages/StubPages').then(m => ({ default: m.Members })))
+const LifetimeAccess = lazy(() => import('./pages/LifetimeAccess'))
 
 const PageLoader = () => (
   <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
 )
 
-const ONBOARDING_ALLOWLIST = ['/login', '/register', '/forgot-password', '/reset-password', '/onboarding', '/workspaces']
+const ONBOARDING_ALLOWLIST = ['/login', '/register', '/forgot-password', '/reset-password', '/onboarding', '/workspaces', '/lifetime-access']
 
 function RequireAuth({ children }) {
   const location = useLocation()
@@ -40,6 +41,8 @@ function RequireAuth({ children }) {
   const [user, setUser] = useState(null)
   const [checkingSetup, setCheckingSetup] = useState(false)
   const [shouldOnboard, setShouldOnboard] = useState(false)
+  const [checkingEntitlement, setCheckingEntitlement] = useState(true)
+  const [hasEntitlement, setHasEntitlement] = useState(false)
   // Tracks whether we've already confirmed setup is complete this session
   // so we don't re-run expensive DB queries on every navigation
   const setupDoneRef = useRef(false)
@@ -82,13 +85,21 @@ function RequireAuth({ children }) {
     }
   }, [])
 
-  // Once per login: links any lifetime/plan purchase made under this
-  // (verified) email before the account existed, and is otherwise a cheap
-  // no-op — see routes/entitlements.js. Deliberately not called on every
-  // API request.
+  // Once per login: checks lifetime access (and, as a side effect, links
+  // any purchase made under this verified email before the account
+  // existed — see routes/entitlements.js). Deliberately not called on
+  // every API request. This is the frontend half of the paywall gate —
+  // the backend enforces the same thing independently on protected routes
+  // (server.js requireEntitlement), so this is UX, not the real boundary.
   useEffect(() => {
-    if (!user?.id) return
-    entitlementsApi.getMine().catch(() => {})
+    if (!user?.id) { setCheckingEntitlement(false); return }
+    let alive = true
+    setCheckingEntitlement(true)
+    entitlementsApi.getMine()
+      .then((res) => { if (alive) setHasEntitlement(!!res?.entitlement) })
+      .catch(() => { if (alive) setHasEntitlement(false) })
+      .finally(() => { if (alive) setCheckingEntitlement(false) })
+    return () => { alive = false }
   }, [user?.id])
 
   useEffect(() => {
@@ -229,6 +240,28 @@ function RequireAuth({ children }) {
 
   if (!user) return <Navigate to="/login" replace />
 
+  if (checkingEntitlement) {
+    return (
+      <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>
+        Loading…
+      </div>
+    )
+  }
+
+  // Accepting a team invite doesn't require lifetime access of your own
+  // yet (see server.js — /api/members is exempt from requireEntitlement
+  // for the same reason); everything else in the app does.
+  const hasInviteToken =
+    (location.pathname === '/members' || location.pathname === '/invite') &&
+    new URLSearchParams(location.search).has('token')
+
+  if (!hasEntitlement && !hasInviteToken && location.pathname !== '/lifetime-access') {
+    return <Navigate to="/lifetime-access" replace />
+  }
+  if (hasEntitlement && location.pathname === '/lifetime-access') {
+    return <Navigate to="/" replace />
+  }
+
   if (checkingSetup) {
     return (
       <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>
@@ -245,7 +278,7 @@ function RequireAuth({ children }) {
 
 function AppLayout({ children }) {
   const location = useLocation()
-  const hideSidebar = location.pathname === '/onboarding'
+  const hideSidebar = location.pathname === '/onboarding' || location.pathname === '/lifetime-access'
   const [workspaceName, setWorkspaceName] = useState('')
 
   useEffect(() => {
@@ -312,6 +345,7 @@ function AppRoutes() {
         <Route path="/settings"      element={<Settings />} />
         <Route path="/profile"       element={<Navigate to="/settings?tab=profile" replace />} />
         <Route path="/onboarding"    element={<Onboarding />} />
+        <Route path="/lifetime-access" element={<LifetimeAccess />} />
         <Route path="/login"            element={<Login />} />
         <Route path="/register"         element={<Register />} />
         <Route path="/forgot-password"  element={<ForgotPassword />} />

@@ -47,7 +47,7 @@ export const PLANS = {
   },
   team: {
     id: "team",
-    name: "Team",
+    name: "Lifetime Access",
     price: 149,
     currency: "gbp",
     accounts: 3,

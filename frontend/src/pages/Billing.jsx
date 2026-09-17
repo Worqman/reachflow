@@ -70,10 +70,17 @@ const PLANS = [
   },
   {
     id: 'team',
-    name: 'Team',
+    name: 'Lifetime Access',
     price: 149,
     currency: 'gbp',
-    tagline: 'For teams sharing one workspace',
+    oneOff: true,
+    // Real Stripe Payment Link for the £149 one-off lifetime deal — clicking
+    // this plan's button sends the user to Stripe to actually pay, rather
+    // than through the local mock card flow the other (fake) plans use.
+    // Activation happens via the checkout.session.completed webhook
+    // (backend/src/webhooks/stripe.js), not by this page calling our API.
+    checkoutUrl: 'https://buy.stripe.com/5kQ5kDeZJ48U5KfapcfQI05',
+    tagline: 'One-time payment, yours for life',
     features: [
       '3,000 credits included',
       '3 LinkedIn accounts',
@@ -237,6 +244,10 @@ export default function Billing() {
 
   function handleUpgradeClick(plan) {
     if (plan.id === currentPlanId) return
+    if (plan.checkoutUrl) {
+      window.location.href = plan.checkoutUrl
+      return
+    }
     if (!card) {
       openCardModal(plan)
       return
@@ -396,7 +407,7 @@ export default function Billing() {
               <div className="billing-tier-tagline">{p.tagline}</div>
               <div className="billing-tier-price">
                 <span className="billing-tier-amount">{CURRENCY_SYMBOLS[p.currency] || '$'}{p.price}</span>
-                <span className="billing-tier-period">/month</span>
+                <span className="billing-tier-period">{p.oneOff ? ' one-time' : '/month'}</span>
               </div>
               <ul className="billing-tier-features">
                 {p.features.map(f => (
@@ -409,7 +420,7 @@ export default function Billing() {
                 disabled={isCurrent || changingPlan}
                 onClick={() => handleUpgradeClick(p)}
               >
-                {isCurrent ? 'Current plan' : changingPlan ? 'Working…' : `Upgrade to ${p.name}`}
+                {isCurrent ? 'Current plan' : p.checkoutUrl ? `Buy ${p.name}` : changingPlan ? 'Working…' : `Upgrade to ${p.name}`}
               </button>
             </div>
           )

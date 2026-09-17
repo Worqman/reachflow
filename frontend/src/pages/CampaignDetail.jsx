@@ -6,6 +6,8 @@ import LeadExtractorModal from "../components/LeadExtractorModal";
 import ProfileUrlModal from "../components/ProfileUrlModal";
 import PostEngagersModal from "../components/PostEngagersModal";
 import LinkedInProfileModal from "../components/LinkedInProfileModal";
+import SalesNavigatorModal from "../components/SalesNavigatorModal";
+import ManualProfilesModal from "../components/ManualProfilesModal";
 import Modal from "../components/Modal";
 import { Sk, SkeletonTableRows } from "../components/Skeleton";
 import {
@@ -884,6 +886,26 @@ const IMPORT_SOURCES = [
     ),
     label: "Lead Finder",
     desc: "Search Apollo's 300M+ contact database",
+  },
+  {
+    id: "sales_navigator",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="4" />
+        <line x1="12" y1="3" x2="12" y2="7" />
+        <line x1="12" y1="17" x2="12" y2="21" />
+      </svg>
+    ),
+    label: "Sales Navigator Search",
+    desc: "Paste a Sales Navigator search results URL",
   },
   {
     id: "list",
@@ -3197,6 +3219,9 @@ function LeadsTab({
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [myLeadsOpen, setMyLeadsOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const [salesNavOpen, setSalesNavOpen] = useState(false);
+  const [eventImportOpen, setEventImportOpen] = useState(false);
+  const [groupImportOpen, setGroupImportOpen] = useState(false);
   const [leadsSearch, setLeadsSearch] = useState("");
   const [retryingFor, setRetryingFor] = useState(null);
   const [leadsPage, setLeadsPage] = useState(1);
@@ -3958,6 +3983,35 @@ function LeadsTab({
         onImported={onSetupImportDone || onRefreshLeads}
       />
 
+      <SalesNavigatorModal
+        open={salesNavOpen}
+        onClose={() => setSalesNavOpen(false)}
+        onImport={onSetupImportDone || onRefreshLeads}
+        campaignId={campaignId}
+      />
+
+      <ManualProfilesModal
+        open={eventImportOpen}
+        onClose={() => setEventImportOpen(false)}
+        onImport={onSetupImportDone || onRefreshLeads}
+        campaignId={campaignId}
+        title="LinkedIn Event Attendees"
+        icon="📅"
+        placeholder="LinkedIn has no API for event attendee lists — open the event's attendee page, copy each person's profile URL, and paste them below (one per line)."
+        sourceTag="linkedin_event"
+      />
+
+      <ManualProfilesModal
+        open={groupImportOpen}
+        onClose={() => setGroupImportOpen(false)}
+        onImport={onSetupImportDone || onRefreshLeads}
+        campaignId={campaignId}
+        title="LinkedIn Group Members"
+        icon="👥"
+        placeholder="LinkedIn has no API for group member lists — open the group's members page, copy each person's profile URL, and paste them below (one per line)."
+        sourceTag="linkedin_group"
+      />
+
       {showImport && (
         <div
           className="modal-overlay"
@@ -4003,6 +4057,15 @@ function LeadsTab({
                       } else if (s.id === "csv") {
                         onCloseImport();
                         setCsvImportOpen(true);
+                      } else if (s.id === "sales_navigator") {
+                        onCloseImport();
+                        setSalesNavOpen(true);
+                      } else if (s.id === "event") {
+                        onCloseImport();
+                        setEventImportOpen(true);
+                      } else if (s.id === "group") {
+                        onCloseImport();
+                        setGroupImportOpen(true);
                       } else {
                         toast(`${s.label} — coming soon`, "info");
                       }
@@ -8402,7 +8465,7 @@ const CONTACT_VARS = [
     value: "{calendarLink}",
     preview: "https://cal.com/you",
   },
-  { label: "Your Company", value: "{senderCompany}", preview: "ReachFlow" },
+  { label: "Your Company", value: "{senderCompany}", preview: "eya" },
   {
     label: "Your Website",
     value: "{senderWebsite}",

@@ -54,6 +54,8 @@ const del = (path) => request("DELETE", path);
 export const workspace = {
   get: () => get("/workspaces"),
   update: (data) => put("/workspace", data),
+  getPlan: () => get("/workspaces/plan"),
+  setPlan: (planId) => post("/workspaces/plan", { plan_id: planId }),
 };
 
 // ── Settings ───────────────────────────────────
@@ -221,6 +223,25 @@ export const unipile = {
 // ── Dashboard ──────────────────────────────────
 export const dashboard = {
   get: () => get("/dashboard"),
+};
+
+// ── Credits ────────────────────────────────────
+export const credits = {
+  get: () => get("/credits"),
+  grant: (amount, reason) => post("/credits/grant", { amount, reason }),
+};
+
+// ── Notifications ──────────────────────────────
+// ── Entitlements (Stripe purchases — lifetime access etc.) ─────
+export const entitlements = {
+  // Also attaches any pending entitlement bought under this account's
+  // verified email before it existed — call once after login/signup.
+  getMine: () => get("/entitlements/me"),
+};
+
+export const notifications = {
+  list: () => get("/notifications"),
+  setEvent: (key, enabled) => put("/notifications", { key, enabled }),
 };
 
 // ── Members ────────────────────────────────────

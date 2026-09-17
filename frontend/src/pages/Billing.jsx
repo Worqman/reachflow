@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { dashboard as dashboardApi, unipile } from '../lib/api'
+import { dashboard as dashboardApi, unipile, workspace as workspaceApi } from '../lib/api'
 import { useToast } from '../components/Toast'
 import { Sk } from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -18,11 +18,18 @@ const TRIAL_FEATURES = [
   'Full analytics access',
 ]
 
+const CURRENCY_SYMBOLS = { usd: '$', gbp: '£' }
+
+// Mirrors backend/src/services/plans.js `accounts` — only used to label the
+// usage card here; the backend is the source of truth that's actually enforced.
+const ACCOUNT_LIMIT_BY_PLAN = { trial: 1, starter: 1, growth: 3, scale: 10, team: 3 }
+
 const PLANS = [
   {
     id: 'starter',
     name: 'Starter',
     price: 49,
+    currency: 'usd',
     tagline: 'For solo founders testing outreach',
     features: [
       '1 LinkedIn account',
@@ -36,6 +43,7 @@ const PLANS = [
     id: 'growth',
     name: 'Growth',
     price: 129,
+    currency: 'usd',
     tagline: 'For teams scaling pipeline',
     popular: true,
     features: [
@@ -50,6 +58,7 @@ const PLANS = [
     id: 'scale',
     name: 'Scale',
     price: 299,
+    currency: 'usd',
     tagline: 'For agencies running at volume',
     features: [
       '10 LinkedIn accounts',
@@ -57,6 +66,20 @@ const PLANS = [
       'AI agents & message generation',
       'Full analytics & reporting',
       'Dedicated success manager',
+    ],
+  },
+  {
+    id: 'team',
+    name: 'Team',
+    price: 149,
+    currency: 'gbp',
+    tagline: 'For teams sharing one workspace',
+    features: [
+      '3,000 credits included',
+      '3 LinkedIn accounts',
+      'Up to 5 team members',
+      'AI agents & message generation',
+      'Full analytics & reporting',
     ],
   },
 ]
@@ -148,7 +171,8 @@ export default function Billing() {
   const [stats, setStats] = useState({})
   const [accountCount, setAccountCount] = useState(null)
 
-  const [currentPlanId, setCurrentPlanId] = useState('trial')
+  const [currentPlanId, setCurrentPlanId] = useState(null)
+  const [changingPlan, setChangingPlan] = useState(false)
   const [pendingPlan, setPendingPlan] = useState(null)
   const [card, setCard] = useState(null)
   const [invoices, setInvoices] = useState([])
@@ -160,13 +184,18 @@ export default function Billing() {
 
   useEffect(() => {
     let mounted = true
-    Promise.allSettled([dashboardApi.get(), unipile.getAccounts()]).then(([dashRes, accRes]) => {
+    Promise.allSettled([dashboardApi.get(), unipile.getAccounts(), workspaceApi.getPlan()]).then(([dashRes, accRes, planRes]) => {
       if (!mounted) return
       if (dashRes.status === 'fulfilled') setStats(dashRes.value?.stats || {})
       if (accRes.status === 'fulfilled') {
         const data = accRes.value
         const items = data?.items || data?.accounts || (Array.isArray(data) ? data : [])
         setAccountCount(items.length)
+      }
+      if (planRes.status === 'fulfilled') {
+        setCurrentPlanId(planRes.value?.plan_id || 'trial')
+      } else {
+        setCurrentPlanId('trial')
       }
       setLoading(false)
     })
@@ -215,24 +244,41 @@ export default function Billing() {
     confirmUpgrade(plan)
   }
 
-  function confirmUpgrade(plan) {
-    setCurrentPlanId(plan.id)
-    setInvoices(prev => [
-      {
-        id: `INV-${Date.now().toString().slice(-6)}`,
-        date: new Date(),
-        plan: plan.name,
-        amount: plan.price,
-        status: 'Paid',
-      },
-      ...prev,
-    ])
-    toast(`You're now on the ${plan.name} plan`, 'success')
+  async function confirmUpgrade(plan) {
+    setChangingPlan(true)
+    try {
+      await workspaceApi.setPlan(plan.id)
+      setCurrentPlanId(plan.id)
+      setInvoices(prev => [
+        {
+          id: `INV-${Date.now().toString().slice(-6)}`,
+          date: new Date(),
+          plan: plan.name,
+          amount: plan.price,
+          currency: plan.currency,
+          status: 'Paid',
+        },
+        ...prev,
+      ])
+      toast(`You're now on the ${plan.name} plan`, 'success')
+    } catch (e) {
+      toast(e?.message || 'Failed to change plan', 'error')
+    } finally {
+      setChangingPlan(false)
+    }
   }
 
-  function handleCancelPlan() {
-    setCurrentPlanId('trial')
-    toast('Subscription canceled — you\'re back on the free trial', 'info')
+  async function handleCancelPlan() {
+    setChangingPlan(true)
+    try {
+      await workspaceApi.setPlan('trial')
+      setCurrentPlanId('trial')
+      toast('Subscription canceled — you\'re back on the free trial', 'info')
+    } catch (e) {
+      toast(e?.message || 'Failed to cancel plan', 'error')
+    } finally {
+      setChangingPlan(false)
+    }
   }
 
   function removeCard() {
@@ -241,8 +287,10 @@ export default function Billing() {
     toast('Payment method removed', 'info')
   }
 
+  const accountsLimit = ACCOUNT_LIMIT_BY_PLAN[currentPlanId] ?? 1
+
   const usageCards = [
-    { label: 'LinkedIn Accounts', value: loading ? null : String(accountCount ?? 0), limit: '1 included', icon: <IconAccounts /> },
+    { label: 'LinkedIn Accounts', value: loading ? null : String(accountCount ?? 0), limit: `${accountsLimit} included`, icon: <IconAccounts /> },
     { label: 'Active Campaigns', value: loading ? null : String(stats.activeCampaigns ?? 0), limit: '1 included', icon: <IconZap /> },
     { label: 'Invites Sent This Week', value: loading ? null : String(stats.invitesSentThisWeek ?? 0), limit: 'Unlimited in trial', icon: <IconSend /> },
   ]
@@ -259,7 +307,7 @@ export default function Billing() {
             <div className="billing-plan-top">
               <div>
                 <div className="billing-plan-name">{currentPlan.name}</div>
-                <div className="billing-plan-desc">${currentPlan.price}/month — {currentPlan.tagline.toLowerCase()}.</div>
+                <div className="billing-plan-desc">{CURRENCY_SYMBOLS[currentPlan.currency] || '$'}{currentPlan.price}/month — {currentPlan.tagline.toLowerCase()}.</div>
               </div>
             </div>
 
@@ -347,7 +395,7 @@ export default function Billing() {
               <div className="billing-tier-name">{p.name}</div>
               <div className="billing-tier-tagline">{p.tagline}</div>
               <div className="billing-tier-price">
-                <span className="billing-tier-amount">${p.price}</span>
+                <span className="billing-tier-amount">{CURRENCY_SYMBOLS[p.currency] || '$'}{p.price}</span>
                 <span className="billing-tier-period">/month</span>
               </div>
               <ul className="billing-tier-features">
@@ -358,10 +406,10 @@ export default function Billing() {
               <button
                 className={`btn btn-sm ${isCurrent ? 'btn-secondary' : p.popular ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ width: '100%', justifyContent: 'center' }}
-                disabled={isCurrent}
+                disabled={isCurrent || changingPlan}
                 onClick={() => handleUpgradeClick(p)}
               >
-                {isCurrent ? 'Current plan' : `Upgrade to ${p.name}`}
+                {isCurrent ? 'Current plan' : changingPlan ? 'Working…' : `Upgrade to ${p.name}`}
               </button>
             </div>
           )
@@ -437,7 +485,7 @@ export default function Billing() {
                       </div>
                     </div>
                     <span className="billing-invoice-status">{inv.status}</span>
-                    <div className="billing-invoice-amount">${inv.amount.toFixed(2)}</div>
+                    <div className="billing-invoice-amount">{CURRENCY_SYMBOLS[inv.currency] || '$'}{inv.amount.toFixed(2)}</div>
                     <button
                       className="billing-invoice-download"
                       onClick={() => toast(`Downloading ${inv.id}…`, 'info')}
@@ -500,7 +548,7 @@ export default function Billing() {
           </div>
           {pendingPlan && (
             <div className="billing-modal-note">
-              You'll be upgraded to the <strong>{pendingPlan.name}</strong> plan (${pendingPlan.price}/mo) once your card is saved.
+              You'll be upgraded to the <strong>{pendingPlan.name}</strong> plan ({CURRENCY_SYMBOLS[pendingPlan.currency] || '$'}{pendingPlan.price}/mo) once your card is saved.
             </div>
           )}
           <div className="modal-footer">

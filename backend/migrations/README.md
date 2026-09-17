@@ -40,6 +40,8 @@ To rebuild the schema from scratch, run them in this order:
 32. `email_messages.sql` — scaffold only, not wired to any route yet
 33. `automation_logs.sql` — scaffold only, not wired to any route yet
 34. `fix_rls_policies.sql` — run last; tightens RLS on tables created above
+35. `credits.sql` — workspace credit balance + ledger, plus notification_preferences.sql (independent, any order)
+36. `notification_preferences.sql`
 
 ## One-off data cleanups (not part of the rebuild list above)
 

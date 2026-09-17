@@ -9,8 +9,30 @@ import {
   DEFAULT_SAFETY_SETTINGS,
 } from '../services/accountSafety.js'
 import { withAccountLock } from '../services/accountLock.js'
+import { getPlan } from '../services/plans.js'
 
 function wsId(req) { return req.workspaceId || 'ws_default' }
+
+// Plan's LinkedIn account cap for this workspace, plus how many it already has
+// claimed. Returns { limit, count } — limit is null when the plan has no cap
+// (or DB/dev mode, where the cap can't be enforced anyway).
+async function accountLimitStatus(ws) {
+  if (!supabase || ws === 'ws_default') return { limit: null, count: 0 }
+
+  const { data: wsRow } = await supabase
+    .from('workspaces')
+    .select('plan_id')
+    .eq('id', ws)
+    .maybeSingle()
+  const plan = getPlan(wsRow?.plan_id)
+
+  const { count } = await supabase
+    .from('workspace_linkedin_accounts')
+    .select('unipile_account_id', { count: 'exact', head: true })
+    .eq('workspace_id', ws)
+
+  return { limit: plan.accounts ?? null, count: count || 0 }
+}
 
 // In-memory snapshot: workspaceId → Set of account IDs that existed BEFORE the user went to Unipile
 const preConnectSnapshot = new Map()
@@ -339,6 +361,13 @@ router.post('/accounts/connect', async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
     const ws = wsId(req)
 
+    const { limit, count } = await accountLimitStatus(ws)
+    if (limit != null && count >= limit) {
+      return res.status(403).json({
+        message: `Your plan includes ${limit} LinkedIn account${limit === 1 ? '' : 's'} — disconnect one or upgrade to add another.`,
+      })
+    }
+
     // Snapshot current Unipile account IDs before the user leaves
     try {
       const existing = await accounts.list()
@@ -398,8 +427,20 @@ router.post('/accounts/sync', async (req, res) => {
     const claimedIds = new Set((claimed || []).map(r => r.unipile_account_id))
 
     // New account = not in pre-connect snapshot AND not already claimed by any workspace
-    const newAccounts = all.filter(a => !snapshot.has(a.id) && !claimedIds.has(a.id))
+    let newAccounts = all.filter(a => !snapshot.has(a.id) && !claimedIds.has(a.id))
     console.log('[unipile/sync] new accounts to claim:', newAccounts.map(a => a.id))
+
+    // Backstop for the plan's account cap (the real check is on /connect,
+    // before the user leaves for hosted auth) — only claim as many as the
+    // plan still has room for; leave any rest unclaimed rather than error,
+    // since the account is already connected at Unipile at this point.
+    const { limit, count } = await accountLimitStatus(ws)
+    let capped = 0
+    if (limit != null) {
+      const room = Math.max(0, limit - count)
+      capped = Math.max(0, newAccounts.length - room)
+      newAccounts = newAccounts.slice(0, room)
+    }
 
     if (newAccounts.length > 0) {
       const { error: insertErr } = await supabase.from('workspace_linkedin_accounts').insert(
@@ -410,6 +451,9 @@ router.post('/accounts/sync', async (req, res) => {
         }))
       )
       if (insertErr) console.warn('[unipile/sync] Insert error:', insertErr.message)
+    }
+    if (capped > 0) {
+      console.warn(`[unipile/sync] ws ${ws} hit its plan's account limit — ${capped} connected account(s) left unclaimed`)
     }
 
     // Return this workspace's full account list
@@ -737,22 +781,28 @@ const LINKEDIN_SENIORITY_CODES = {
   'Manager': [5], 'Senior IC': [4, 5], 'IC': [3],
 }
 
+const SEARCH_APIS = ['classic', 'sales_navigator', 'recruiter']
+
 // POST /api/unipile/linkedin/search
-// Body: { account_id, url?, keywords?, title?, location_text?, industry?, industry_id?, seniority?, company_sizes?, cursor? }
+// Body: { account_id, url?, keywords?, title?, location_text?, industry?, industry_id?, seniority?, company_sizes?, cursor?, api? }
 router.post('/linkedin/search', async (req, res) => {
   const {
     account_id, url,
     keywords, title,
     location_text, location: locationAlt,
     industry, industry_id, seniority, company_sizes,
-    cursor,
+    cursor, api,
   } = req.body
   if (!account_id) return res.status(400).json({ message: 'account_id required' })
 
   try {
-    // Direct LinkedIn URL provided — use it as-is (user pasted their own URL)
+    // Direct LinkedIn URL provided — use it as-is (user pasted their own URL).
+    // `api` picks which Unipile search engine parses it (classic vs Sales
+    // Navigator — the URL shape differs between the two, so this must match
+    // where the URL was actually copied from).
     if (url) {
-      const data = await linkedin.searchPeople(account_id, { url, cursor })
+      const searchApi = SEARCH_APIS.includes(api) ? api : 'classic'
+      const data = await linkedin.searchPeople(account_id, { url, cursor, api: searchApi })
       const items = data?.items || []
       return res.json({ items, cursor: data?.cursor, source: 'linkedin_search' })
     }

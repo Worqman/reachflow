@@ -5,12 +5,16 @@ import { companyProfiles, workspace as workspaceApi } from '../lib/api'
 import { getActiveWorkspaceId, onActiveWorkspaceChange } from '../lib/workspaceState'
 import ProfileTab from './Profile'
 import BillingTab from './Billing'
+import CreditsTab from './Credits'
+import NotificationsTab from './Notifications'
 import './Settings.css'
 
 const TABS = [
   { key: 'company', label: 'Company Profile' },
   { key: 'profile', label: 'My Profile' },
   { key: 'billing', label: 'Billing' },
+  { key: 'credits', label: 'Credits' },
+  { key: 'notifications', label: 'Notifications' },
 ]
 
 export default function Settings() {
@@ -50,6 +54,8 @@ export default function Settings() {
         {activeTab === 'company' && <CompanyProfileSection />}
         {activeTab === 'profile' && <ProfileTab />}
         {activeTab === 'billing' && <BillingTab />}
+        {activeTab === 'credits' && <CreditsTab />}
+        {activeTab === 'notifications' && <NotificationsTab />}
       </div>
     </div>
   )

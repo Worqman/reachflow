@@ -285,6 +285,8 @@ export function Members() {
   const [accepting, setAccepting] = useState(false);
   const [data, setData] = useState({ members: [], invites: [] });
 
+  const [myUserId, setMyUserId] = useState(null);
+
   async function load(wsId = workspaceId) {
     if (!wsId) {
       setData({ members: [], invites: [] });
@@ -305,6 +307,13 @@ export function Members() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setMyUserId(data?.user?.id || null));
+  }, []);
+
+  const myRole = data.members.find((m) => m.user_id === myUserId)?.role || "member";
+  const canGrantAdmin = myRole === "owner" || myRole === "admin";
 
   useEffect(() => {
     load(workspaceId);
@@ -502,7 +511,7 @@ export function Members() {
                 onChange={(e) => setInviteRole(e.target.value)}
               >
                 <option value="member">Member</option>
-                <option value="admin">Admin</option>
+                {canGrantAdmin && <option value="admin">Admin</option>}
               </select>
               <button
                 className="members-invite-btn"

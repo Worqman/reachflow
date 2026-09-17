@@ -1,5 +1,7 @@
 import express from "express";
 import { supabase } from "../services/supabase.js";
+import { PLANS, getPlan } from "../services/plans.js";
+import { grantCredits } from "../services/credits.js";
 
 const router = express.Router();
 
@@ -53,6 +55,70 @@ router.post("/", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   res.status(201).json({ workspace: data });
+});
+
+// GET /api/workspaces/plan — current plan for the active workspace
+router.get("/plan", async (req, res) => {
+  const ws = req.workspaceId;
+  if (!ws || ws === "ws_default") {
+    return res.json({ plan_id: "trial", plan: getPlan("trial") });
+  }
+
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("plan_id")
+    .eq("id", ws)
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const planId = data?.plan_id || "trial";
+  res.json({ plan_id: planId, plan: getPlan(planId) });
+});
+
+// POST /api/workspaces/plan — switch the active workspace onto a plan.
+// Only the owner or an admin can change billing. Grants that plan's
+// included credits (if any) once, in full, on every switch onto it.
+router.post("/plan", async (req, res) => {
+  const ws = req.workspaceId;
+  if (!ws || ws === "ws_default") {
+    return res.status(400).json({ error: "No active workspace" });
+  }
+
+  const { plan_id } = req.body;
+  const plan = PLANS[plan_id];
+  if (!plan) return res.status(400).json({ error: "Unknown plan" });
+
+  const { data: callerMembership } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", ws)
+    .eq("user_id", req.user.id)
+    .maybeSingle();
+  const { data: ownerWs } = await supabase
+    .from("workspaces")
+    .select("id")
+    .eq("id", ws)
+    .eq("owner_id", req.user.id)
+    .maybeSingle();
+  if (!ownerWs && callerMembership?.role !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "Only workspace owners or admins can change the plan" });
+  }
+
+  const { error: updateErr } = await supabase
+    .from("workspaces")
+    .update({ plan_id: plan.id })
+    .eq("id", ws);
+  if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+  let balance = null;
+  if (plan.credits) {
+    balance = await grantCredits(ws, plan.credits, `plan_upgrade:${plan.id}`);
+  }
+
+  res.json({ plan_id: plan.id, plan, balance });
 });
 
 export default router;

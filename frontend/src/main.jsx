@@ -5,7 +5,7 @@ import { ToastProvider } from './components/Toast'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import { supabase } from './lib/supabase'
-import { companyProfiles } from './lib/api'
+import { companyProfiles, entitlements as entitlementsApi } from './lib/api'
 import { getActiveWorkspaceId, setActiveWorkspaceId } from './lib/workspaceState'
 import './styles/design-system.css'
 import './styles/layout.css'
@@ -81,6 +81,15 @@ function RequireAuth({ children }) {
       sub?.data?.subscription?.unsubscribe?.()
     }
   }, [])
+
+  // Once per login: links any lifetime/plan purchase made under this
+  // (verified) email before the account existed, and is otherwise a cheap
+  // no-op — see routes/entitlements.js. Deliberately not called on every
+  // API request.
+  useEffect(() => {
+    if (!user?.id) return
+    entitlementsApi.getMine().catch(() => {})
+  }, [user?.id])
 
   useEffect(() => {
     let alive = true

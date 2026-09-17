@@ -191,7 +191,7 @@ const NAV = [
   { to: "/my-leads", label: "Lead Database", icon: <IconDatabase /> },
   { section: "AUTOMATIONS" },
   { to: "/agents", label: "AI Agents", icon: <IconAgent /> },
-  { to: "/signals", label: "Signal Feed", icon: <IconSignal /> },
+  // Signal Feed hidden for now — page still exists at /signals, just not linked.
   { to: "/workspaces", label: "Workspaces", icon: <IconAutomation /> },
   { section: "GENERAL" },
   { to: "/settings", label: "Settings", icon: <IconSettings /> },
@@ -344,12 +344,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div style={{ padding: "20px 16px 0" }}>
         <div className="sidebar-logo">
-          <div className="logo-mark">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z" fill="#ffffff" />
-            </svg>
-          </div>
-          <span className="logo-text">ReachFlow</span>
+          <img src="/logo-white.png" alt="eya" className="sidebar-logo-img" />
         </div>
       </div>
 

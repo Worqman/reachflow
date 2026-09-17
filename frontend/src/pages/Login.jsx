@@ -34,12 +34,7 @@ export default function Login() {
     <div className="auth-shell">
       <div className="auth-card">
         <div className="auth-logo">
-          <div className="auth-logo-mark">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z" fill="#fff"/>
-            </svg>
-          </div>
-          <span className="auth-logo-text">ReachFlow</span>
+          <img src="/logo.png" alt="eya" className="auth-logo-img" />
         </div>
 
         <h1 className="auth-heading">Welcome back</h1>

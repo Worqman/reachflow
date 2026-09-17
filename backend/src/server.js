@@ -34,7 +34,11 @@ import companyProfilesRouter from "./routes/companyProfiles.js";
 import membersRouter from "./routes/members.js";
 import unipileRouter from "./routes/unipile.js";
 import dashboardRouter from "./routes/dashboard.js";
+import creditsRouter from "./routes/credits.js";
+import notificationsRouter from "./routes/notifications.js";
 import unipileWebhook from "./webhooks/unipile.js";
+import stripeWebhook from "./webhooks/stripe.js";
+import entitlementsRouter from "./routes/entitlements.js";
 import { startScheduler } from "./services/scheduler.js";
 import { initConversationStore } from "./services/store.js";
 import { startCampaignQueueWorker, closeCampaignQueue } from "./services/campaignQueue.js";
@@ -48,6 +52,14 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// Stripe webhook signature verification needs the exact raw request body,
+// so this must be registered — with express.raw(), not express.json() —
+// before the blanket express.json() below runs and consumes it. It's also
+// unauthenticated by design (Stripe, not one of our users, calls this) and
+// verifies its own signature instead of going through attachUser/requireAuth.
+app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), stripeWebhook);
+
 app.use(express.json({ limit: "10mb" }));
 
 // ── Auth middleware ───────────────────────────────────────────
@@ -184,8 +196,20 @@ app.use(
   verifyWorkspaceMembership,
   dashboardRouter,
 );
+app.use(
+  "/api/credits",
+  requireAuth,
+  verifyWorkspaceMembership,
+  creditsRouter,
+);
+// Notifications are per-user, not workspace-scoped — no membership check needed.
+app.use("/api/notifications", requireAuth, notificationsRouter);
+// Entitlements (Stripe purchases) are per-user too, not workspace-scoped.
+app.use("/api/entitlements", requireAuth, entitlementsRouter);
 
-// ── Webhooks (no auth — called by Unipile externally) ─────────
+// ── Webhooks (no auth — called by Unipile/Stripe externally) ──
+// /api/webhooks/stripe is mounted earlier (needs express.raw() ahead of
+// the global express.json() above) — this only covers the rest.
 app.use("/api/webhooks", unipileWebhook);
 
 // ── 404 handler ───────────────────────────────────────────────
@@ -216,7 +240,7 @@ if (process.env.REDIS_URL) {
 }
 
 const server = app.listen(PORT, () => {
-  console.log(`\n🚀 ReachFlow API running at http://localhost:${PORT}`);
+  console.log(`\n🚀 eya API running at http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health\n`);
 
   const missing = [];
@@ -226,6 +250,9 @@ const server = app.listen(PORT, () => {
   if (!process.env.APOLLO_API_KEY) missing.push("APOLLO_API_KEY");
   if (!process.env.TRIGIFY_API_KEY) missing.push("TRIGIFY_API_KEY");
   if (!process.env.REDIS_URL) missing.push("REDIS_URL");
+  if (!process.env.STRIPE_SECRET_KEY) missing.push("STRIPE_SECRET_KEY");
+  if (!process.env.STRIPE_WEBHOOK_SECRET) missing.push("STRIPE_WEBHOOK_SECRET");
+  if (!process.env.STRIPE_PRICE_LIFETIME) missing.push("STRIPE_PRICE_LIFETIME");
   if (!process.env.SUPABASE_URL) missing.push("SUPABASE_URL");
   if (
     !process.env.SUPABASE_SERVICE_ROLE_KEY &&

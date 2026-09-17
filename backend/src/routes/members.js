@@ -1,6 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
+import { getPlan } from "../services/plans.js";
 
 const router = express.Router();
 const supabase = createClient(
@@ -70,11 +71,14 @@ router.get("/", async (req, res) => {
 // ── POST /api/members/invite ───────────────────────────────────────
 router.post("/invite", async (req, res) => {
   try {
-    const { workspace_id, email, role = "member" } = req.body;
+    let { workspace_id, email, role = "member" } = req.body;
     if (!workspace_id || !email)
       return res.status(400).json({ error: "workspace_id and email required" });
 
-    // Verify caller is owner or admin
+    // Any workspace member (owner, admin, or plain member) can send invites.
+    // verifyWorkspaceMembership already confirmed req.user belongs to this
+    // workspace, so we only need the caller's role here to cap what role
+    // they're allowed to grant.
     const { data: callerMembership } = await supabase
       .from('workspace_members')
       .select('role')
@@ -87,8 +91,41 @@ router.post("/invite", async (req, res) => {
       .eq('id', workspace_id)
       .eq('owner_id', req.user.id)
       .maybeSingle()
-    if (!ownerWs && callerMembership?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only workspace owners or admins can invite members' })
+
+    const callerCanGrantAdmin = !!ownerWs || callerMembership?.role === 'admin';
+    if (!callerCanGrantAdmin) {
+      // Plain members can invite, but only as regular members — prevents
+      // privilege escalation via invite.
+      role = 'member';
+    }
+
+    // Enforce the workspace's plan seat cap (confirmed members + pending
+    // invites both count toward it, so a stack of unanswered invites can't
+    // be used to exceed the seat count once they're all accepted).
+    const { data: wsRow } = await supabase
+      .from('workspaces')
+      .select('plan_id')
+      .eq('id', workspace_id)
+      .maybeSingle();
+    const plan = getPlan(wsRow?.plan_id);
+    if (plan.members != null) {
+      const [{ count: memberCount }, { count: pendingCount }] = await Promise.all([
+        supabase
+          .from('workspace_members')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspace_id),
+        supabase
+          .from('workspace_invites')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspace_id)
+          .eq('status', 'pending'),
+      ]);
+      const seatsUsed = (memberCount || 0) + (pendingCount || 0);
+      if (seatsUsed >= plan.members) {
+        return res.status(403).json({
+          error: `Your plan includes ${plan.members} member seat${plan.members === 1 ? '' : 's'} — remove a member or cancel a pending invite to add someone new.`,
+        });
+      }
     }
 
     let invitedBy = req.user?.id || null;

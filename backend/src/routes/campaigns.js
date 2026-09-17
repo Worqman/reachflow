@@ -5,6 +5,7 @@ import { supabase } from '../services/supabase.js'
 import { linkedin, chats as unipileChats, relations as unipileRelations } from '../services/unipile.js'
 import { isWithinSchedule } from '../services/limits.js'
 import { logSend, getDailyUsage, withinDailyLimit } from '../services/usageLog.js'
+import { hasCredits, deductCredits, costFor } from '../services/credits.js'
 import { checkAccountAvailable, checkAccountSendAllowed, getAccountSafety, getEffectiveLimits } from '../services/accountSafety.js'
 import { logLeadActivity, getLeadActivity } from '../services/leadActivity.js'
 import { getScoresForProviderIds, loadScoringConfig, getScore, buildSignalVars, classificationRank } from '../services/signalScoring.js'
@@ -825,7 +826,7 @@ async function runTree(nodeList, ctx, pathToList = []) {
 //   { ok: true, pauseForReply: true } — message sent, awaiting Replied/Not Replied
 //   undefined                     — node itself paused the walk (sets ctx.halted)
 async function runNode(node, ctx, pathToNode) {
-  const { providerUserId, accountId, campaignId, lead, frequency = {}, profile, signalVars } = ctx
+  const { providerUserId, accountId, campaignId, workspaceId, lead, frequency = {}, profile, signalVars } = ctx
 
   // connection_request — errors must propagate uncaught so the invite-send
   // loop (runCampaignInvites) can classify pending/failed/rate-limited.
@@ -842,6 +843,12 @@ async function runNode(node, ctx, pathToNode) {
         err.safetyBlock = true
         throw err
       }
+      if (!(await hasCredits(workspaceId, costFor('connection_request')))) {
+        console.log(`[sequence] connection_request blocked for ${lead?.name} — insufficient credits`)
+        const err = new Error('insufficient_credits')
+        err.safetyBlock = true
+        throw err
+      }
       const rawNote = node.config?.note || undefined
       let note = rawNote ? interpolateVars(rawNote, lead, profile, signalVars) : undefined
       if (note && note.length > 300) {
@@ -851,6 +858,7 @@ async function runNode(node, ctx, pathToNode) {
       console.log(`[sequence] sending connection request to ${lead?.name}`)
       await linkedin.sendInvite({ accountId, providerUserId, message: note })
       logSend(accountId, 'connection_request')
+      await deductCredits(workspaceId, costFor('connection_request'), 'connection_request', { campaignId, leadId: lead?.id })
       if (lead?.id) logLeadActivity(campaignId, lead.id, 'invite_sent')
     })
     ctx.invited = true
@@ -1045,6 +1053,10 @@ async function runNode(node, ctx, pathToNode) {
         }
         const commentText = node.config?.text?.trim()
         if (!commentText) return { ok: false, error: 'missing_text' }
+        if (!(await hasCredits(workspaceId, costFor('comment_post')))) {
+          console.log(`[sequence] ${node.type} skipped for ${providerUserId} — insufficient credits`)
+          return { ok: true, skipped: true }
+        }
         const postsData = await linkedin.getUserPosts(accountId, providerUserId, { limit: 5 })
         const posts = postsData?.items || postsData?.objects || []
         if (!posts.length) {
@@ -1055,6 +1067,7 @@ async function runNode(node, ctx, pathToNode) {
         const text = interpolateVars(commentText, lead || {}, profile, signalVars)
         await linkedin.commentOnPost(accountId, postId, text)
         logSend(accountId, 'comment_post')
+        await deductCredits(workspaceId, costFor('comment_post'), 'comment_post', { campaignId, leadId: lead?.id })
         console.log(`[sequence] ${node.type} on post ${postId} for ${providerUserId}`)
         if (lead?.id) logLeadActivity(campaignId, lead.id, 'commented')
         return { ok: true }
@@ -1086,10 +1099,15 @@ async function runNode(node, ctx, pathToNode) {
           console.log(`[sequence] ${node.type} skipped for ${providerUserId} — account daily message limit reached`)
           return { ok: true, skipped: true }
         }
+        if (!(await hasCredits(workspaceId, costFor('message')))) {
+          console.log(`[sequence] ${node.type} skipped for ${providerUserId} — insufficient credits`)
+          return { ok: true, skipped: true }
+        }
         const text = interpolateVars(node.config.text.trim(), lead || {}, profile, signalVars)
         const attachments = node.config?.attachments || []
         await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
         logSend(accountId, 'message')
+        await deductCredits(workspaceId, costFor('message'), 'message', { campaignId, leadId: lead?.id })
         console.log(`[sequence] sent ${node.type} to ${providerUserId}`)
         if (lead?.id) logLeadActivity(campaignId, lead.id, 'message_sent')
         // There's no "Replied" branch to run — a reply always hard-stops the
@@ -1110,12 +1128,17 @@ async function runNode(node, ctx, pathToNode) {
           console.log(`[sequence] inmail skipped for ${providerUserId} — account daily message limit reached`)
           return { ok: true, skipped: true }
         }
+        if (!(await hasCredits(workspaceId, costFor('inmail')))) {
+          console.log(`[sequence] inmail skipped for ${providerUserId} — insufficient credits`)
+          return { ok: true, skipped: true }
+        }
         const body    = interpolateVars(node.config.body.trim(), lead || {}, profile, signalVars)
         const subject = interpolateVars(node.config.subject || '', lead || {}, profile, signalVars)
         const text    = subject ? `${subject}\n\n${body}` : body
         const attachments = node.config?.attachments || []
         await linkedin.sendMessage({ accountId, providerUserId, text, attachments })
         logSend(accountId, 'inmail')
+        await deductCredits(workspaceId, costFor('inmail'), 'inmail', { campaignId, leadId: lead?.id })
         console.log(`[sequence] sent inmail to ${providerUserId}`)
         if (lead?.id) logLeadActivity(campaignId, lead.id, 'inmail_sent')
         // No "Replied" branch — a reply always hard-stops the sequence.

@@ -29,22 +29,10 @@
   margin-bottom: 36px;
 }
 
-.ob-logo-mark {
-  width: 32px;
-  height: 32px;
-  background: #6366f1;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.ob-logo-text {
-  font-size: 17px;
-  font-weight: 700;
-  color: #111827;
-  letter-spacing: -0.02em;
+.ob-logo-img {
+  height: 26px;
+  width: auto;
+  display: block;
 }
 
 /* ── Step dots ── */

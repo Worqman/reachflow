@@ -1,0 +1,27 @@
+.notif-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.notif-row:last-child { border-bottom: none; padding-bottom: 0; }
+.notif-row:first-child { padding-top: 0; }
+
+.notif-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.notif-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
